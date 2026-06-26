@@ -36,6 +36,7 @@ class AIProvider:
     @staticmethod
     def list_ollama_models(base_url: str = "http://localhost:11434") -> List[str]:
         try:
+            base_url = _normalize_base_url(base_url)
             resp = requests.get(f"{base_url}/api/tags", timeout=3)
             if resp.status_code == 200:
                 return [m["name"] for m in resp.json().get("models", [])]
@@ -43,8 +44,38 @@ class AIProvider:
             pass
         return []
 
+    @staticmethod
+    def check_ollama(base_url: str = "http://localhost:11434") -> dict:
+        base_url = _normalize_base_url(base_url)
+        try:
+            resp = requests.get(f"{base_url}/api/tags", timeout=3)
+            resp.raise_for_status()
+            models = [m["name"] for m in resp.json().get("models", [])]
+            return {
+                "ok": True,
+                "base_url": base_url,
+                "models": models,
+                "message": f"Connected to Ollama at {base_url}",
+            }
+        except Exception as e:
+            logger.error(f"Ollama connectivity error: {e}")
+            return {
+                "ok": False,
+                "base_url": base_url,
+                "models": [],
+                "message": str(e),
+            }
+
+
+def _normalize_base_url(base_url: Optional[str]) -> str:
+    url = (base_url or "http://localhost:11434").strip()
+    if not url:
+        url = "http://localhost:11434"
+    return url.rstrip("/")
+
 
 def _ollama_complete(prompt: str, model: str, base_url: str, system_prompt: Optional[str], temperature: float) -> str:
+    base_url = _normalize_base_url(base_url)
     body = {
         "model": model,
         "prompt": prompt,

@@ -41,8 +41,16 @@ interface EditorActions {
   setExporting: (active: boolean, progress?: number) => void;
   getKeepSegments: () => Array<{ start: number; end: number }>;
   getWordAtTime: (time: number) => number;
-  loadProject: (projectData: any) => void;
+  loadProject: (projectData: ProjectData) => void;
   reset: () => void;
+}
+
+interface ProjectData {
+  videoPath: string;
+  words?: Word[];
+  segments?: Segment[];
+  deletedRanges?: DeletedRange[];
+  language?: string;
 }
 
 const initialState: EditorState = {

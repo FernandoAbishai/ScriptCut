@@ -81,3 +81,8 @@ async def create_clip(req: ClipRequest):
 async def ollama_models(base_url: str = "http://localhost:11434"):
     models = AIProvider.list_ollama_models(base_url)
     return {"models": models}
+
+
+@router.get("/ai/ollama-status")
+async def ollama_status(base_url: str = "http://localhost:11434"):
+    return AIProvider.check_ollama(base_url)

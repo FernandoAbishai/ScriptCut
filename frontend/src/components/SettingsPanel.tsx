@@ -1,5 +1,5 @@
 import { useAIStore } from '../store/aiStore';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { AIProvider } from '../types/project';
 import { useEditorStore } from '../store/editorStore';
 import { Bot, Cloud, Brain, RefreshCw } from 'lucide-react';
@@ -9,36 +9,47 @@ export default function SettingsPanel() {
   const { backendUrl } = useEditorStore();
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const fetchOllamaModels = async () => {
+  const fetchOllamaModels = useCallback(async () => {
     setLoadingModels(true);
     try {
-      const res = await fetch(`${backendUrl}/ai/ollama-models`);
-      if (res.ok) {
-        const data = await res.json();
+      const baseUrl = providers.ollama.baseUrl || 'http://localhost:11434';
+      const query = new URLSearchParams({ base_url: baseUrl });
+      const [modelsRes, statusRes] = await Promise.all([
+        fetch(`${backendUrl}/ai/ollama-models?${query.toString()}`),
+        fetch(`${backendUrl}/ai/ollama-status?${query.toString()}`),
+      ]);
+
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setOllamaStatus({ ok: !!statusData.ok, message: statusData.message || '' });
+      } else {
+        setOllamaStatus({ ok: false, message: 'Could not reach Ollama status endpoint.' });
+      }
+
+      if (modelsRes.ok) {
+        const data = await modelsRes.json();
         setOllamaModels(data.models || []);
+      } else {
+        setOllamaModels([]);
       }
     } catch {
       setOllamaModels([]);
+      setOllamaStatus({ ok: false, message: 'Could not connect to the configured Ollama URL.' });
     } finally {
       setLoadingModels(false);
     }
-  };
+  }, [backendUrl, providers.ollama.baseUrl]);
 
   useEffect(() => {
     fetchOllamaModels();
-  }, [backendUrl]);
+  }, [fetchOllamaModels]);
 
   const providerIcons: Record<AIProvider, React.ReactNode> = {
     ollama: <Bot className="w-4 h-4" />,
     openai: <Cloud className="w-4 h-4" />,
     claude: <Brain className="w-4 h-4" />,
-  };
-
-  const providerLabels: Record<AIProvider, string> = {
-    ollama: 'Ollama (Local)',
-    openai: 'OpenAI',
-    claude: 'Claude (Anthropic)',
   };
 
   return (
@@ -74,6 +85,11 @@ export default function SettingsPanel() {
           onChange={(v) => setProviderConfig('ollama', { baseUrl: v })}
           placeholder="http://localhost:11434"
         />
+        {ollamaStatus && (
+          <p className={`text-[11px] ${ollamaStatus.ok ? 'text-editor-success' : 'text-editor-warning'}`}>
+            {ollamaStatus.message}
+          </p>
+        )}
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <label className="text-xs text-editor-text-muted">Model</label>

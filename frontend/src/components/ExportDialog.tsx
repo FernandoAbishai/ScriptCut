@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { Download, Loader2, Zap, Cog, Info } from 'lucide-react';
 import type { ExportOptions } from '../types/project';
@@ -57,7 +57,7 @@ export default function ExportDialog() {
       console.error('Export error:', err);
       setExporting(false);
     }
-  }, [videoPath, options, backendUrl, setExporting, getKeepSegments]);
+  }, [videoPath, options, backendUrl, setExporting, getKeepSegments, deletedRanges, words]);
 
   return (
     <div className="p-4 space-y-5">

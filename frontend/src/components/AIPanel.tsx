@@ -41,11 +41,15 @@ export default function AIPanel() {
           custom_filler_words: customFillerWords || undefined,
         }),
       });
-      if (!res.ok) throw new Error('Filler detection failed');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Filler detection failed');
+      }
       const data = await res.json();
       setFillerResult(data);
     } catch (err) {
       console.error(err);
+      alert(`Filler detection failed.\n\n${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setProcessing(false);
     }
@@ -75,11 +79,15 @@ export default function AIPanel() {
           target_duration: 60,
         }),
       });
-      if (!res.ok) throw new Error('Clip creation failed');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Clip creation failed');
+      }
       const data = await res.json();
       setClipSuggestions(data.clips || []);
     } catch (err) {
       console.error(err);
+      alert(`Clip creation failed.\n\n${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setProcessing(false);
     }

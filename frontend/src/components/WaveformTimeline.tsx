@@ -19,34 +19,6 @@ export default function WaveformTimeline() {
   const zoomRef = useRef(1);
   const rafRef = useRef(0);
 
-  useEffect(() => {
-    if (!videoUrl || !videoPath) return;
-    setAudioError(null);
-
-    const loadAudio = async () => {
-      try {
-        const ctx = new AudioContext();
-        audioContextRef.current = ctx;
-
-        const response = await fetch(videoUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-        audioBufferRef.current = audioBuffer;
-        drawStaticWaveform();
-      } catch (err) {
-        console.warn('Could not decode audio for waveform:', err);
-        setAudioError('Waveform unavailable — audio could not be decoded');
-      }
-    };
-
-    loadAudio();
-
-    return () => {
-      audioContextRef.current?.close();
-    };
-  }, [videoUrl, videoPath]);
-
   const drawStaticWaveform = useCallback(() => {
     const canvas = waveCanvasRef.current;
     const buffer = audioBufferRef.current;
@@ -98,6 +70,34 @@ export default function WaveformTimeline() {
     }
     ctx.stroke();
   }, [deletedRanges]);
+
+  useEffect(() => {
+    if (!videoUrl || !videoPath) return;
+    setAudioError(null);
+
+    const loadAudio = async () => {
+      try {
+        const ctx = new AudioContext();
+        audioContextRef.current = ctx;
+
+        const response = await fetch(videoUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        audioBufferRef.current = audioBuffer;
+        drawStaticWaveform();
+      } catch (err) {
+        console.warn('Could not decode audio for waveform:', err);
+        setAudioError('Waveform unavailable — audio could not be decoded');
+      }
+    };
+
+    loadAudio();
+
+    return () => {
+      audioContextRef.current?.close();
+    };
+  }, [videoUrl, videoPath, drawStaticWaveform]);
 
   // Redraw static layer when deletedRanges change
   useEffect(() => {

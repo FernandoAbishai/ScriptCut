@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { Virtuoso } from 'react-virtuoso';
+import type { VirtuosoHandle } from 'react-virtuoso';
 import { Trash2, RotateCcw } from 'lucide-react';
 
 export default function TranscriptEditor() {
@@ -17,7 +18,7 @@ export default function TranscriptEditor() {
 
   const selectionStart = useRef<number | null>(null);
   const wasDragging = useRef(false);
-  const virtuosoRef = useRef<any>(null);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
 
   const deletedSet = useMemo(() => {
     const s = new Set<number>();

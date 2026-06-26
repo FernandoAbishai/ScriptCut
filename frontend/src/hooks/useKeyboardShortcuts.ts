@@ -185,24 +185,19 @@ async function saveProject() {
   }
 }
 
-let cheatsheetVisible = false;
-
 function toggleCheatsheet() {
   const existing = document.getElementById('keyboard-cheatsheet');
   if (existing) {
     existing.remove();
-    cheatsheetVisible = false;
     return;
   }
 
-  cheatsheetVisible = true;
   const overlay = document.createElement('div');
   overlay.id = 'keyboard-cheatsheet';
   overlay.style.cssText =
     'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);';
   overlay.onclick = () => {
     overlay.remove();
-    cheatsheetVisible = false;
   };
 
   const shortcuts = [
