@@ -164,7 +164,7 @@ async function saveProject() {
 
     const outputPath = await window.electronAPI?.saveFile({
       defaultPath: state.videoPath.replace(/\.[^.]+$/, '.aive'),
-      filters: [{ name: 'CutScript Project', extensions: ['aive'] }],
+      filters: [{ name: 'ScriptCut Project', extensions: ['aive'] }],
     });
 
     if (outputPath) {

@@ -1,14 +1,14 @@
 {
-  "name": "cutscript",
+  "name": "scriptcut",
   "version": "0.1.0",
   "private": true,
-  "description": "CutScript — Open-source AI-powered text-based video editor",
+  "description": "ScriptCut — Open-source AI-powered text-based video editor",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:electron": "electron .",
-    "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8642",
+    "dev:backend": "node electron/run-backend.js --reload --port 8642",
     "build": "cd frontend && npm run build && electron-builder",
     "lint": "cd frontend && npm run lint"
   },
@@ -22,8 +22,8 @@
     "python-shell": "^5.0.0"
   },
   "build": {
-    "appId": "com.dataants.cutscript",
-    "productName": "CutScript",
+    "appId": "com.dataants.scriptcut",
+    "productName": "ScriptCut",
     "files": [
       "electron/**/*",
       "frontend/dist/**/*",

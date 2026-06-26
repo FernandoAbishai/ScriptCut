@@ -1,6 +1,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const { resolvePythonRuntime } = require('./python-runtime');
 
 class PythonBackend {
   constructor(port, isDev) {
@@ -24,9 +25,10 @@ class PythonBackend {
       ? path.join(__dirname, '..', 'backend')
       : path.join(process.resourcesPath, 'backend');
 
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const { command, argsPrefix } = resolvePythonRuntime();
 
-    this.process = spawn(pythonCmd, [
+    this.process = spawn(command, [
+      ...argsPrefix,
       '-m', 'uvicorn', 'main:app',
       '--host', '127.0.0.1',
       '--port', String(this.port),

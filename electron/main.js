@@ -14,7 +14,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'CutScript',
+    title: 'ScriptCut',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

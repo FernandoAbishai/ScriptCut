@@ -21,8 +21,15 @@ try:
     import whisperx
     WHISPERX_AVAILABLE = True
 except ImportError:
+    whisperx = None
     WHISPERX_AVAILABLE = False
+
+try:
     import whisper
+    WHISPER_AVAILABLE = True
+except ImportError:
+    whisper = None
+    WHISPER_AVAILABLE = False
 
 try:
     HF_TOKEN = None
@@ -51,8 +58,12 @@ def _load_model(model_name: str, device: torch.device):
             device=str(device),
             compute_type=compute_type,
         )
-    else:
+    elif WHISPER_AVAILABLE:
         model = whisper.load_model(model_name, device=device)
+    else:
+        raise RuntimeError(
+            "No transcription backend is installed. Install whisperx or openai-whisper."
+        )
 
     _model_cache[cache_key] = model
     return model

@@ -114,7 +114,7 @@ async def export_video(req: ExportRequest):
         # Audio enhancement: clean, then mux back into the exported video
         if req.enhanceAudio:
             try:
-                tmp_dir = tempfile.mkdtemp(prefix="cutscript_audio_")
+                tmp_dir = tempfile.mkdtemp(prefix="scriptcut_audio_")
                 cleaned_audio = os.path.join(tmp_dir, "cleaned.wav")
                 clean_audio(output, cleaned_audio)
 

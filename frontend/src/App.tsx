@@ -95,7 +95,16 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_path: path, model: whisperModel }),
       });
-      if (!res.ok) throw new Error(`Transcription failed: ${res.statusText}`);
+      if (!res.ok) {
+        let detail = res.statusText;
+        try {
+          const errorData = await res.json();
+          detail = errorData.detail || JSON.stringify(errorData);
+        } catch {
+          // Keep the HTTP status text when the backend response is not JSON.
+        }
+        throw new Error(`Transcription failed: ${detail}`);
+      }
       const data = await res.json();
       setTranscription(data);
     } catch (err) {
@@ -114,7 +123,7 @@ export default function App() {
       <div className="h-screen flex flex-col items-center justify-center gap-8 bg-editor-bg px-6">
         <div className="flex flex-col items-center gap-3">
           <Film className="w-14 h-14 text-editor-accent opacity-80" />
-          <h1 className="text-3xl font-semibold tracking-tight">CutScript</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">ScriptCut</h1>
           <p className="text-editor-text-muted text-sm max-w-sm text-center">
             Open-source text-based video editing powered by AI.
           </p>
@@ -169,7 +178,7 @@ export default function App() {
                   type="text"
                   value={manualPath}
                   onChange={(e) => setManualPath(e.target.value)}
-                  placeholder="C:\Videos\my-video.mp4"
+                  placeholder="/Users/you/Videos/my-video.mp4"
                   className="w-full pl-9 pr-3 py-2.5 bg-editor-surface border border-editor-border rounded-lg text-sm text-editor-text placeholder:text-editor-text-muted/40 focus:outline-none focus:border-editor-accent"
                   autoFocus
                 />
