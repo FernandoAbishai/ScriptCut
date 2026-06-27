@@ -1,16 +1,50 @@
 # ScriptCut
 
-ScriptCut is a maintained fork of CutScript focused on Apple Silicon reliability, 9Router support, and local-first creator workflows.
+Open-source local-first AI video editor. Edit videos by editing the transcript.
 
-Edit videos by editing the transcript:
+[![Electron](https://img.shields.io/badge/Electron-desktop-47848F)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-UI-61DAFB)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)](https://fastapi.tiangolo.com/)
+[![WhisperX](https://img.shields.io/badge/WhisperX-transcription-7057ff)](https://github.com/m-bain/whisperX)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-video-007808)](https://ffmpeg.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- delete words -> cut video
-- remove filler words -> clean edit
-- generate captions -> export clip
+ScriptCut is a maintained fork of CutScript focused on Apple Silicon reliability, 9Router support, and creator-first local workflows.
+
+Turn raw recordings into clean clips:
+
+- delete words -> cut the video
+- remove filler words -> tighten the edit
+- generate captions -> export social-ready clips
+- use local or cloud AI -> keep control of your workflow
 
 Built with Electron, React, FastAPI, WhisperX, FFmpeg, and local/cloud LLM integrations.
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
+
+## Why ScriptCut
+
+Most video editors force creators to scrub timelines. ScriptCut starts from the transcript, so podcasts, interviews, tutorials, and Shorts edits feel closer to editing text.
+
+- **Text-based cuts:** select transcript words and remove the matching video segment.
+- **AI cleanup:** detect filler words and verbal hesitations.
+- **Clip discovery:** ask AI to suggest promising short-form segments.
+- **Caption export:** generate word-level captions for polished clips.
+- **Local-first workflow:** run the editor and backend on your machine.
+- **Flexible AI providers:** use Ollama, OpenAI, Claude, or 9Router.
+
+## Best For
+
+- podcast editing
+- YouTube Shorts and TikTok clips
+- interview cleanup
+- tutorial trimming
+- captioned social video
+- creators who want a local-first Descript alternative
+
+## Keywords
+
+`video-editor` `ai-video-editor` `text-based-video-editing` `descript-alternative` `whisperx` `ffmpeg` `electron` `react` `fastapi` `local-first` `creator-tools` `captions` `podcast-editing` `shorts-editor`
 
 ## Relationship to CutScript
 
