@@ -62,7 +62,7 @@ export interface CaptionStyle {
   bold: boolean;
 }
 
-export type AIProvider = 'ollama' | 'openai' | 'claude';
+export type AIProvider = 'ollama' | 'openai' | 'claude' | '9router';
 
 export interface AIProviderConfig {
   provider: AIProvider;

@@ -2,14 +2,26 @@ import { useAIStore } from '../store/aiStore';
 import { useState, useEffect, useCallback } from 'react';
 import type { AIProvider } from '../types/project';
 import { useEditorStore } from '../store/editorStore';
-import { Bot, Cloud, Brain, RefreshCw } from 'lucide-react';
+import { Bot, Cloud, Brain, RefreshCw, Route } from 'lucide-react';
+
+const AI_PROVIDERS: AIProvider[] = ['ollama', 'openai', 'claude', '9router'];
+
+const providerLabels: Record<AIProvider, string> = {
+  ollama: 'Ollama',
+  openai: 'OpenAI',
+  claude: 'Claude',
+  '9router': '9router',
+};
 
 export default function SettingsPanel() {
   const { providers, defaultProvider, setProviderConfig, setDefaultProvider } = useAIStore();
   const { backendUrl } = useEditorStore();
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [nineRouterModels, setNineRouterModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [loadingNineRouterModels, setLoadingNineRouterModels] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [nineRouterStatus, setNineRouterStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   const fetchOllamaModels = useCallback(async () => {
     setLoadingModels(true);
@@ -46,10 +58,51 @@ export default function SettingsPanel() {
     fetchOllamaModels();
   }, [fetchOllamaModels]);
 
+  const fetchNineRouterModels = useCallback(async () => {
+    setLoadingNineRouterModels(true);
+    try {
+      const config = providers['9router'];
+      const res = await fetch(`${backendUrl}/ai/9router-models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base_url: config.baseUrl || 'http://localhost:20128/v1',
+          api_key: config.apiKey || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Could not load 9router models.');
+      }
+
+      const data = await res.json();
+      const models = data.models || [];
+      setNineRouterModels(models);
+      setNineRouterStatus({
+        ok: models.length > 0,
+        message: models.length > 0 ? `Loaded ${models.length} 9router models.` : '9router returned no models.',
+      });
+    } catch (err) {
+      setNineRouterModels([]);
+      setNineRouterStatus({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Could not load 9router models.',
+      });
+    } finally {
+      setLoadingNineRouterModels(false);
+    }
+  }, [backendUrl, providers]);
+
+  useEffect(() => {
+    fetchNineRouterModels();
+  }, [fetchNineRouterModels]);
+
   const providerIcons: Record<AIProvider, React.ReactNode> = {
     ollama: <Bot className="w-4 h-4" />,
     openai: <Cloud className="w-4 h-4" />,
     claude: <Brain className="w-4 h-4" />,
+    '9router': <Route className="w-4 h-4" />,
   };
 
   return (
@@ -59,8 +112,8 @@ export default function SettingsPanel() {
       {/* Default provider selector */}
       <div className="space-y-2">
         <label className="text-xs text-editor-text-muted font-medium">Default AI Provider</label>
-        <div className="grid grid-cols-3 gap-1.5">
-          {(['ollama', 'openai', 'claude'] as AIProvider[]).map((p) => (
+        <div className="grid grid-cols-4 gap-1.5">
+          {AI_PROVIDERS.map((p) => (
             <button
               key={p}
               onClick={() => setDefaultProvider(p)}
@@ -71,7 +124,7 @@ export default function SettingsPanel() {
               }`}
             >
               {providerIcons[p]}
-              {p.charAt(0).toUpperCase() + p.slice(1)}
+              {providerLabels[p]}
             </button>
           ))}
         </div>
@@ -155,6 +208,61 @@ export default function SettingsPanel() {
           onChange={(v) => setProviderConfig('claude', { model: v })}
           placeholder="claude-sonnet-4-20250514"
         />
+      </ProviderSection>
+
+      {/* 9router settings */}
+      <ProviderSection title="9router" icon={providerIcons['9router']}>
+        <InputField
+          label="Base URL"
+          value={providers['9router'].baseUrl || ''}
+          onChange={(v) => setProviderConfig('9router', { baseUrl: v })}
+          placeholder="http://localhost:20128/v1"
+        />
+        <InputField
+          label="API Key"
+          value={providers['9router'].apiKey || ''}
+          onChange={(v) => setProviderConfig('9router', { apiKey: v })}
+          placeholder="sk-..."
+          type="password"
+        />
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-editor-text-muted">Model</label>
+            <button
+              onClick={fetchNineRouterModels}
+              disabled={loadingNineRouterModels}
+              className="text-[10px] text-editor-accent hover:underline flex items-center gap-0.5"
+            >
+              <RefreshCw className={`w-2.5 h-2.5 ${loadingNineRouterModels ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+          {nineRouterStatus && (
+            <p className={`text-[11px] ${nineRouterStatus.ok ? 'text-editor-success' : 'text-editor-warning'}`}>
+              {nineRouterStatus.message}
+            </p>
+          )}
+          {nineRouterModels.length > 0 && (
+            <select
+              value={nineRouterModels.includes(providers['9router'].model) ? providers['9router'].model : ''}
+              onChange={(e) => {
+                if (e.target.value) setProviderConfig('9router', { model: e.target.value });
+              }}
+              className="w-full px-3 py-2 bg-editor-surface border border-editor-border rounded-lg text-xs text-editor-text focus:outline-none focus:border-editor-accent"
+            >
+              <option value="">Custom model</option>
+              {nineRouterModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          )}
+          <InputField
+            label={nineRouterModels.length > 0 ? 'Custom Model' : ''}
+            value={providers['9router'].model}
+            onChange={(v) => setProviderConfig('9router', { model: v })}
+            placeholder="gpt-4o"
+          />
+        </div>
       </ProviderSection>
     </div>
   );

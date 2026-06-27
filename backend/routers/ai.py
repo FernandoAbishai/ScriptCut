@@ -1,4 +1,4 @@
-"""AI feature endpoints: filler word detection, clip creation, Ollama model listing."""
+"""AI feature endpoints: filler word detection, clip creation, and model listing."""
 
 import logging
 from typing import List, Optional
@@ -37,6 +37,11 @@ class ClipRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     target_duration: int = 60
+
+
+class ModelListRequest(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 @router.post("/ai/filler-removal")
@@ -86,3 +91,9 @@ async def ollama_models(base_url: str = "http://localhost:11434"):
 @router.get("/ai/ollama-status")
 async def ollama_status(base_url: str = "http://localhost:11434"):
     return AIProvider.check_ollama(base_url)
+
+
+@router.post("/ai/9router-models")
+async def nine_router_models(req: ModelListRequest):
+    models = AIProvider.list_9router_models(req.base_url or "http://localhost:20128/v1", req.api_key)
+    return {"models": models}

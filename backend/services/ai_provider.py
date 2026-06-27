@@ -1,5 +1,5 @@
 """
-Unified AI provider interface for Ollama, OpenAI, and Claude.
+Unified AI provider interface for Ollama, OpenAI, Claude, and 9router.
 """
 
 import json
@@ -30,6 +30,15 @@ class AIProvider:
             return _openai_complete(prompt, model or "gpt-4o", api_key or "", system_prompt, temperature)
         elif provider == "claude":
             return _claude_complete(prompt, model or "claude-sonnet-4-20250514", api_key or "", system_prompt, temperature)
+        elif provider == "9router":
+            return _nine_router_complete(
+                prompt,
+                model or "gpt-4o",
+                api_key,
+                base_url or "http://localhost:20128/v1",
+                system_prompt,
+                temperature,
+            )
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
@@ -67,11 +76,44 @@ class AIProvider:
             }
 
 
+    @staticmethod
+    def list_9router_models(base_url: str = "http://localhost:20128/v1", api_key: Optional[str] = None) -> List[str]:
+        try:
+            base_url = _normalize_base_url(base_url)
+            headers = {}
+            if api_key and api_key.strip():
+                headers["Authorization"] = f"Bearer {api_key.strip()}"
+            resp = requests.get(f"{base_url}/models", headers=headers, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            models = data.get("data", data if isinstance(data, list) else [])
+            return sorted(
+                model_id
+                for model_id in (_extract_model_id(model) for model in models)
+                if model_id
+            )
+        except Exception as e:
+            logger.error(f"9router model listing error: {e}")
+            return []
+
+
 def _normalize_base_url(base_url: Optional[str]) -> str:
     url = (base_url or "http://localhost:11434").strip()
     if not url:
         url = "http://localhost:11434"
     return url.rstrip("/")
+
+
+def _extract_model_id(model: object) -> Optional[str]:
+    if isinstance(model, str):
+        return model
+    if not isinstance(model, dict):
+        return None
+    for key in ("id", "name", "model"):
+        value = model.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _ollama_complete(prompt: str, model: str, base_url: str, system_prompt: Optional[str], temperature: float) -> str:
@@ -95,9 +137,24 @@ def _ollama_complete(prompt: str, model: str, base_url: str, system_prompt: Opti
 
 
 def _openai_complete(prompt: str, model: str, api_key: str, system_prompt: Optional[str], temperature: float) -> str:
+    return _openai_compatible_complete(prompt, model, api_key, None, system_prompt, temperature, "OpenAI")
+
+
+def _openai_compatible_complete(
+    prompt: str,
+    model: str,
+    api_key: str,
+    base_url: Optional[str],
+    system_prompt: Optional[str],
+    temperature: float,
+    provider_name: str,
+) -> str:
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = _normalize_base_url(base_url)
+        client = OpenAI(**client_kwargs)
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -110,7 +167,72 @@ def _openai_complete(prompt: str, model: str, api_key: str, system_prompt: Optio
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"OpenAI error: {e}")
+        logger.error(f"{provider_name} error: {e}")
+        raise
+
+
+def _nine_router_complete(
+    prompt: str,
+    model: str,
+    api_key: Optional[str],
+    base_url: str,
+    system_prompt: Optional[str],
+    temperature: float,
+) -> str:
+    base_url = _normalize_base_url(base_url)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    headers = {"Content-Type": "application/json"}
+    if api_key and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    model_candidates = [model]
+    if "/" in model:
+        model_candidates.append(model.rsplit("/", 1)[-1])
+
+    last_error: Optional[Exception] = None
+    try:
+        for model_name in model_candidates:
+            body = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": False,
+            }
+            try:
+                resp = requests.post(
+                    f"{base_url}/chat/completions",
+                    json=body,
+                    headers=headers,
+                    timeout=120,
+                )
+                if not resp.ok:
+                    raise RuntimeError(f"9router returned {resp.status_code}: {resp.text[:500]}")
+
+                data = resp.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    raise RuntimeError(f"9router returned no choices: {json.dumps(data)[:500]}")
+
+                choice = choices[0]
+                message = choice.get("message") or {}
+                content = message.get("content") or choice.get("text") or ""
+                if isinstance(content, list):
+                    content = "".join(
+                        part.get("text", "") if isinstance(part, dict) else str(part)
+                        for part in content
+                    )
+                return str(content).strip()
+            except Exception as e:
+                last_error = e
+                logger.warning(f"9router request failed for model {model_name}: {e}")
+
+        raise last_error or RuntimeError("9router request failed")
+    except Exception as e:
+        logger.error(f"9router error: {e}")
         raise
 
 

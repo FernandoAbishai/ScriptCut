@@ -4,6 +4,13 @@ import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion } f
 
 const ENCRYPTED_KEY_PREFIX = 'aive_enc_';
 
+const DEFAULT_PROVIDERS: Record<AIProvider, AIProviderConfig> = {
+  ollama: { provider: 'ollama', baseUrl: 'http://localhost:11434', model: 'llama3' },
+  openai: { provider: 'openai', apiKey: '', model: 'gpt-4o' },
+  claude: { provider: 'claude', apiKey: '', model: 'claude-sonnet-4-20250514' },
+  '9router': { provider: '9router', apiKey: '', baseUrl: 'http://localhost:20128/v1', model: 'gpt-4o' },
+};
+
 interface AIState {
   providers: Record<AIProvider, AIProviderConfig>;
   defaultProvider: AIProvider;
@@ -58,11 +65,7 @@ async function loadAndDecrypt(key: string): Promise<string> {
 export const useAIStore = create<AIState & AIActions>()(
   persist(
     (set, get) => ({
-      providers: {
-        ollama: { provider: 'ollama', baseUrl: 'http://localhost:11434', model: 'llama3' },
-        openai: { provider: 'openai', apiKey: '', model: 'gpt-4o' },
-        claude: { provider: 'claude', apiKey: '', model: 'claude-sonnet-4-20250514' },
-      },
+      providers: DEFAULT_PROVIDERS,
       defaultProvider: 'ollama',
       customFillerWords: '',
       fillerResult: null,
@@ -96,9 +99,10 @@ export const useAIStore = create<AIState & AIActions>()(
         set({ isProcessing: active, processingMessage: message ?? '' }),
 
       hydrateKeys: async () => {
-        const [openaiKey, claudeKey] = await Promise.all([
+        const [openaiKey, claudeKey, routerKey] = await Promise.all([
           loadAndDecrypt('openai_apiKey'),
           loadAndDecrypt('claude_apiKey'),
+          loadAndDecrypt('9router_apiKey'),
         ]);
         const state = get();
         set({
@@ -106,6 +110,7 @@ export const useAIStore = create<AIState & AIActions>()(
             ...state.providers,
             openai: { ...state.providers.openai, apiKey: openaiKey },
             claude: { ...state.providers.claude, apiKey: claudeKey },
+            '9router': { ...state.providers['9router'], apiKey: routerKey },
           },
           _keysHydrated: true,
         });
@@ -118,10 +123,22 @@ export const useAIStore = create<AIState & AIActions>()(
           ollama: { ...state.providers.ollama, apiKey: undefined },
           openai: { ...state.providers.openai, apiKey: '' },
           claude: { ...state.providers.claude, apiKey: '' },
+          '9router': { ...state.providers['9router'], apiKey: '' },
         },
         defaultProvider: state.defaultProvider,
         customFillerWords: state.customFillerWords,
       }),
+      merge: (persisted, current) => {
+        const persistedState = persisted as Partial<AIState> | undefined;
+        return {
+          ...current,
+          ...persistedState,
+          providers: {
+            ...DEFAULT_PROVIDERS,
+            ...persistedState?.providers,
+          },
+        };
+      },
     },
   ),
 );

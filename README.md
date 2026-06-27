@@ -10,7 +10,7 @@ ScriptCut is an open-source, local-first, Descript-like text-based audio and vid
 - **FastAPI** Python backend
 - **WhisperX / Whisper** transcription pipeline
 - **FFmpeg** for video and audio processing
-- **Ollama / OpenAI / Claude** for AI features
+- **Ollama / OpenAI / Claude / 9router** for AI features
 
 ## Apple Silicon Status
 
@@ -108,7 +108,7 @@ scriptcut/
 | FFmpeg re-encode export | Done |
 | AI filler word removal | Done |
 | AI clip creation | Done |
-| Ollama + OpenAI + Claude | Done |
+| Ollama + OpenAI + Claude + 9router | Done |
 | Word-level captions | Done |
 | Caption burn-in on export | Done |
 | Studio Sound | Done |
@@ -140,6 +140,7 @@ scriptcut/
 | POST | `/ai/filler-removal` | Detect filler words |
 | POST | `/ai/create-clip` | Suggest clips |
 | GET | `/ai/ollama-models` | List local Ollama models |
+| POST | `/ai/9router-models` | List models exposed by 9Router |
 | POST | `/captions` | Generate captions |
 | POST | `/audio/clean` | Noise reduction |
 | GET | `/audio/capabilities` | Audio processing availability |
