@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("AI Video Editor backend starting up")
+    logger.info("ScriptCut backend starting up")
     yield
-    logger.info("AI Video Editor backend shutting down")
+    logger.info("ScriptCut backend shutting down")
 
 
 app = FastAPI(
-    title="AI Video Editor Backend",
+    title="ScriptCut Backend",
     version="0.1.0",
     lifespan=lifespan,
 )

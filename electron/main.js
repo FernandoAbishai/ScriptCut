@@ -84,7 +84,7 @@ ipcMain.handle('dialog:saveFile', async (_event, options) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [
       { name: 'Video Files', extensions: ['mp4', 'mov', 'webm'] },
-      { name: 'Project Files', extensions: ['aive'] },
+      { name: 'Project Files', extensions: ['scriptcut', 'aive', 'cutscript'] },
     ],
     ...options,
   });
@@ -95,7 +95,7 @@ ipcMain.handle('dialog:openProject', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'AI Video Editor Project', extensions: ['aive'] },
+      { name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] },
     ],
   });
   return result.canceled ? null : result.filePaths[0];

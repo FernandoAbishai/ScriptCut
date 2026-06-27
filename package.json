@@ -22,7 +22,7 @@
     "python-shell": "^5.0.0"
   },
   "build": {
-    "appId": "com.dataants.scriptcut",
+    "appId": "com.fernandoabishai.scriptcut",
     "productName": "ScriptCut",
     "files": [
       "electron/**/*",

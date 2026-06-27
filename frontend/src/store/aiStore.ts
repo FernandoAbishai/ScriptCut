@@ -2,7 +2,18 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion } from '../types/project';
 
-const ENCRYPTED_KEY_PREFIX = 'aive_enc_';
+const ENCRYPTED_KEY_PREFIX = 'scriptcut_enc_';
+const LEGACY_ENCRYPTED_KEY_PREFIX = 'aive_enc_';
+const SETTINGS_STORAGE_KEY = 'scriptcut-ai-settings';
+const LEGACY_SETTINGS_STORAGE_KEY = 'aive-ai-settings';
+
+if (
+  typeof localStorage !== 'undefined' &&
+  !localStorage.getItem(SETTINGS_STORAGE_KEY) &&
+  localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY)
+) {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY) || '');
+}
 
 const DEFAULT_PROVIDERS: Record<AIProvider, AIProviderConfig> = {
   ollama: { provider: 'ollama', baseUrl: 'http://localhost:11434', model: 'llama3' },
@@ -46,7 +57,9 @@ async function encryptAndStore(key: string, value: string): Promise<void> {
 }
 
 async function loadAndDecrypt(key: string): Promise<string> {
-  const stored = localStorage.getItem(ENCRYPTED_KEY_PREFIX + key);
+  const stored =
+    localStorage.getItem(ENCRYPTED_KEY_PREFIX + key) ||
+    localStorage.getItem(LEGACY_ENCRYPTED_KEY_PREFIX + key);
   if (!stored) return '';
   if (window.electronAPI) {
     try {
@@ -117,7 +130,7 @@ export const useAIStore = create<AIState & AIActions>()(
       },
     }),
     {
-      name: 'aive-ai-settings',
+      name: SETTINGS_STORAGE_KEY,
       partialize: (state) => ({
         providers: {
           ollama: { ...state.providers.ollama, apiKey: undefined },

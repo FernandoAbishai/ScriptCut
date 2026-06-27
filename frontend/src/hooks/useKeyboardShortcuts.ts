@@ -163,8 +163,8 @@ async function saveProject() {
     };
 
     const outputPath = await window.electronAPI?.saveFile({
-      defaultPath: state.videoPath.replace(/\.[^.]+$/, '.aive'),
-      filters: [{ name: 'ScriptCut Project', extensions: ['aive'] }],
+      defaultPath: state.videoPath.replace(/\.[^.]+$/, '.scriptcut'),
+      filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
     });
 
     if (outputPath) {
@@ -175,7 +175,7 @@ async function saveProject() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = outputPath.split(/[\\/]/).pop() || 'project.aive';
+        a.download = outputPath.split(/[\\/]/).pop() || 'project.scriptcut';
         a.click();
         URL.revokeObjectURL(url);
       }
