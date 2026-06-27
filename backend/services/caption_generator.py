@@ -106,7 +106,7 @@ def generate_ass(
     alignment = 2
 
     header = f"""[Script Info]
-Title: AI Video Editor Captions
+Title: ScriptCut Captions
 ScriptType: v4.00+
 PlayResX: 1920
 PlayResY: 1080

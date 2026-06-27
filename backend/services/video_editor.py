@@ -48,7 +48,7 @@ def export_stream_copy(
     if not keep_segments:
         raise ValueError("No segments to export")
 
-    temp_dir = tempfile.mkdtemp(prefix="aive_export_")
+    temp_dir = tempfile.mkdtemp(prefix="scriptcut_export_")
 
     try:
         segment_files = []

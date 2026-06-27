@@ -79,15 +79,19 @@ function isSupportedPython(version) {
 }
 
 function resolvePythonRuntime() {
-  const explicitPython = process.env.CUTSCRIPT_PYTHON_PATH;
+  const explicitPython = process.env.SCRIPTCUT_PYTHON_PATH || process.env.CUTSCRIPT_PYTHON_PATH;
+  const explicitPythonVar = process.env.SCRIPTCUT_PYTHON_PATH ? 'SCRIPTCUT_PYTHON_PATH' : 'CUTSCRIPT_PYTHON_PATH';
   if (explicitPython) {
+    if (explicitPythonVar === 'CUTSCRIPT_PYTHON_PATH') {
+      console.warn('CUTSCRIPT_PYTHON_PATH is deprecated. Use SCRIPTCUT_PYTHON_PATH instead.');
+    }
     if (!isExecutable(explicitPython)) {
-      throw new Error(`CUTSCRIPT_PYTHON_PATH is not executable: ${explicitPython}`);
+      throw new Error(`${explicitPythonVar} is not executable: ${explicitPython}`);
     }
     const explicitVersion = probeCommand(explicitPython, []);
     if (!isSupportedPython(explicitVersion)) {
       throw new Error(
-        `CUTSCRIPT_PYTHON_PATH points to unsupported Python ` +
+        `${explicitPythonVar} points to unsupported Python ` +
         `${explicitVersion?.major ?? 0}.${explicitVersion?.minor ?? 0}.${explicitVersion?.patch ?? 0}. ` +
         'Use Python 3.10-3.12.'
       );
@@ -150,12 +154,12 @@ function resolvePythonRuntime() {
     const { command, version } = unsupportedVersion;
     throw new Error(
       `Found unsupported Python ${version.major}.${version.minor}.${version.patch} at ${command}. ` +
-      'Use Python 3.10-3.12, activate a compatible virtualenv, or set CUTSCRIPT_PYTHON_PATH.'
+      'Use Python 3.10-3.12, activate a compatible virtualenv, or set SCRIPTCUT_PYTHON_PATH.'
     );
   }
 
   throw new Error(
-    'Python 3.10-3.12 was not found. Install a compatible Python, activate a virtualenv, or set CUTSCRIPT_PYTHON_PATH.'
+    'Python 3.10-3.12 was not found. Install a compatible Python, activate a virtualenv, or set SCRIPTCUT_PYTHON_PATH.'
   );
 }
 

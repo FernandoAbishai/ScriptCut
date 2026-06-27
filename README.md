@@ -1,8 +1,28 @@
 # ScriptCut
 
-ScriptCut is an open-source, local-first, Descript-like text-based audio and video editor powered by AI. Edit audio or video by editing text: delete a word from the transcript and it is cut from the timeline.
+ScriptCut is a maintained fork of CutScript focused on Apple Silicon reliability, 9Router support, and local-first creator workflows.
+
+Edit videos by editing the transcript:
+
+- delete words -> cut video
+- remove filler words -> clean edit
+- generate captions -> export clip
+
+Built with Electron, React, FastAPI, WhisperX, FFmpeg, and local/cloud LLM integrations.
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
+
+## Relationship to CutScript
+
+ScriptCut began as a fork/continuation of DataAnts-AI/CutScript.
+
+This version focuses on:
+
+- Apple Silicon macOS setup
+- Python 3.10-3.12 compatibility
+- 9Router support
+- improved backend startup
+- creator-oriented local-first workflows
 
 ## Architecture
 
@@ -48,8 +68,10 @@ source .venv/bin/activate
 If you want to force a specific interpreter, set:
 
 ```bash
-export CUTSCRIPT_PYTHON_PATH=/absolute/path/to/python
+export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 ```
+
+`CUTSCRIPT_PYTHON_PATH` is still supported for legacy setups, but `SCRIPTCUT_PYTHON_PATH` is preferred.
 
 ### Install
 
@@ -113,7 +135,7 @@ scriptcut/
 | Caption burn-in on export | Done |
 | Studio Sound | Done |
 | Speaker diarization | Done |
-| Project save/load (`.aive`) | Done |
+| Project save/load (`.scriptcut`, legacy `.aive`/`.cutscript`) | Done |
 | AI background removal | Planned |
 
 ## Keyboard Shortcuts
@@ -148,3 +170,5 @@ scriptcut/
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for original CutScript attribution.
