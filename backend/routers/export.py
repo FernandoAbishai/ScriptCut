@@ -233,7 +233,8 @@ def run_export(req: ExportRequest, progress_callback=None):
         srt_path = None
         if req.captions == "sidecar" and words_dicts:
             progress(88, "Writing sidecar captions")
-            srt_content = generate_srt(words_dicts, deleted_set)
+            words_per_line = req.captionStyle.wordsPerLine if req.captionStyle else 8
+            srt_content = generate_srt(words_dicts, deleted_set, words_per_line=words_per_line)
             srt_path = req.output_path.rsplit(".", 1)[0] + ".srt"
             save_captions(srt_content, srt_path)
             logger.info(f"Sidecar SRT saved to {srt_path}")
