@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a creator workflow improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Creator workflow
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Text editing
+        - Captions
+        - Export
+        - AI workflow
+        - Clips
+        - Setup/install
+        - Other
+    validations:
+      required: true

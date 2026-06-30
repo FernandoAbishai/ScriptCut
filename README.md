@@ -76,15 +76,8 @@ export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 ### Install
 
 ```bash
-# Root dependencies
-npm install
-
-# Frontend dependencies
-cd frontend && npm install && cd ..
-
-# Backend dependencies
-source .venv/bin/activate
-cd backend && python -m pip install -r requirements.txt && cd ..
+npm run setup
+npm run doctor
 ```
 
 ### Run
@@ -190,6 +183,10 @@ Job statuses are `queued`, `running`, `canceling`, `succeeded`, `failed`, and `c
 ## QA
 
 Run `npm run smoke:backend` for fast backend smoke checks covering sidecar caption export settings, deleted-word caption filtering, and job cancellation lifecycle behavior. Run it alongside `npm run lint`, `npm run build`, and `python -m compileall -q backend` before release-oriented changes.
+
+## Contributing
+
+Start with [docs/INSTALL.md](docs/INSTALL.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [CONTRIBUTING.md](CONTRIBUTING.md). Use [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) when setup or runtime checks fail.
 
 ## License
 

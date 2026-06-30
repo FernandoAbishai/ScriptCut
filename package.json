@@ -9,6 +9,9 @@
     "dev:frontend": "cd frontend && npm run dev",
     "dev:electron": "electron .",
     "dev:backend": "node electron/run-backend.js --reload --port 8642",
+    "setup": "node scripts/setup.js",
+    "setup:backend": "node scripts/setup.js --backend-only",
+    "doctor": "node scripts/doctor.js",
     "build": "cd frontend && npm run build && electron-builder",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python scripts/smoke_backend.py || ../.venv/bin/python scripts/smoke_backend.py || python scripts/smoke_backend.py)"

@@ -1,0 +1,30 @@
+name: Installation problem
+description: Get help with setup, Python, FFmpeg, or backend startup
+title: "[Install]: "
+labels: ["install", "help wanted"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What setup step failed?
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: npm run doctor output
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "macOS 14 Apple Silicon, Windows 11, Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes

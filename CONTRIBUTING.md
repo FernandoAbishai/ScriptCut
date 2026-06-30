@@ -1,57 +1,64 @@
-# Contributing
+# Contributing to ScriptCut
 
-Thanks for helping improve ScriptCut. Keep changes focused, test locally where practical, and preserve compatibility with existing project files.
+Thanks for helping improve ScriptCut. The best contributions are small, tested, and tied to creator workflows.
 
-## Install Dependencies
+## Start Here
 
 ```bash
-npm install
-cd frontend && npm install && cd ..
+npm run setup
+npm run doctor
+npm run dev
+```
 
-python3.11 -m venv .venv
-source .venv/bin/activate
-cd backend && python -m pip install -r requirements.txt && cd ..
+Before opening a pull request, run:
+
+```bash
+npm run lint
+npm run build
+npm run smoke:backend
+python -m compileall -q backend
 ```
 
 ScriptCut supports Python 3.10 through 3.12. Python 3.11 is recommended on Apple Silicon macOS.
 
-## Run The Frontend
-
-```bash
-npm run dev:frontend
-```
-
-## Run The Backend
-
-```bash
-npm run dev:backend
-```
-
-The backend should be available at `http://127.0.0.1:8642/health`.
-
-## Run The Full App
+The full app runs with:
 
 ```bash
 npm run dev
 ```
 
-This starts the backend, Vite frontend, and Electron shell.
+That starts the backend, Vite frontend, and Electron shell. The backend should be available at `http://127.0.0.1:8642/health`.
+
+## Good First Areas
+
+- Documentation and troubleshooting improvements
+- Caption style presets
+- Export preset polish
+- Backend smoke tests
+- Small UI accessibility fixes
+- Provider setup documentation
+
+## Pull Request Guidelines
+
+- Keep the PR focused on one feature or fix.
+- Include screenshots or a short recording for UI changes.
+- Update docs when commands, setup, project format, or visible behavior changes.
+- Avoid committing large media files. Document how to generate small fixtures instead.
+- Preserve support for legacy project files such as `.aive` and `.cutscript`.
+- Do not remove original-project attribution from the license or acknowledgements.
 
 ## Report Bugs
 
 When filing an issue, include:
 
-- your OS and CPU architecture
+- OS and CPU architecture
 - Node.js and Python versions
-- whether you are using Electron or browser mode
-- the media format involved
+- Electron or browser mode
+- media format involved
+- `npm run doctor` output when setup or runtime behavior is involved
 - console/backend logs when available
 - clear reproduction steps
 
-## Contribute Safely
+## Local-First Principle
 
-- Keep pull requests small and scoped.
-- Do not remove original-project attribution from the license or acknowledgements.
-- Preserve support for legacy project files such as `.aive` and `.cutscript`.
-- Run `npm run lint` and `npm run build` before submitting UI changes.
-- For backend changes, run at least `python3 -m py_compile` on changed Python files.
+ScriptCut should make local/offline paths clear and keep raw media on the user's machine unless the user explicitly chooses an external provider.
