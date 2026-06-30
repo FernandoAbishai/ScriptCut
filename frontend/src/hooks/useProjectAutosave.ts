@@ -5,7 +5,9 @@ import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, FillerWord
 
 const AUTOSAVE_INTERVAL_MS = 5000;
 const PROJECT_APP = 'ScriptCut';
-const PROJECT_VERSION = 1;
+const PROJECT_SCHEMA = 'scriptcut.project.v1';
+const PROJECT_VERSION = 1 as const;
+const PROJECT_APP_VERSION = '0.1.0';
 const AUTOSAVE_INDEX_KEY = 'scriptcut.autosaves';
 
 export interface AutosaveState {
@@ -89,7 +91,9 @@ export function createProjectSnapshot() {
 
   return {
     app: PROJECT_APP,
+    schema: PROJECT_SCHEMA,
     version: PROJECT_VERSION,
+    appVersion: PROJECT_APP_VERSION,
     videoPath: state.videoPath,
     words: state.words,
     segments: state.segments,
@@ -114,6 +118,10 @@ export function parseProjectFile(content: string) {
   return normalizeProjectFile(raw);
 }
 
+export function serializeProjectFile(project: ProjectFile) {
+  return `${stableStringify(project)}\n`;
+}
+
 export function normalizeProjectFile(raw: unknown): ProjectFile {
   if (!raw || typeof raw !== 'object') {
     throw new Error('Project file is not a JSON object');
@@ -133,7 +141,9 @@ export function normalizeProjectFile(raw: unknown): ProjectFile {
   const now = new Date().toISOString();
   return {
     app: typeof data.app === 'string' ? data.app : PROJECT_APP,
+    schema: typeof data.schema === 'string' ? data.schema : PROJECT_SCHEMA,
     version: PROJECT_VERSION,
+    appVersion: typeof data.appVersion === 'string' ? data.appVersion : PROJECT_APP_VERSION,
     videoPath: data.videoPath,
     words: normalizeWords(data.words),
     segments: normalizeSegments(data.segments || []),
@@ -330,6 +340,21 @@ function normalizeEditOperations(operations: EditOperation[]) {
   );
 }
 
+function stableStringify(value: unknown) {
+  return JSON.stringify(sortForStableJson(value), null, 2);
+}
+
+function sortForStableJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForStableJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => [key, sortForStableJson(entry)]),
+  );
+}
+
 export function useProjectAutosave() {
   const videoPath = useEditorStore((s) => s.videoPath);
   const words = useEditorStore((s) => s.words);
@@ -382,7 +407,7 @@ export function useProjectAutosave() {
       try {
         const path = getAutosavePath(videoPath);
         setAutosave((current) => ({ ...current, status: 'saving', path, error: '' }));
-        const serialized = JSON.stringify(snapshot, null, 2);
+        const serialized = serializeProjectFile(snapshot);
         await window.electronAPI!.writeFile(path, serialized);
         rememberAutosaveCandidate({
           path,

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { createProjectSnapshot } from './useProjectAutosave';
+import { createProjectSnapshot, serializeProjectFile } from './useProjectAutosave';
 import { getPlayableSeekTime } from '../utils/playback';
 
 export function useKeyboardShortcuts() {
@@ -181,11 +181,11 @@ export async function saveProject() {
         filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
       });
       if (!outputPath) return null;
-      await window.electronAPI.writeFile(outputPath, JSON.stringify(projectData, null, 2));
+      await window.electronAPI.writeFile(outputPath, serializeProjectFile(projectData));
       return outputPath;
     }
 
-    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+    const blob = new Blob([serializeProjectFile(projectData)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

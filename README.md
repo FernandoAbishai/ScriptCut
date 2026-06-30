@@ -144,6 +144,8 @@ scriptcut/
 | Project save/load (`.scriptcut`, legacy `.aive`/`.cutscript`) | Done |
 | AI background removal | Done |
 
+Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `version: 1`. Manual saves and autosaves use the same serializer so recovery files are deterministic and migration-ready.
+
 ## Keyboard Shortcuts
 
 | Key | Action |

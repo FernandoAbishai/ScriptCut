@@ -38,7 +38,9 @@ export interface EditOperation extends TimeRange {
 
 export interface ProjectFile {
   app?: 'ScriptCut' | string;
+  schema?: 'scriptcut.project.v1' | string;
   version: 1;
+  appVersion?: string;
   videoPath: string;
   words: Word[];
   segments: Segment[];
