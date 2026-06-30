@@ -126,17 +126,23 @@ scriptcut/
 | Text-based video editing | Done |
 | Undo/redo | Done |
 | Waveform timeline | Done |
+| Edited playback preview | Done |
+| Project autosave and startup recovery | Done |
+| Non-destructive edit layers | Done |
 | FFmpeg stream-copy export | Done |
 | FFmpeg re-encode export | Done |
-| AI filler word removal | Done |
-| AI clip creation | Done |
+| Job progress, cancellation, logs, retry | Done |
+| AI filler review queue | Done |
+| Editable AI clip drafts | Done |
 | Ollama + OpenAI + Claude + 9router | Done |
 | Word-level captions | Done |
-| Caption burn-in on export | Done |
+| Caption designer and burn-in export | Done |
+| Social presets and reframe controls | Done |
 | Studio Sound | Done |
 | Speaker diarization | Done |
+| Speaker-aware transcript editing | Done |
 | Project save/load (`.scriptcut`, legacy `.aive`/`.cutscript`) | Done |
-| AI background removal | Planned |
+| AI background removal | Done |
 
 ## Keyboard Shortcuts
 
@@ -158,14 +164,24 @@ scriptcut/
 |--------|----------|-------------|
 | GET | `/health` | Health check |
 | POST | `/transcribe` | Transcribe media |
+| POST | `/jobs/transcribe` | Start transcription job |
 | POST | `/export` | Export edited video |
+| POST | `/jobs/export` | Start export job |
+| GET | `/jobs/{job_id}` | Read job progress, logs, result, or error |
+| POST | `/jobs/{job_id}/cancel` | Request job cancellation |
+| POST | `/jobs/{job_id}/retry` | Retry a failed or canceled job |
 | POST | `/ai/filler-removal` | Detect filler words |
+| POST | `/jobs/ai/filler-removal` | Detect filler words as a job |
 | POST | `/ai/create-clip` | Suggest clips |
+| POST | `/jobs/ai/create-clip` | Suggest clips as a job |
+| POST | `/ai/clip-metadata` | Suggest title, hook, caption, and hashtags |
+| POST | `/jobs/ai/clip-metadata` | Suggest clip metadata as a job |
 | GET | `/ai/ollama-models` | List local Ollama models |
 | POST | `/ai/9router-models` | List models exposed by 9Router |
 | POST | `/captions` | Generate captions |
 | POST | `/audio/clean` | Noise reduction |
 | GET | `/audio/capabilities` | Audio processing availability |
+| GET | `/background/capabilities` | Background removal availability |
 
 ## License
 

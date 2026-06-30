@@ -1,28 +1,33 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { ZoomIn, ZoomOut, AlertTriangle } from 'lucide-react';
+import { getPlayableSeekTime } from '../utils/playback';
 
 export default function WaveformTimeline() {
   const waveCanvasRef = useRef<HTMLCanvasElement>(null);
   const headCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
 
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const videoPath = useEditorStore((s) => s.videoPath);
   const duration = useEditorStore((s) => s.duration);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
+  const editOperations = useEditorStore((s) => s.editOperations);
+  const previewCuts = useEditorStore((s) => s.previewCuts);
+  const currentTime = useEditorStore((s) => s.currentTime);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
-  const zoomRef = useRef(1);
   const rafRef = useRef(0);
 
   const drawStaticWaveform = useCallback(() => {
     const canvas = waveCanvasRef.current;
     const buffer = audioBufferRef.current;
-    if (!canvas || !buffer) return;
+    const timelineDuration = buffer?.duration || duration;
+    if (!canvas || timelineDuration <= 0) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -35,15 +40,29 @@ export default function WaveformTimeline() {
 
     const width = rect.width;
     const height = rect.height;
-    const channelData = buffer.getChannelData(0);
-    const samplesPerPixel = Math.floor(channelData.length / width);
+    const channelData = buffer?.getChannelData(0);
+    const samplesPerPixel = channelData ? Math.max(1, Math.floor(channelData.length / width)) : 0;
 
     ctx.clearRect(0, 0, width, height);
 
     for (const range of deletedRanges) {
-      const x1 = (range.start / buffer.duration) * width;
-      const x2 = (range.end / buffer.duration) * width;
+      const x1 = (range.start / timelineDuration) * width;
+      const x2 = (range.end / timelineDuration) * width;
       ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
+      ctx.fillRect(x1, 0, x2 - x1, height);
+    }
+
+    for (const operation of editOperations) {
+      const x1 = (operation.start / timelineDuration) * width;
+      const x2 = (operation.end / timelineDuration) * width;
+      ctx.fillStyle =
+        operation.kind === 'mute'
+          ? 'rgba(99, 102, 241, 0.18)'
+          : operation.kind === 'room-tone'
+            ? 'rgba(245, 158, 11, 0.18)'
+          : operation.kind === 'caption-only'
+            ? 'rgba(148, 163, 184, 0.18)'
+            : 'rgba(34, 197, 94, 0.12)';
       ctx.fillRect(x1, 0, x2 - x1, height);
     }
 
@@ -51,6 +70,23 @@ export default function WaveformTimeline() {
     ctx.beginPath();
     ctx.strokeStyle = '#4a4d5e';
     ctx.lineWidth = 1;
+
+    if (!channelData) {
+      ctx.moveTo(0, mid);
+      ctx.lineTo(width, mid);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = '#2a2d3a';
+      const tickCount = Math.max(2, Math.min(12, Math.floor(timelineDuration / 10)));
+      for (let tick = 0; tick <= tickCount; tick++) {
+        const x = (tick / tickCount) * width;
+        ctx.moveTo(x, height * 0.25);
+        ctx.lineTo(x, height * 0.75);
+      }
+      ctx.stroke();
+      return;
+    }
 
     for (let x = 0; x < width; x++) {
       const start = x * samplesPerPixel;
@@ -69,7 +105,7 @@ export default function WaveformTimeline() {
       ctx.lineTo(x, yMax);
     }
     ctx.stroke();
-  }, [deletedRanges]);
+  }, [deletedRanges, duration, editOperations]);
 
   useEffect(() => {
     if (!videoUrl || !videoPath) return;
@@ -104,6 +140,10 @@ export default function WaveformTimeline() {
     drawStaticWaveform();
   }, [drawStaticWaveform]);
 
+  useEffect(() => {
+    drawStaticWaveform();
+  }, [drawStaticWaveform, zoom]);
+
   // Lightweight RAF loop for playhead only -- reads video.currentTime directly,
   // never triggers React re-renders
   useEffect(() => {
@@ -115,9 +155,8 @@ export default function WaveformTimeline() {
       const ctx = headCanvas.getContext('2d');
       if (!ctx) { rafRef.current = requestAnimationFrame(tick); return; }
 
-      const buffer = audioBufferRef.current;
       const video = document.querySelector('video') as HTMLVideoElement | null;
-      const dur = buffer?.duration ?? 0;
+      const dur = audioBufferRef.current?.duration || duration;
 
       const dpr = window.devicePixelRatio || 1;
       const rect = headCanvas.getBoundingClientRect();
@@ -146,7 +185,7 @@ export default function WaveformTimeline() {
 
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [videoUrl]);
+  }, [videoUrl, duration]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => {
@@ -161,12 +200,14 @@ export default function WaveformTimeline() {
       if (!headCanvasRef.current || duration === 0) return;
       const rect = headCanvasRef.current.getBoundingClientRect();
       const ratio = (e.clientX - rect.left) / rect.width;
-      const newTime = ratio * duration;
-      setCurrentTime(newTime);
+      const rawTime = ratio * duration;
+      const direction = rawTime < currentTime ? 'backward' : 'forward';
+      const nextTime = getPlayableSeekTime(rawTime, deletedRanges, previewCuts, direction);
+      setCurrentTime(nextTime);
       const video = document.querySelector('video');
-      if (video) video.currentTime = newTime;
+      if (video) video.currentTime = nextTime;
     },
-    [duration, setCurrentTime],
+    [currentTime, deletedRanges, duration, previewCuts, setCurrentTime],
   );
 
   if (!videoUrl) {
@@ -185,14 +226,15 @@ export default function WaveformTimeline() {
         </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => { zoomRef.current = Math.max(0.5, zoomRef.current - 0.5); drawStaticWaveform(); }}
+            onClick={() => setZoom((current) => Math.max(1, current - 0.5))}
+            disabled={zoom <= 1}
             className="p-0.5 text-editor-text-muted hover:text-editor-text"
             title="Zoom out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => { zoomRef.current = Math.min(10, zoomRef.current + 0.5); drawStaticWaveform(); }}
+            onClick={() => setZoom((current) => Math.min(8, current + 0.5))}
             className="p-0.5 text-editor-text-muted hover:text-editor-text"
             title="Zoom in"
           >
@@ -200,21 +242,22 @@ export default function WaveformTimeline() {
           </button>
         </div>
       </div>
-      {audioError ? (
-        <div className="flex-1 flex items-center justify-center gap-2 text-editor-text-muted text-xs">
-          <AlertTriangle className="w-4 h-4 text-yellow-500" />
-          <span>{audioError}</span>
-        </div>
-      ) : (
-        <div className="flex-1 relative">
-          <canvas ref={waveCanvasRef} className="absolute inset-0 w-full h-full" />
+      <div className="flex-1 relative overflow-x-auto">
+        <div className="relative h-full min-w-full" style={{ width: `${zoom * 100}%` }}>
+          <canvas ref={waveCanvasRef} className="absolute inset-0 h-full w-full" />
           <canvas
             ref={headCanvasRef}
-            className="absolute inset-0 w-full h-full cursor-crosshair"
+            className="absolute inset-0 h-full w-full cursor-crosshair"
             onClick={handleClick}
           />
         </div>
-      )}
+        {audioError && (
+          <div className="pointer-events-none absolute inset-x-3 top-2 flex items-center gap-1.5 rounded bg-editor-bg/80 px-2 py-1 text-[10px] text-editor-text-muted">
+            <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
+            <span>{audioError}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

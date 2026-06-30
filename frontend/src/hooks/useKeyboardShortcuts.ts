@@ -1,9 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { createProjectSnapshot } from './useProjectAutosave';
+import { getPlayableSeekTime } from '../utils/playback';
 
 export function useKeyboardShortcuts() {
   const deleteSelectedWords = useEditorStore((s) => s.deleteSelectedWords);
   const selectedWordIndices = useEditorStore((s) => s.selectedWordIndices);
+  const deletedRanges = useEditorStore((s) => s.deletedRanges);
+  const previewCuts = useEditorStore((s) => s.previewCuts);
 
   const playbackRateRef = useRef(1);
 
@@ -88,14 +92,28 @@ export function useKeyboardShortcuts() {
         // --- Arrow Left: seek back 5s ---
         case e.key === 'ArrowLeft' && !e.ctrlKey: {
           e.preventDefault();
-          if (video) video.currentTime = Math.max(0, video.currentTime - 5);
+          if (video) {
+            video.currentTime = getPlayableSeekTime(
+              Math.max(0, video.currentTime - 5),
+              deletedRanges,
+              previewCuts,
+              'backward',
+            );
+          }
           return;
         }
 
         // --- Arrow Right: seek forward 5s ---
         case e.key === 'ArrowRight' && !e.ctrlKey: {
           e.preventDefault();
-          if (video) video.currentTime = Math.min(video.duration, video.currentTime + 5);
+          if (video) {
+            video.currentTime = getPlayableSeekTime(
+              Math.min(video.duration, video.currentTime + 5),
+              deletedRanges,
+              previewCuts,
+              'forward',
+            );
+          }
           return;
         }
 
@@ -116,7 +134,7 @@ export function useKeyboardShortcuts() {
         // --- Ctrl+S: save project ---
         case e.key === 's' && (e.ctrlKey || e.metaKey): {
           e.preventDefault();
-          saveProject();
+          void saveProject();
           return;
         }
 
@@ -143,45 +161,41 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [deleteSelectedWords, selectedWordIndices]);
+  }, [deleteSelectedWords, selectedWordIndices, deletedRanges, previewCuts]);
 }
 
-async function saveProject() {
+export async function saveProject() {
   const state = useEditorStore.getState();
-  if (!state.videoPath || state.words.length === 0) return;
+  if (!state.videoPath || state.words.length === 0) return null;
 
   try {
-    const projectData = {
-      version: 1,
-      videoPath: state.videoPath,
-      words: state.words,
-      segments: state.segments,
-      deletedRanges: state.deletedRanges,
-      language: state.language,
-      createdAt: new Date().toISOString(),
-      modifiedAt: new Date().toISOString(),
-    };
+    const projectData = createProjectSnapshot();
+    if (!projectData) return null;
 
-    const outputPath = await window.electronAPI?.saveFile({
-      defaultPath: state.videoPath.replace(/\.[^.]+$/, '.scriptcut'),
-      filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
-    });
+    const defaultPath = state.videoPath.replace(/\.[^.\\/]+$/, '.scriptcut');
+    const defaultName = defaultPath.split(/[\\/]/).pop() || 'project.scriptcut';
 
-    if (outputPath) {
-      if (window.electronAPI?.writeFile) {
-        await window.electronAPI.writeFile(outputPath, JSON.stringify(projectData, null, 2));
-      } else {
-        const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = outputPath.split(/[\\/]/).pop() || 'project.scriptcut';
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+    if (window.electronAPI?.saveFile && window.electronAPI?.writeFile) {
+      const outputPath = await window.electronAPI.saveFile({
+        defaultPath,
+        filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
+      });
+      if (!outputPath) return null;
+      await window.electronAPI.writeFile(outputPath, JSON.stringify(projectData, null, 2));
+      return outputPath;
     }
+
+    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = defaultName;
+    a.click();
+    URL.revokeObjectURL(url);
+    return defaultName;
   } catch (err) {
     console.error('Failed to save project:', err);
+    throw err;
   }
 }
 
@@ -209,7 +223,7 @@ function toggleCheatsheet() {
     ['Delete', 'Delete selected words'],
     ['Ctrl+Z', 'Undo'],
     ['Ctrl+Shift+Z', 'Redo'],
-    ['Ctrl+S', 'Save project'],
+    ['Ctrl+S', 'Save Project (.scriptcut)'],
     ['Ctrl+E', 'Export'],
     ['?', 'This cheatsheet'],
   ];

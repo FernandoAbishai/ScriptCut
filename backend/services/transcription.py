@@ -83,6 +83,8 @@ def transcribe_audio(
         dict with keys: words, segments, language
     """
     file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(str(file_path))
 
     if use_cache:
         cached = load_from_cache(file_path, model_name, "transcribe_wx")

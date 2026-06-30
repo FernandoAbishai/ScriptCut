@@ -33,6 +33,36 @@ def _format_ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+def _hex_to_ass_color(value: str, alpha: str = "00") -> str:
+    """Convert #RRGGBB into ASS &HAABBGGRR format."""
+    if not value:
+        return "&H00FFFFFF"
+
+    if value.startswith("&H"):
+        return value
+
+    hex_value = value.strip().lstrip("#")
+    if len(hex_value) != 6:
+        return "&H00FFFFFF"
+
+    rr = hex_value[0:2]
+    gg = hex_value[2:4]
+    bb = hex_value[4:6]
+    return f"&H{alpha}{bb}{gg}{rr}"
+
+
+def _caption_alignment(position: str) -> int:
+    if position == "top":
+        return 8
+    if position == "center":
+        return 5
+    return 2
+
+
+def _escape_ass_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+
+
 def generate_srt(
     words: List[dict],
     deleted_indices: Optional[set] = None,
@@ -101,9 +131,13 @@ def generate_ass(
     s = style or {}
     font = s.get("fontName", "Arial")
     size = s.get("fontSize", 48)
-    color = s.get("fontColor", "&H00FFFFFF")
+    color = _hex_to_ass_color(s.get("fontColor", "#ffffff"))
+    highlight = _hex_to_ass_color(s.get("highlightColor", s.get("fontColor", "#ffffff")))
+    background = _hex_to_ass_color(s.get("backgroundColor", "#000000"), "80")
     bold = "-1" if s.get("bold", True) else "0"
-    alignment = 2
+    alignment = _caption_alignment(s.get("position", "bottom"))
+    margin_v = 80 if alignment in {2, 5} else 60
+    use_word_highlight = bool(s.get("highlightColor"))
 
     header = f"""[Script Info]
 Title: ScriptCut Captions
@@ -113,7 +147,7 @@ PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{size},{color},&H000000FF,&H00000000,&H80000000,{bold},0,0,0,100,100,0,0,1,2,1,{alignment},20,20,40,1
+Style: Default,{font},{size},{color},{highlight},&H00000000,{background},{bold},0,0,0,100,100,0,0,3,2,0,{alignment},40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -127,7 +161,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         start_time = chunk[0][1]["start"]
         end_time = chunk[-1][1]["end"]
-        text = " ".join(w["word"] for _, w in chunk)
+        if use_word_highlight:
+            text = " ".join(
+                f"{{\\k{max(1, int((w['end'] - w['start']) * 100))}}}{_escape_ass_text(w['word'])}"
+                for _, w in chunk
+            )
+        else:
+            text = " ".join(_escape_ass_text(w["word"]) for _, w in chunk)
 
         events.append(
             f"Dialogue: 0,{_format_ass_time(start_time)},{_format_ass_time(end_time)},Default,,0,0,0,,{text}"

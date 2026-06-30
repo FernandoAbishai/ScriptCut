@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.ai_provider import AIProvider, detect_filler_words, create_clip_suggestion
+from services.ai_provider import AIProvider, detect_filler_words, create_clip_suggestion, create_clip_metadata
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,6 +39,14 @@ class ClipRequest(BaseModel):
     target_duration: int = 60
 
 
+class ClipMetadataRequest(BaseModel):
+    transcript: str
+    provider: str = "ollama"
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
 class ModelListRequest(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
@@ -47,17 +55,7 @@ class ModelListRequest(BaseModel):
 @router.post("/ai/filler-removal")
 async def filler_removal(req: FillerRequest):
     try:
-        words_dicts = [w.model_dump() for w in req.words]
-        result = detect_filler_words(
-            transcript=req.transcript,
-            words=words_dicts,
-            provider=req.provider,
-            model=req.model,
-            api_key=req.api_key,
-            base_url=req.base_url,
-            custom_filler_words=req.custom_filler_words,
-        )
-        return result
+        return run_filler_removal(req)
     except Exception as e:
         logger.error(f"Filler detection failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -66,20 +64,72 @@ async def filler_removal(req: FillerRequest):
 @router.post("/ai/create-clip")
 async def create_clip(req: ClipRequest):
     try:
-        words_dicts = [w.model_dump() for w in req.words]
-        result = create_clip_suggestion(
-            transcript=req.transcript,
-            words=words_dicts,
-            target_duration=req.target_duration,
-            provider=req.provider,
-            model=req.model,
-            api_key=req.api_key,
-            base_url=req.base_url,
-        )
-        return result
+        return run_create_clip(req)
     except Exception as e:
         logger.error(f"Clip creation failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai/clip-metadata")
+async def clip_metadata(req: ClipMetadataRequest):
+    try:
+        return run_clip_metadata(req)
+    except Exception as e:
+        logger.error(f"Clip metadata failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def run_filler_removal(req: FillerRequest, progress_callback=None):
+    _progress(progress_callback, 10, "Preparing filler detection")
+    words_dicts = [w.model_dump() for w in req.words]
+    _progress(progress_callback, 35, "Calling AI provider")
+    result = detect_filler_words(
+        transcript=req.transcript,
+        words=words_dicts,
+        provider=req.provider,
+        model=req.model,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        custom_filler_words=req.custom_filler_words,
+    )
+    _progress(progress_callback, 100, "Filler detection complete")
+    return result
+
+
+def run_create_clip(req: ClipRequest, progress_callback=None):
+    _progress(progress_callback, 10, "Preparing clip discovery")
+    words_dicts = [w.model_dump() for w in req.words]
+    _progress(progress_callback, 35, "Calling AI provider")
+    result = create_clip_suggestion(
+        transcript=req.transcript,
+        words=words_dicts,
+        target_duration=req.target_duration,
+        provider=req.provider,
+        model=req.model,
+        api_key=req.api_key,
+        base_url=req.base_url,
+    )
+    _progress(progress_callback, 100, "Clip discovery complete")
+    return result
+
+
+def run_clip_metadata(req: ClipMetadataRequest, progress_callback=None):
+    _progress(progress_callback, 10, "Preparing clip package")
+    _progress(progress_callback, 35, "Calling AI provider")
+    result = create_clip_metadata(
+        transcript=req.transcript,
+        provider=req.provider,
+        model=req.model,
+        api_key=req.api_key,
+        base_url=req.base_url,
+    )
+    _progress(progress_callback, 100, "Clip package complete")
+    return result
+
+
+def _progress(progress_callback, percent: int, message: str):
+    if progress_callback:
+        progress_callback(percent, message)
 
 
 @router.get("/ai/ollama-models")

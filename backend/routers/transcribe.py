@@ -24,9 +24,13 @@ class TranscribeRequest(BaseModel):
     num_speakers: Optional[int] = None
 
 
-@router.post("/transcribe")
-async def transcribe(req: TranscribeRequest):
+def run_transcription(req: TranscribeRequest, progress_callback=None):
+    def progress(percent: int, message: str):
+        if progress_callback:
+            progress_callback(percent, message)
+
     try:
+        progress(5, "Preparing transcription")
         result = transcribe_audio(
             file_path=req.file_path,
             model_name=req.model,
@@ -36,6 +40,7 @@ async def transcribe(req: TranscribeRequest):
         )
 
         if req.diarize and req.hf_token:
+            progress(75, "Labeling speakers")
             result = diarize_and_label(
                 transcription_result=result,
                 audio_path=req.file_path,
@@ -44,8 +49,19 @@ async def transcribe(req: TranscribeRequest):
                 use_gpu=req.use_gpu,
             )
 
+        progress(100, "Transcription complete")
         return result
 
+    except FileNotFoundError:
+        raise
+    except Exception:
+        raise
+
+
+@router.post("/transcribe")
+async def transcribe(req: TranscribeRequest):
+    try:
+        return run_transcription(req)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"File not found: {req.file_path}")
     except Exception as e:

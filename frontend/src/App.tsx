@@ -1,12 +1,21 @@
 import { useEffect, useState, useRef } from 'react';
 import { useEditorStore } from './store/editorStore';
+import { useAIStore } from './store/aiStore';
 import VideoPlayer from './components/VideoPlayer';
 import TranscriptEditor from './components/TranscriptEditor';
 import WaveformTimeline from './components/WaveformTimeline';
 import AIPanel from './components/AIPanel';
 import ExportDialog from './components/ExportDialog';
 import SettingsPanel from './components/SettingsPanel';
-import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { saveProject, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import {
+  getAutosavePath,
+  listAutosaveCandidates,
+  parseProjectFile,
+  removeAutosaveCandidate,
+  useProjectAutosave,
+  type AutosaveCandidate,
+} from './hooks/useProjectAutosave';
 import {
   Film,
   FolderOpen,
@@ -16,11 +25,22 @@ import {
   Loader2,
   FolderSearch,
   FileInput,
+  Save,
+  AlertTriangle,
 } from 'lucide-react';
 
 const IS_ELECTRON = !!window.electronAPI;
 
 type Panel = 'ai' | 'settings' | 'export' | null;
+
+interface BackendJob<T> {
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  progress: number;
+  message: string;
+  logs?: Array<{ time: string; message: string }>;
+  result?: T;
+  error?: string;
+}
 
 export default function App() {
   const {
@@ -38,9 +58,17 @@ export default function App() {
   const [activePanel, setActivePanel] = useState<Panel>(null);
   const [manualPath, setManualPath] = useState('');
   const [whisperModel, setWhisperModel] = useState('base');
+  const [transcriptionMessage, setTranscriptionMessage] = useState('');
+  const [transcriptionError, setTranscriptionError] = useState('');
+  const [transcriptionLogs, setTranscriptionLogs] = useState<Array<{ time: string; message: string }>>([]);
+  const [lastTranscriptionJobId, setLastTranscriptionJobId] = useState('');
+  const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
+  const [recoveryError, setRecoveryError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useKeyboardShortcuts();
+  const autosave = useProjectAutosave();
 
   useEffect(() => {
     if (IS_ELECTRON) {
@@ -48,17 +76,54 @@ export default function App() {
     }
   }, [setBackendUrl]);
 
+  useEffect(() => {
+    if (!IS_ELECTRON || videoPath) return;
+    const latest = listAutosaveCandidates()[0] || null;
+    setRecoveryCandidate(latest);
+    setRecoveryError('');
+  }, [videoPath]);
+
   const handleLoadProject = async () => {
     if (!IS_ELECTRON) return;
     try {
       const projectPath = await window.electronAPI!.openProject();
       if (!projectPath) return;
       const content = await window.electronAPI!.readFile(projectPath);
-      const data = JSON.parse(content);
-      useEditorStore.getState().loadProject(data);
+      const data = parseProjectFile(content);
+      loadProjectState(data);
     } catch (err) {
       console.error('Failed to load project:', err);
       alert(`Failed to load project: ${err}`);
+    }
+  };
+
+  const recoverAutosave = async (candidate: AutosaveCandidate) => {
+    if (!IS_ELECTRON) return;
+    setRecoveryError('');
+    try {
+      const content = await window.electronAPI!.readFile(candidate.path);
+      const data = parseProjectFile(content);
+      loadProjectState(data);
+    } catch (err) {
+      console.error('Failed to recover autosave:', err);
+      removeAutosaveCandidate(candidate.path);
+      setRecoveryCandidate(listAutosaveCandidates()[0] || null);
+      setRecoveryError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleSaveProject = async () => {
+    setManualSaveStatus('saving');
+    try {
+      const savedPath = await saveProject();
+      setManualSaveStatus(savedPath ? 'saved' : 'idle');
+      if (savedPath) {
+        window.setTimeout(() => setManualSaveStatus('idle'), 1800);
+      }
+    } catch (err) {
+      console.error('Failed to save project:', err);
+      setManualSaveStatus('error');
+      window.setTimeout(() => setManualSaveStatus('idle'), 3000);
     }
   };
 
@@ -66,6 +131,9 @@ export default function App() {
     if (IS_ELECTRON) {
       const path = await window.electronAPI!.openFile();
       if (path) {
+        const restored = await tryRestoreAutosave(path);
+        if (restored) return;
+
         loadVideo(path);
         await transcribeVideo(path);
       }
@@ -87,10 +155,34 @@ export default function App() {
     await transcribeVideo(path);
   };
 
+  const tryRestoreAutosave = async (path: string) => {
+    if (!IS_ELECTRON) return false;
+
+    try {
+      const content = await window.electronAPI!.readFile(getAutosavePath(path));
+      const data = parseProjectFile(content);
+      if (data.videoPath !== path || !Array.isArray(data.words)) return false;
+
+      const shouldRestore = window.confirm(
+        'An autosaved ScriptCut project exists for this media file. Restore it instead of starting a new transcription?',
+      );
+      if (!shouldRestore) return false;
+
+      loadProjectState(data);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const transcribeVideo = async (path: string) => {
     setTranscribing(true, 0);
+    setTranscriptionMessage('Starting transcription');
+    setTranscriptionError('');
+    setTranscriptionLogs([]);
+    setLastTranscriptionJobId('');
     try {
-      const res = await fetch(`${backendUrl}/transcribe`, {
+      const res = await fetch(`${backendUrl}/jobs/transcribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_path: path, model: whisperModel }),
@@ -103,15 +195,73 @@ export default function App() {
         } catch {
           // Keep the HTTP status text when the backend response is not JSON.
         }
-        throw new Error(`Transcription failed: ${detail}`);
+        throw new Error(`Transcription start failed: ${detail}`);
       }
-      const data = await res.json();
+      const { job_id: jobId } = await res.json();
+      setLastTranscriptionJobId(jobId);
+      const data = await pollTranscriptionJob(jobId);
       setTranscription(data);
     } catch (err) {
       console.error('Transcription error:', err);
-      alert(`Transcription failed. Check the console for details.\n\n${err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      setTranscriptionError(message.toLowerCase().includes('canceled') ? 'Transcription canceled' : message);
     } finally {
+      setTranscriptionMessage('');
       setTranscribing(false);
+    }
+  };
+
+  const cancelTranscription = async () => {
+    if (!lastTranscriptionJobId) return;
+    try {
+      await fetch(`${backendUrl}/jobs/${lastTranscriptionJobId}/cancel`, { method: 'POST' });
+      setTranscriptionMessage('Cancel requested');
+    } catch (err) {
+      console.error('Transcription cancel error:', err);
+      setTranscriptionError(err instanceof Error ? err.message : String(err));
+      setTranscribing(false);
+    }
+  };
+
+  const retryTranscription = async () => {
+    if (!lastTranscriptionJobId) return;
+    setTranscriptionError('');
+    setTranscriptionMessage('Retrying transcription');
+    setTranscribing(true, 1);
+    try {
+      const res = await fetch(`${backendUrl}/jobs/${lastTranscriptionJobId}/retry`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Retry failed: ${res.statusText}`);
+      const { job_id: jobId } = await res.json();
+      setLastTranscriptionJobId(jobId);
+      const data = await pollTranscriptionJob(jobId);
+      setTranscription(data);
+    } catch (err) {
+      console.error('Transcription retry error:', err);
+      setTranscriptionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTranscriptionMessage('');
+      setTranscribing(false);
+    }
+  };
+
+  const pollTranscriptionJob = async (jobId: string) => {
+    for (;;) {
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      const res = await fetch(`${backendUrl}/jobs/${jobId}`);
+      if (!res.ok) throw new Error(`Could not read transcription job: ${res.statusText}`);
+
+      const job = (await res.json()) as BackendJob<Parameters<typeof setTranscription>[0]>;
+      setTranscriptionMessage(job.message || job.status);
+      setTranscriptionLogs(job.logs || []);
+      setTranscribing(job.status === 'queued' || job.status === 'running', job.progress);
+
+      if (job.status === 'succeeded') {
+        if (!job.result) throw new Error('Transcription job finished without a result');
+        return job.result;
+      }
+      if (job.status === 'failed' || job.status === 'canceled') {
+        throw new Error(job.error || job.message || `Transcription ${job.status}`);
+      }
     }
   };
 
@@ -147,6 +297,36 @@ export default function App() {
 
         {IS_ELECTRON ? (
           <div className="flex flex-col items-center gap-3">
+            {recoveryCandidate && (
+              <div className="w-full max-w-md rounded-lg border border-editor-warning/30 bg-editor-warning/10 p-3 text-left">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-editor-text">Recover autosaved project</div>
+                    <div className="mt-1 truncate text-[11px] text-editor-text-muted">
+                      {recoveryCandidate.videoPath.split(/[\\/]/).pop()} · {new Date(recoveryCandidate.modifiedAt).toLocaleString()}
+                    </div>
+                    {recoveryError && (
+                      <div className="mt-1 text-[11px] text-editor-warning">{recoveryError}</div>
+                    )}
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => recoverAutosave(recoveryCandidate)}
+                        className="rounded bg-editor-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-editor-accent-hover"
+                      >
+                        Recover
+                      </button>
+                      <button
+                        onClick={() => setRecoveryCandidate(null)}
+                        className="rounded bg-editor-surface px-3 py-1.5 text-xs text-editor-text-muted hover:text-editor-text"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <button
               onClick={handleOpenFile}
               className="flex items-center gap-2 px-6 py-3 bg-editor-accent hover:bg-editor-accent-hover rounded-lg text-white font-medium transition-colors"
@@ -207,15 +387,30 @@ export default function App() {
       <header className="h-12 flex items-center justify-between px-4 border-b border-editor-border shrink-0">
         <div className="flex items-center gap-3">
           <Film className="w-5 h-5 text-editor-accent" />
-          <span className="text-sm font-medium truncate max-w-[300px]">
-            {videoPath.split(/[\\/]/).pop()}
-          </span>
+          <div className="min-w-0">
+            <span className="block max-w-[300px] truncate text-sm font-medium">
+              {videoPath.split(/[\\/]/).pop()}
+            </span>
+            <AutosaveStatus autosave={autosave} />
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <ToolbarButton
             icon={<FolderOpen className="w-4 h-4" />}
             label="Open"
             onClick={IS_ELECTRON ? handleOpenFile : () => useEditorStore.getState().reset()}
+          />
+          <ToolbarButton
+            icon={manualSaveStatus === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            label={
+              manualSaveStatus === 'saved'
+                ? 'Saved'
+                : manualSaveStatus === 'error'
+                  ? 'Save failed'
+                  : 'Save Project'
+            }
+            onClick={handleSaveProject}
+            disabled={words.length === 0 || manualSaveStatus === 'saving'}
           />
           <ToolbarButton
             icon={<Sparkles className="w-4 h-4" />}
@@ -256,11 +451,57 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center gap-4">
                   <Loader2 className="w-8 h-8 text-editor-accent animate-spin" />
                   <p className="text-sm text-editor-text-muted">
-                    Transcribing... {Math.round(transcriptionProgress)}%
+                    {transcriptionMessage || 'Transcribing'}... {Math.round(transcriptionProgress)}%
                   </p>
+                  {lastTranscriptionJobId && (
+                    <button
+                      onClick={cancelTranscription}
+                      className="rounded bg-editor-border px-3 py-2 text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                    >
+                      Cancel transcription
+                    </button>
+                  )}
+                  {transcriptionLogs.length > 0 && (
+                    <details className="w-full max-w-md rounded border border-editor-border bg-editor-surface p-2 text-left text-[10px] text-editor-text-muted">
+                      <summary className="cursor-pointer text-editor-text">Job log</summary>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
+                        {transcriptionLogs.slice(-8).map((entry, index) => (
+                          <div key={`${entry.time}-${index}`} className="break-words">
+                            {new Date(entry.time).toLocaleTimeString()} - {entry.message}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               ) : words.length > 0 ? (
                 <TranscriptEditor />
+              ) : transcriptionError ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                  <div className="max-w-md rounded border border-editor-danger/30 bg-editor-danger/10 p-3 text-sm text-editor-danger">
+                    {transcriptionError}
+                  </div>
+                  {lastTranscriptionJobId && (
+                    <button
+                      onClick={retryTranscription}
+                      className="rounded bg-editor-accent px-3 py-2 text-sm font-medium hover:bg-editor-accent-hover"
+                    >
+                      Retry transcription
+                    </button>
+                  )}
+                  {transcriptionLogs.length > 0 && (
+                    <details className="w-full max-w-md rounded border border-editor-border bg-editor-surface p-2 text-left text-[10px] text-editor-text-muted">
+                      <summary className="cursor-pointer text-editor-text">Job log</summary>
+                      <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
+                        {transcriptionLogs.slice(-8).map((entry, index) => (
+                          <div key={`${entry.time}-${index}`} className="break-words">
+                            {new Date(entry.time).toLocaleTimeString()} - {entry.message}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-editor-text-muted text-sm">
                   No transcript yet
@@ -286,6 +527,40 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function AutosaveStatus({ autosave }: { autosave: ReturnType<typeof useProjectAutosave> }) {
+  if (autosave.status === 'idle') return null;
+  if (autosave.status === 'unavailable') {
+    return <div className="text-[10px] text-editor-text-muted">Autosave unavailable in browser mode</div>;
+  }
+
+  const isError = autosave.status === 'error';
+  const label =
+    autosave.status === 'saving'
+      ? 'Autosaving...'
+      : isError
+        ? 'Autosave failed'
+        : autosave.savedAt
+          ? `Autosaved ${new Date(autosave.savedAt).toLocaleTimeString()}`
+          : 'Autosaved';
+
+  return (
+    <div
+      className={`flex max-w-[360px] items-center gap-1 truncate text-[10px] ${
+        isError ? 'text-editor-warning' : 'text-editor-text-muted'
+      }`}
+      title={isError ? autosave.error : autosave.path}
+    >
+      {isError ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <Save className="h-3 w-3 shrink-0" />}
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
+function loadProjectState(data: ReturnType<typeof parseProjectFile>) {
+  useEditorStore.getState().loadProject(data);
+  useAIStore.getState().loadProjectAIState(data.aiWorkspace);
 }
 
 function ToolbarButton({

@@ -30,5 +30,9 @@ requests>=2.28.0
 # Audio cleanup
 deepfilternet>=0.5.0
 
+# Background removal
+mediapipe>=0.10.14
+opencv-python>=4.10.0
+
 # Utilities
 pydantic>=2.0.0

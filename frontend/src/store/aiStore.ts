@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion } from '../types/project';
+import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision } from '../types/project';
 
 const ENCRYPTED_KEY_PREFIX = 'scriptcut_enc_';
 const LEGACY_ENCRYPTED_KEY_PREFIX = 'aive_enc_';
@@ -27,7 +27,9 @@ interface AIState {
   defaultProvider: AIProvider;
   customFillerWords: string;
   fillerResult: FillerWordResult | null;
+  fillerDecisions: Record<number, FillerReviewDecision>;
   clipSuggestions: ClipSuggestion[];
+  clipDrafts: ClipDraft[];
   isProcessing: boolean;
   processingMessage: string;
   _keysHydrated: boolean;
@@ -38,8 +40,15 @@ interface AIActions {
   setDefaultProvider: (provider: AIProvider) => void;
   setCustomFillerWords: (words: string) => void;
   setFillerResult: (result: FillerWordResult | null) => void;
+  setFillerDecisions: (
+    decisions:
+      | Record<number, FillerReviewDecision>
+      | ((current: Record<number, FillerReviewDecision>) => Record<number, FillerReviewDecision>),
+  ) => void;
   setClipSuggestions: (suggestions: ClipSuggestion[]) => void;
+  setClipDrafts: (drafts: ClipDraft[] | ((current: ClipDraft[]) => ClipDraft[])) => void;
   setProcessing: (active: boolean, message?: string) => void;
+  loadProjectAIState: (workspace?: ProjectAIWorkspace) => void;
   hydrateKeys: () => Promise<void>;
 }
 
@@ -82,7 +91,9 @@ export const useAIStore = create<AIState & AIActions>()(
       defaultProvider: 'ollama',
       customFillerWords: '',
       fillerResult: null,
+      fillerDecisions: {},
       clipSuggestions: [],
+      clipDrafts: [],
       isProcessing: false,
       processingMessage: '',
       _keysHydrated: false,
@@ -104,12 +115,34 @@ export const useAIStore = create<AIState & AIActions>()(
 
       setCustomFillerWords: (words) => set({ customFillerWords: words }),
 
-      setFillerResult: (result) => set({ fillerResult: result }),
+      setFillerResult: (result) => set({ fillerResult: result, fillerDecisions: {} }),
+
+      setFillerDecisions: (decisions) =>
+        set((state) => ({
+          fillerDecisions:
+            typeof decisions === 'function' ? decisions(state.fillerDecisions) : decisions,
+        })),
 
       setClipSuggestions: (suggestions) => set({ clipSuggestions: suggestions }),
 
+      setClipDrafts: (drafts) =>
+        set((state) => ({
+          clipDrafts: typeof drafts === 'function' ? drafts(state.clipDrafts) : drafts,
+        })),
+
       setProcessing: (active, message) =>
         set({ isProcessing: active, processingMessage: message ?? '' }),
+
+      loadProjectAIState: (workspace) =>
+        set({
+          customFillerWords: workspace?.customFillerWords ?? get().customFillerWords,
+          fillerResult: workspace?.fillerResult ?? null,
+          fillerDecisions: workspace?.fillerDecisions ?? {},
+          clipSuggestions: workspace?.clipSuggestions ?? [],
+          clipDrafts: workspace?.clipDrafts ?? [],
+          isProcessing: false,
+          processingMessage: '',
+        }),
 
       hydrateKeys: async () => {
         const [openaiKey, claudeKey, routerKey] = await Promise.all([

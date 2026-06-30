@@ -1,26 +1,302 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
-import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download } from 'lucide-react';
-import type { ClipSuggestion } from '../types/project';
+import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard } from 'lucide-react';
+import type { CaptionStyle, ClipDraft, ClipSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
+
+type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
+
+type AIJob<T> = {
+  id: string;
+  kind: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  progress: number;
+  message: string;
+  logs?: Array<{ time: string; message: string }>;
+  result?: T;
+  error?: string;
+};
+
+type AIJobContext = {
+  label: string;
+  draftId?: string;
+};
+
+type ExportJob = {
+  id: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  progress: number;
+  message: string;
+  logs?: Array<{ time: string; message: string }>;
+  result?: { output_path?: string; srt_path?: string };
+  error?: string;
+};
+
+type BackgroundCapabilities = {
+  available: boolean;
+  mediapipe: boolean;
+  opencv: boolean;
+  rvm: boolean;
+  replacements: string[];
+};
+
+type ClipMetadataResult = {
+  hook?: string;
+  titles?: string[];
+  description?: string;
+  caption?: string;
+  hashtags?: string[];
+};
+
+const CLIP_CAPTION_PRESETS: Record<NonNullable<CaptionStyle['preset']>, CaptionStyle> = {
+  clean: {
+    preset: 'clean',
+    fontName: 'Arial',
+    fontSize: 48,
+    fontColor: '#ffffff',
+    backgroundColor: '#000000',
+    position: 'bottom',
+    bold: true,
+    wordsPerLine: 8,
+  },
+  creator: {
+    preset: 'creator',
+    fontName: 'Arial',
+    fontSize: 58,
+    fontColor: '#ffffff',
+    backgroundColor: '#111827',
+    position: 'bottom',
+    bold: true,
+    highlightColor: '#facc15',
+    wordsPerLine: 5,
+  },
+  karaoke: {
+    preset: 'karaoke',
+    fontName: 'Arial',
+    fontSize: 64,
+    fontColor: '#facc15',
+    backgroundColor: '#000000',
+    position: 'center',
+    bold: true,
+    highlightColor: '#22c55e',
+    wordsPerLine: 3,
+  },
+};
 
 export default function AIPanel() {
-  const { words, videoPath, backendUrl, deleteWordRange, setCurrentTime } = useEditorStore();
+  const {
+    words,
+    videoPath,
+    backendUrl,
+    deletedRanges,
+    deleteWordRange,
+    restoreRange,
+    setCurrentTime,
+    setPreviewAspectRatio,
+    setExportOptions,
+    getMutedRanges,
+    getCaptionHiddenIndices,
+  } = useEditorStore();
   const {
     defaultProvider,
     providers,
     customFillerWords,
     fillerResult,
+    fillerDecisions,
     clipSuggestions,
+    clipDrafts,
     isProcessing,
     processingMessage,
     setCustomFillerWords,
     setFillerResult,
+    setFillerDecisions,
     setClipSuggestions,
+    setClipDrafts,
     setProcessing,
   } = useAIStore();
 
   const [activeTab, setActiveTab] = useState<'filler' | 'clips'>('filler');
+  const [fillerQueueFilter, setFillerQueueFilter] = useState<FillerQueueFilter>('all');
+  const [fillerReasonFilter, setFillerReasonFilter] = useState('all');
+  const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
+  const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
+  const deletedWordMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const range of deletedRanges) {
+      for (const index of range.wordIndices) map.set(index, range.id);
+    }
+    return map;
+  }, [deletedRanges]);
+
+  useEffect(() => {
+    let canceled = false;
+    fetch(`${backendUrl}/background/capabilities`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!canceled) setBackgroundCapabilities(data);
+      })
+      .catch(() => {
+        if (!canceled) setBackgroundCapabilities(null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [backendUrl]);
+
+  const reviewedCount = useMemo(() => {
+    if (!fillerResult) return 0;
+    return fillerResult.fillerWords.filter(
+      (fw) => fillerDecisions[fw.index] || deletedWordMap.has(fw.index),
+    ).length;
+  }, [fillerResult, fillerDecisions, deletedWordMap]);
+
+  const safeFillerCount = useMemo(() => {
+    if (!fillerResult) return 0;
+    return fillerResult.fillerWords.filter(
+      (fw) =>
+        (fw.confidence ?? 0) >= 0.85 &&
+        fillerDecisions[fw.index] !== 'rejected' &&
+        !deletedWordMap.has(fw.index),
+    ).length;
+  }, [deletedWordMap, fillerDecisions, fillerResult]);
+
+  const fillerReasonBuckets = useMemo(() => {
+    if (!fillerResult) return [];
+    const buckets = new Map<string, number>();
+    for (const fw of fillerResult.fillerWords) {
+      const bucket = getFillerReasonBucket(fw.word, fw.reason);
+      buckets.set(bucket, (buckets.get(bucket) || 0) + 1);
+    }
+    return Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [fillerResult]);
+
+  const visibleFillerWords = useMemo(() => {
+    if (!fillerResult) return [];
+    return fillerResult.fillerWords.filter((fw) => {
+      const confidence = fw.confidence ?? 0;
+      const decision = fillerDecisions[fw.index];
+      const alreadyCut = deletedWordMap.has(fw.index);
+      const reasonBucket = getFillerReasonBucket(fw.word, fw.reason);
+
+      if (fillerReasonFilter !== 'all' && reasonBucket !== fillerReasonFilter) return false;
+      if (fillerQueueFilter === 'safe') return confidence >= 0.85 && !decision && !alreadyCut;
+      if (fillerQueueFilter === 'review') return confidence >= 0.6 && confidence < 0.85 && !decision && !alreadyCut;
+      if (fillerQueueFilter === 'low') return confidence < 0.6 && !decision && !alreadyCut;
+      if (fillerQueueFilter === 'unreviewed') return !decision && !alreadyCut;
+      if (fillerQueueFilter === 'accepted') return decision === 'accepted' || alreadyCut;
+      if (fillerQueueFilter === 'rejected') return decision === 'rejected';
+      return true;
+    });
+  }, [deletedWordMap, fillerDecisions, fillerQueueFilter, fillerReasonFilter, fillerResult]);
+
+  const acceptVisibleFillerDeletions = useCallback(() => {
+    const sorted = visibleFillerWords
+      .filter((fw) => fillerDecisions[fw.index] !== 'rejected' && !deletedWordMap.has(fw.index))
+      .sort((a, b) => b.index - a.index);
+    for (const fw of sorted) {
+      deleteWordRange(fw.index, fw.index);
+    }
+    setFillerDecisions((current) => {
+      const next = { ...current };
+      for (const fw of sorted) next[fw.index] = 'accepted';
+      return next;
+    });
+  }, [deletedWordMap, deleteWordRange, fillerDecisions, setFillerDecisions, visibleFillerWords]);
+
+  const speakerTurnClips = useMemo(() => {
+    const turns: ClipSuggestion[] = [];
+    if (words.length === 0 || !words.some((word) => word.speaker)) return turns;
+
+    let startIndex = 0;
+    let currentSpeaker = words[0].speaker || null;
+    const flush = (endIndex: number) => {
+      if (!currentSpeaker) return;
+      const startWord = words[startIndex];
+      const endWord = words[endIndex];
+      if (!startWord || !endWord) return;
+      const duration = endWord.end - startWord.start;
+      if (duration < 2) return;
+      turns.push({
+        title: `${currentSpeaker} ${formatClipTime(startWord.start)} turn`,
+        startWordIndex: startIndex,
+        endWordIndex: endIndex,
+        startTime: startWord.start,
+        endTime: endWord.end,
+        reason: `${currentSpeaker} speaks for ${Math.round(duration)} seconds.`,
+      });
+    };
+
+    for (let index = 1; index < words.length; index++) {
+      const speaker = words[index].speaker || null;
+      if (speaker === currentSpeaker) continue;
+      flush(index - 1);
+      startIndex = index;
+      currentSpeaker = speaker;
+    }
+    flush(words.length - 1);
+
+    return turns;
+  }, [words]);
+
+  const pollAIJob = useCallback(
+    async <T,>(jobId: string, fallbackMessage: string, context: AIJobContext) => {
+      for (;;) {
+        await new Promise((resolve) => window.setTimeout(resolve, 700));
+        const jobRes = await fetch(`${backendUrl}/jobs/${jobId}`);
+        if (!jobRes.ok) throw new Error(`${fallbackMessage} status failed: ${jobRes.statusText}`);
+        const job = (await jobRes.json()) as AIJob<T>;
+        setActiveAIJob({ ...job, ...context });
+        setProcessing(job.status === 'queued' || job.status === 'running', job.message || fallbackMessage);
+
+        if (job.status === 'succeeded') {
+          if (!job.result) throw new Error(`${fallbackMessage} finished without a result`);
+          return job.result;
+        }
+        if (job.status === 'failed' || job.status === 'canceled') {
+          throw new Error(job.error || job.message || `${fallbackMessage} ${job.status}`);
+        }
+      }
+    },
+    [backendUrl, setProcessing],
+  );
+
+  const startAIJob = useCallback(
+    async <T,>(path: string, body: unknown, fallbackMessage: string, context?: Partial<AIJobContext>) => {
+      const startRes = await fetch(`${backendUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!startRes.ok) {
+        const errorData = await startRes.json().catch(() => null);
+        throw new Error(errorData?.detail || `${fallbackMessage} start failed`);
+      }
+
+      const { job_id: jobId } = await startRes.json();
+      const jobContext = { label: context?.label || fallbackMessage, draftId: context?.draftId };
+      setActiveAIJob({
+        id: jobId,
+        kind: path.replace('/jobs/', ''),
+        status: 'queued',
+        progress: 0,
+        message: 'Queued',
+        logs: [],
+        ...jobContext,
+      });
+      return pollAIJob<T>(jobId, fallbackMessage, jobContext);
+    },
+    [backendUrl, pollAIJob],
+  );
+
+  const cancelAIJob = useCallback(async () => {
+    if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
+    const res = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/cancel`, { method: 'POST' });
+    if (res.ok) {
+      const job = (await res.json()) as AIJob<unknown>;
+      setActiveAIJob({ ...job, label: activeAIJob.label, draftId: activeAIJob.draftId });
+    }
+    setProcessing(false);
+  }, [activeAIJob, backendUrl, setProcessing]);
 
   const detectFillers = useCallback(async () => {
     if (words.length === 0) return;
@@ -28,10 +304,9 @@ export default function AIPanel() {
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
-      const res = await fetch(`${backendUrl}/ai/filler-removal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await startAIJob<FillerWordResult>(
+        '/jobs/ai/filler-removal',
+        {
           transcript,
           words: words.map((w, i) => ({ index: i, word: w.word })),
           provider: defaultProvider,
@@ -39,13 +314,10 @@ export default function AIPanel() {
           api_key: config.apiKey || undefined,
           base_url: config.baseUrl || undefined,
           custom_filler_words: customFillerWords || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        throw new Error(errorData?.detail || 'Filler detection failed');
-      }
-      const data = await res.json();
+        },
+        'Filler detection',
+        { label: 'Filler detection' },
+      );
       setFillerResult(data);
     } catch (err) {
       console.error(err);
@@ -53,7 +325,7 @@ export default function AIPanel() {
     } finally {
       setProcessing(false);
     }
-  }, [words, backendUrl, defaultProvider, providers, customFillerWords, setProcessing, setFillerResult]);
+  }, [words, defaultProvider, providers, customFillerWords, setProcessing, setFillerResult, startAIJob]);
 
   const createClips = useCallback(async () => {
     if (words.length === 0) return;
@@ -61,10 +333,9 @@ export default function AIPanel() {
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
-      const res = await fetch(`${backendUrl}/ai/create-clip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await startAIJob<{ clips?: ClipSuggestion[] }>(
+        '/jobs/ai/create-clip',
+        {
           transcript,
           words: words.map((w, i) => ({
             index: i,
@@ -77,13 +348,10 @@ export default function AIPanel() {
           api_key: config.apiKey || undefined,
           base_url: config.baseUrl || undefined,
           target_duration: 60,
-        }),
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        throw new Error(errorData?.detail || 'Clip creation failed');
-      }
-      const data = await res.json();
+        },
+        'Clip discovery',
+        { label: 'Clip discovery' },
+      );
       setClipSuggestions(data.clips || []);
     } catch (err) {
       console.error(err);
@@ -91,19 +359,98 @@ export default function AIPanel() {
     } finally {
       setProcessing(false);
     }
-  }, [words, backendUrl, defaultProvider, providers, setProcessing, setClipSuggestions]);
+  }, [words, defaultProvider, providers, setProcessing, setClipSuggestions, startAIJob]);
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
-    const sorted = [...fillerResult.fillerWords].sort((a, b) => b.index - a.index);
+    const sorted = fillerResult.fillerWords
+      .filter((fw) => fillerDecisions[fw.index] !== 'rejected' && !deletedWordMap.has(fw.index))
+      .sort((a, b) => b.index - a.index);
     for (const fw of sorted) {
       deleteWordRange(fw.index, fw.index);
     }
-    setFillerResult(null);
-  }, [fillerResult, deleteWordRange, setFillerResult]);
+    setFillerDecisions((current) => {
+      const next = { ...current };
+      for (const fw of sorted) next[fw.index] = 'accepted';
+      return next;
+    });
+  }, [fillerResult, fillerDecisions, deletedWordMap, deleteWordRange, setFillerDecisions]);
+
+  const acceptSafeFillerDeletions = useCallback(() => {
+    if (!fillerResult) return;
+    const sorted = fillerResult.fillerWords
+      .filter(
+        (fw) =>
+          (fw.confidence ?? 0) >= 0.85 &&
+          fillerDecisions[fw.index] !== 'rejected' &&
+          !deletedWordMap.has(fw.index),
+      )
+      .sort((a, b) => b.index - a.index);
+    for (const fw of sorted) {
+      deleteWordRange(fw.index, fw.index);
+    }
+    setFillerDecisions((current) => {
+      const next = { ...current };
+      for (const fw of sorted) next[fw.index] = 'accepted';
+      return next;
+    });
+  }, [deletedWordMap, deleteWordRange, fillerDecisions, fillerResult, setFillerDecisions]);
+
+  const handlePreviewFiller = useCallback(
+    (index: number) => {
+      const word = words[index];
+      if (!word) return;
+
+      const previewStart = Math.max(0, word.start - 0.35);
+      setCurrentTime(previewStart);
+      const video = document.querySelector('video');
+      if (video) {
+        video.currentTime = previewStart;
+        video.play();
+      }
+    },
+    [words, setCurrentTime],
+  );
+
+  const acceptFiller = useCallback(
+    (index: number) => {
+      if (!deletedWordMap.has(index)) {
+        deleteWordRange(index, index);
+      }
+      setFillerDecisions((current) => ({ ...current, [index]: 'accepted' }));
+    },
+    [deletedWordMap, deleteWordRange, setFillerDecisions],
+  );
+
+  const rejectFiller = useCallback((index: number) => {
+    setFillerDecisions((current) => ({ ...current, [index]: 'rejected' }));
+  }, [setFillerDecisions]);
+
+  const restoreAcceptedFiller = useCallback(
+    (index: number) => {
+      const rangeId = deletedWordMap.get(index);
+      if (rangeId) restoreRange(rangeId);
+      setFillerDecisions((current) => {
+        const next = { ...current };
+        delete next[index];
+        return next;
+      });
+    },
+    [deletedWordMap, restoreRange, setFillerDecisions],
+  );
 
   const handlePreviewClip = useCallback(
     (clip: ClipSuggestion) => {
+      const draftSettings = clip as Partial<ClipDraft>;
+      if (isPreviewAspectRatio(draftSettings.aspectRatio)) {
+        const aspectRatio = draftSettings.aspectRatio;
+        setPreviewAspectRatio(aspectRatio);
+        setExportOptions((current) => ({
+          ...current,
+          aspectRatio,
+          reframe: draftSettings.reframe || current.reframe || { x: 50, y: 50 },
+        }));
+      }
       setCurrentTime(clip.startTime);
       const video = document.querySelector('video');
       if (video) {
@@ -111,44 +458,399 @@ export default function AIPanel() {
         video.play();
       }
     },
-    [setCurrentTime],
+    [setCurrentTime, setExportOptions, setPreviewAspectRatio],
   );
 
   const [exportingClipIndex, setExportingClipIndex] = useState<number | null>(null);
+  const [exportingDraftId, setExportingDraftId] = useState<string | null>(null);
+  const [clipExportJobs, setClipExportJobs] = useState<Record<string, ExportJob>>({});
+  const [isBatchExporting, setBatchExporting] = useState(false);
+  const [batchExportProgress, setBatchExportProgress] = useState({ completed: 0, total: 0, stopping: false });
+  const stopBatchExportRef = useRef(false);
+  const [packagingDraftId, setPackagingDraftId] = useState<string | null>(null);
+
+  const pollClipExportJob = useCallback(
+    async (jobId: string, draftId?: string) => {
+      for (;;) {
+        await new Promise((resolve) => window.setTimeout(resolve, 700));
+        const res = await fetch(`${backendUrl}/jobs/${jobId}`);
+        if (!res.ok) throw new Error(`Could not read clip export job: ${res.statusText}`);
+        const job = (await res.json()) as ExportJob;
+        if (draftId) {
+          setClipExportJobs((current) => ({ ...current, [draftId]: job }));
+        }
+
+        if (job.status === 'succeeded') {
+          return {
+            outputPath: job.result?.output_path || '',
+            srtPath: job.result?.srt_path,
+          };
+        }
+        if (job.status === 'failed' || job.status === 'canceled') {
+          throw new Error(job.error || job.message || `Clip export ${job.status}`);
+        }
+      }
+    },
+    [backendUrl],
+  );
 
   const handleExportClip = useCallback(
-    async (clip: ClipSuggestion, index: number) => {
+    async (
+      clip: ClipSuggestion,
+      settings?: Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'id'>,
+      silent = false,
+    ) => {
       if (!videoPath) return;
-      setExportingClipIndex(index);
       try {
+        const format = settings?.format ?? 'mp4';
+        const aspectRatio = settings?.aspectRatio ?? 'source';
+        const captions = settings?.captions ?? 'none';
         const safeName = clip.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
         const dirSep = videoPath.lastIndexOf('\\') >= 0 ? '\\' : '/';
         const dir = videoPath.substring(0, videoPath.lastIndexOf(dirSep));
-        const outputPath = `${dir}${dirSep}${safeName}_clip.mp4`;
+        const outputPath = `${dir}${dirSep}${safeName}_clip.${format}`;
+        const clipWords = buildClipCaptionWords(words, clip.startWordIndex, clip.endWordIndex, clip.startTime);
+        const captionHidden = new Set(getCaptionHiddenIndices());
+        const deletedSet = new Set<number>();
+        for (const range of deletedRanges) {
+          for (const index of range.wordIndices) deletedSet.add(index);
+        }
+        const deletedClipIndices = clipWords
+          .map((_, localIndex) => clip.startWordIndex + localIndex)
+          .map((globalIndex, localIndex) => (deletedSet.has(globalIndex) || captionHidden.has(globalIndex) ? localIndex : -1))
+          .filter((index) => index >= 0);
 
-        const res = await fetch(`${backendUrl}/export`, {
+        const res = await fetch(`${backendUrl}/jobs/export`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             input_path: videoPath,
             output_path: outputPath,
             keep_segments: [{ start: clip.startTime, end: clip.endTime }],
-            mode: 'fast',
-            format: 'mp4',
+            mode: aspectRatio === 'source' && format === 'mp4' && captions !== 'burn-in' ? 'fast' : 'reencode',
+            resolution: settings?.resolution ?? '1080p',
+            aspectRatio,
+            reframe: settings?.reframe,
+            format,
+            enhanceAudio: !!settings?.enhanceAudio,
+            captions,
+            captionStyle: captions === 'burn-in' ? settings?.captionStyle : undefined,
+            words: captions !== 'none' ? clipWords : undefined,
+            deleted_indices: captions !== 'none' ? deletedClipIndices : undefined,
+            muted_ranges: getMutedRanges(),
+            backgroundRemoval: settings?.backgroundRemoval?.enabled ? settings.backgroundRemoval : undefined,
           }),
         });
-        if (!res.ok) throw new Error('Export failed');
-        const data = await res.json();
-        alert(`Clip exported to: ${data.output_path}`);
+        if (!res.ok) throw new Error('Export start failed');
+        const { job_id: jobId } = await res.json();
+        if (settings?.id) {
+          setClipExportJobs((current) => ({
+            ...current,
+            [settings.id!]: {
+              id: jobId,
+              status: 'queued',
+              progress: 0,
+              message: 'Queued',
+              logs: [],
+            },
+          }));
+        }
+        const output = await pollClipExportJob(jobId, settings?.id);
+        if (!silent) {
+          alert(
+            output.srtPath
+              ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}`
+              : `Clip exported to: ${output.outputPath}`,
+          );
+        }
+        return output.outputPath;
       } catch (err) {
         console.error(err);
-        alert('Failed to export clip. Check console for details.');
+        const message = err instanceof Error ? err.message : String(err);
+        if (!silent && !message.toLowerCase().includes('canceled')) {
+          alert('Failed to export clip. Check console for details.');
+        }
+        throw err;
       } finally {
         setExportingClipIndex(null);
       }
     },
-    [videoPath, backendUrl],
+    [videoPath, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob],
   );
+
+  const cancelDraftExport = useCallback(
+    async (draftId: string) => {
+      const job = clipExportJobs[draftId];
+      if (!job || !['queued', 'running'].includes(job.status)) return;
+      const res = await fetch(`${backendUrl}/jobs/${job.id}/cancel`, { method: 'POST' });
+      if (res.ok) {
+        const canceledJob = (await res.json()) as ExportJob;
+        setClipExportJobs((current) => ({ ...current, [draftId]: canceledJob }));
+      }
+      setExportingDraftId((current) => (current === draftId ? null : current));
+    },
+    [backendUrl, clipExportJobs],
+  );
+
+  const retryDraftExport = useCallback(
+    async (draft: ClipDraft) => {
+      const job = clipExportJobs[draft.id];
+      if (!job || !['failed', 'canceled'].includes(job.status)) return;
+      setExportingDraftId(draft.id);
+      try {
+        const res = await fetch(`${backendUrl}/jobs/${job.id}/retry`, { method: 'POST' });
+        if (!res.ok) throw new Error(`Retry failed: ${res.statusText}`);
+        const { job_id: jobId } = await res.json();
+        setClipExportJobs((current) => ({
+          ...current,
+          [draft.id]: {
+            id: jobId,
+            status: 'queued',
+            progress: 0,
+            message: 'Retry queued',
+            logs: [],
+          },
+        }));
+        const output = await pollClipExportJob(jobId, draft.id);
+        alert(
+          output.srtPath
+            ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}`
+            : `Clip exported to: ${output.outputPath}`,
+        );
+      } catch (err) {
+        console.error(err);
+        alert(`Clip retry failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setExportingDraftId(null);
+      }
+    },
+    [backendUrl, clipExportJobs, pollClipExportJob],
+  );
+
+  const handleExportSuggestedClip = useCallback(
+    async (clip: ClipSuggestion, index: number) => {
+      setExportingClipIndex(index);
+      try {
+        await handleExportClip(clip);
+      } finally {
+        setExportingClipIndex(null);
+      }
+    },
+    [handleExportClip],
+  );
+
+  const createClipDraft = useCallback(
+    (clip: ClipSuggestion, source: ClipDraft['source'] = 'ai', speaker?: string) => {
+      setClipDrafts((current) => [
+        ...current,
+        {
+          ...clip,
+          id: `clip_${Date.now()}_${current.length}`,
+          format: 'mp4',
+          resolution: '1080p',
+          aspectRatio: 'source',
+          reframe: { x: 50, y: 50 },
+          enhanceAudio: false,
+          captions: 'none',
+          captionStyle: CLIP_CAPTION_PRESETS.creator,
+          backgroundRemoval: { enabled: false, replacement: 'blur', color: '#111827' },
+          source,
+          speaker,
+        },
+      ]);
+    },
+    [setClipDrafts],
+  );
+
+  const createSpeakerTurnDrafts = useCallback(() => {
+    if (speakerTurnClips.length === 0) return;
+    setClipDrafts((current) => [
+      ...current,
+      ...speakerTurnClips.map((clip, index) => {
+        const speaker = words[clip.startWordIndex]?.speaker || 'Unknown speaker';
+        return {
+          ...clip,
+          id: `speaker_clip_${Date.now()}_${current.length}_${index}`,
+          format: 'mp4' as const,
+          resolution: '1080p' as const,
+          aspectRatio: 'source' as const,
+          reframe: { x: 50, y: 50 },
+          enhanceAudio: false,
+          captions: 'none' as const,
+          captionStyle: CLIP_CAPTION_PRESETS.creator,
+          backgroundRemoval: { enabled: false, replacement: 'blur' as const, color: '#111827' },
+          source: 'speaker-turn' as const,
+          speaker,
+        };
+      }),
+    ]);
+  }, [setClipDrafts, speakerTurnClips, words]);
+
+  const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
+    setClipDrafts((current) =>
+      current.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
+    );
+  }, [setClipDrafts]);
+
+  const removeClipDraft = useCallback((id: string) => {
+    setClipDrafts((current) => current.filter((draft) => draft.id !== id));
+  }, [setClipDrafts]);
+
+  const copyClipPackage = useCallback(
+    async (draft: ClipDraft) => {
+      const packageText = formatClipPackage(
+        draft,
+        words.slice(draft.startWordIndex, draft.endWordIndex + 1),
+      );
+      try {
+        await navigator.clipboard.writeText(packageText);
+        alert('Clip package copied.');
+      } catch (err) {
+        console.error('Clip package copy failed:', err);
+        alert(`Could not copy clip package.\n\n${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [words],
+  );
+
+  const handleExportDraft = useCallback(
+    async (draft: ClipDraft) => {
+      setExportingDraftId(draft.id);
+      try {
+        await handleExportClip(draft, draft);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.toLowerCase().includes('canceled')) {
+          console.error(err);
+        }
+      } finally {
+        setExportingDraftId(null);
+      }
+    },
+    [handleExportClip],
+  );
+
+  const handleExportAllDrafts = useCallback(async () => {
+    if (clipDrafts.length === 0) return;
+    stopBatchExportRef.current = false;
+    setBatchExporting(true);
+    setBatchExportProgress({ completed: 0, total: clipDrafts.length, stopping: false });
+    let completedCount = 0;
+    try {
+      for (let index = 0; index < clipDrafts.length; index++) {
+        if (stopBatchExportRef.current) break;
+        const draft = clipDrafts[index];
+        setExportingDraftId(draft.id);
+        setClipExportJobs((current) => {
+          const next = { ...current };
+          delete next[draft.id];
+          return next;
+        });
+        await handleExportClip(draft, draft, true);
+        completedCount = index + 1;
+        setBatchExportProgress((current) => ({ ...current, completed: index + 1 }));
+      }
+      alert(
+        stopBatchExportRef.current
+          ? `Stopped batch export after ${completedCount} of ${clipDrafts.length} clips.`
+          : `Exported ${clipDrafts.length} clip drafts.`,
+      );
+    } catch (err) {
+      console.error(err);
+      alert(`Batch export failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExportingDraftId(null);
+      setBatchExporting(false);
+      stopBatchExportRef.current = false;
+      setBatchExportProgress((current) => ({ ...current, stopping: false }));
+    }
+  }, [clipDrafts, handleExportClip]);
+
+  const stopBatchExport = useCallback(() => {
+    stopBatchExportRef.current = true;
+    setBatchExportProgress((current) => ({ ...current, stopping: true }));
+  }, []);
+
+  const packageClipDraft = useCallback(
+    async (draft: ClipDraft) => {
+      setPackagingDraftId(draft.id);
+      try {
+        const config = providers[defaultProvider];
+        const transcript = words
+          .slice(draft.startWordIndex, draft.endWordIndex + 1)
+          .map((word) => word.word)
+          .join(' ');
+        if (!transcript.trim()) throw new Error('This draft has no transcript text to package.');
+        const data = await startAIJob<ClipMetadataResult>(
+          '/jobs/ai/clip-metadata',
+          {
+            transcript,
+            provider: defaultProvider,
+            model: config.model,
+            api_key: config.apiKey || undefined,
+            base_url: config.baseUrl || undefined,
+          },
+          'Clip packaging',
+          { label: 'Clip packaging', draftId: draft.id },
+        );
+        updateClipDraft(draft.id, {
+          hook: data.hook || '',
+          title: data.titles?.[0] || draft.title,
+          description: data.description || '',
+          caption: data.caption || '',
+          hashtags: data.hashtags || [],
+        });
+      } catch (err) {
+        console.error(err);
+        alert(`Clip packaging failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setPackagingDraftId(null);
+      }
+    },
+    [defaultProvider, providers, startAIJob, updateClipDraft, words],
+  );
+
+  const retryAIJob = useCallback(async () => {
+    if (!activeAIJob || !['failed', 'canceled'].includes(activeAIJob.status)) return;
+    setProcessing(true, `Retrying ${activeAIJob.label}...`);
+    try {
+      const retryRes = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/retry`, { method: 'POST' });
+      if (!retryRes.ok) throw new Error(`Retry failed: ${retryRes.statusText}`);
+      const { job_id: jobId } = await retryRes.json();
+      const context = { label: activeAIJob.label, draftId: activeAIJob.draftId };
+      const result = await pollAIJob<unknown>(jobId, activeAIJob.label, context);
+
+      if (activeAIJob.kind === 'ai:filler-removal') {
+        setFillerResult(result as FillerWordResult);
+      } else if (activeAIJob.kind === 'ai:create-clip') {
+        const clipResult = result as { clips?: ClipSuggestion[] };
+        setClipSuggestions(clipResult.clips || []);
+      } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
+        const metadata = result as ClipMetadataResult;
+        const patch: Partial<ClipDraft> = {
+          hook: metadata.hook || '',
+          description: metadata.description || '',
+          caption: metadata.caption || '',
+          hashtags: metadata.hashtags || [],
+        };
+        if (metadata.titles?.[0]) patch.title = metadata.titles[0];
+        updateClipDraft(activeAIJob.draftId, patch);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(`AI retry failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setProcessing(false);
+    }
+  }, [
+    activeAIJob,
+    backendUrl,
+    pollAIJob,
+    setClipSuggestions,
+    setFillerResult,
+    setProcessing,
+    updateClipDraft,
+  ]);
 
   return (
     <div className="flex flex-col h-full">
@@ -168,6 +870,10 @@ export default function AIPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
+        {activeAIJob && (
+          <AIJobStatusCard job={activeAIJob} onCancel={cancelAIJob} onRetry={retryAIJob} />
+        )}
+
         {activeTab === 'filler' && (
           <div className="space-y-4">
             <p className="text-xs text-editor-text-muted">
@@ -207,15 +913,29 @@ export default function AIPanel() {
             {fillerResult && fillerResult.fillerWords.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">
-                    Found {fillerResult.fillerWords.length} filler words
+                  <span className="text-xs font-medium truncate">
+                    {reviewedCount}/{fillerResult.fillerWords.length} reviewed
                   </span>
                   <div className="flex gap-1">
+                    <button
+                      onClick={acceptSafeFillerDeletions}
+                      disabled={safeFillerCount === 0}
+                      className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-accent/20 text-editor-accent rounded hover:bg-editor-accent/30 disabled:opacity-40"
+                    >
+                      <Check className="w-3 h-3" /> Accept Safe
+                    </button>
+                    <button
+                      onClick={acceptVisibleFillerDeletions}
+                      disabled={visibleFillerWords.every((fw) => fillerDecisions[fw.index] === 'rejected' || deletedWordMap.has(fw.index))}
+                      className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-success/20 text-editor-success rounded hover:bg-editor-success/30 disabled:opacity-40"
+                    >
+                      <Check className="w-3 h-3" /> Accept Visible
+                    </button>
                     <button
                       onClick={applyFillerDeletions}
                       className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-success/20 text-editor-success rounded hover:bg-editor-success/30"
                     >
-                      <Check className="w-3 h-3" /> Apply All
+                      <Check className="w-3 h-3" /> Accept Rest
                     </button>
                     <button
                       onClick={() => setFillerResult(null)}
@@ -225,18 +945,64 @@ export default function AIPanel() {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-1 max-h-64 overflow-y-auto">
-                  {fillerResult.fillerWords.map((fw) => (
-                    <div
-                      key={fw.index}
-                      className="flex items-center justify-between px-2 py-1.5 bg-editor-word-filler rounded text-xs"
+                <div className="grid grid-cols-2 gap-2 rounded bg-editor-surface px-2.5 py-2">
+                  <label className="space-y-1 text-[11px] text-editor-text-muted">
+                    <span className="flex items-center gap-1">
+                      <Filter className="w-3 h-3" /> Confidence
+                    </span>
+                    <select
+                      value={fillerQueueFilter}
+                      onChange={(event) => setFillerQueueFilter(event.target.value as FillerQueueFilter)}
+                      className="w-full rounded border border-editor-border bg-editor-panel px-2 py-1 text-xs text-editor-text focus:border-editor-accent focus:outline-none"
                     >
-                      <span>
-                        <strong>"{fw.word}"</strong>
-                        <span className="text-editor-text-muted ml-1">— {fw.reason}</span>
-                      </span>
-                    </div>
+                      <option value="all">All suggestions</option>
+                      <option value="unreviewed">Unreviewed</option>
+                      <option value="safe">Safe only</option>
+                      <option value="review">Needs review</option>
+                      <option value="low">Low confidence</option>
+                      <option value="accepted">Accepted</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-[11px] text-editor-text-muted">
+                    <span>Reason</span>
+                    <select
+                      value={fillerReasonFilter}
+                      onChange={(event) => setFillerReasonFilter(event.target.value)}
+                      className="w-full rounded border border-editor-border bg-editor-panel px-2 py-1 text-xs text-editor-text focus:border-editor-accent focus:outline-none"
+                    >
+                      <option value="all">All reasons</option>
+                      {fillerReasonBuckets.map(([bucket, count]) => (
+                        <option key={bucket} value={bucket}>
+                          {bucket} ({count})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="col-span-2 text-[11px] text-editor-text-muted">
+                    Showing {visibleFillerWords.length} of {fillerResult.fillerWords.length} suggestions
+                  </div>
+                </div>
+                <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+                  {visibleFillerWords.map((fw) => (
+                    <FillerReviewItem
+                      key={fw.index}
+                      word={fw.word}
+                      reason={fw.reason}
+                      confidence={fw.confidence}
+                      decision={fillerDecisions[fw.index]}
+                      alreadyCut={deletedWordMap.has(fw.index) && !fillerDecisions[fw.index]}
+                      onPreview={() => handlePreviewFiller(fw.index)}
+                      onAccept={() => acceptFiller(fw.index)}
+                      onReject={() => rejectFiller(fw.index)}
+                      onRestore={() => restoreAcceptedFiller(fw.index)}
+                    />
                   ))}
+                  {visibleFillerWords.length === 0 && (
+                    <p className="rounded bg-editor-surface px-3 py-2 text-xs text-editor-text-muted">
+                      No suggestions match these filters.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -271,8 +1037,96 @@ export default function AIPanel() {
               )}
             </button>
 
+            {speakerTurnClips.length > 0 && (
+              <button
+                onClick={createSpeakerTurnDrafts}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-border text-editor-text-muted hover:bg-editor-surface rounded-lg text-sm font-medium transition-colors"
+              >
+                <Users className="w-4 h-4" />
+                Draft {speakerTurnClips.length} Speaker Turns
+              </button>
+            )}
+
+            {clipDrafts.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Clip Drafts</span>
+                  <div className="flex items-center gap-1">
+                    {isBatchExporting && (
+                      <button
+                        onClick={stopBatchExport}
+                        className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+                      >
+                        <X className="w-3 h-3" />
+                        {batchExportProgress.stopping ? 'Stopping' : 'Stop'}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleExportAllDrafts}
+                      disabled={isBatchExporting}
+                      className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
+                    >
+                      {isBatchExporting ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                      Export All
+                    </button>
+                  </div>
+                </div>
+                {isBatchExporting && (
+                  <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
+                    <div className="flex justify-between gap-2">
+                      <span>
+                        Exporting {batchExportProgress.completed + 1 > batchExportProgress.total ? batchExportProgress.total : batchExportProgress.completed + 1} of {batchExportProgress.total}
+                      </span>
+                      <span>{batchExportProgress.stopping ? 'Stopping after current clip' : `${batchExportProgress.completed}/${batchExportProgress.total} done`}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded bg-editor-border">
+                      <div
+                        className="h-full bg-editor-success"
+                        style={{
+                          width: `${Math.max(
+                            4,
+                            Math.min(
+                              100,
+                              batchExportProgress.total
+                                ? (batchExportProgress.completed / batchExportProgress.total) * 100
+                                : 0,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {clipDrafts.map((draft) => (
+                    <ClipDraftCard
+                      key={draft.id}
+                      draft={draft}
+                      isExporting={exportingDraftId === draft.id}
+                      exportJob={clipExportJobs[draft.id]}
+                      backgroundCapabilities={backgroundCapabilities}
+                      onChange={(patch) => updateClipDraft(draft.id, patch)}
+                      onPreview={() => handlePreviewClip(draft)}
+                      onExport={() => handleExportDraft(draft)}
+                      onCancelExport={() => cancelDraftExport(draft.id)}
+                      onRetryExport={() => retryDraftExport(draft)}
+                      onPackage={() => packageClipDraft(draft)}
+                      onCopyPackage={() => copyClipPackage(draft)}
+                      onRemove={() => removeClipDraft(draft.id)}
+                      isPackaging={packagingDraftId === draft.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {clipSuggestions.length > 0 && (
               <div className="space-y-3">
+                <span className="text-xs font-medium">Suggestions</span>
                 {clipSuggestions.map((clip, i) => (
                   <div key={i} className="p-3 bg-editor-surface rounded-lg space-y-2">
                     <div className="flex items-center justify-between">
@@ -282,17 +1136,23 @@ export default function AIPanel() {
                       </span>
                     </div>
                     <p className="text-[11px] text-editor-text-muted">{clip.reason}</p>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button
                         onClick={() => handlePreviewClip(clip)}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-accent/20 text-editor-accent rounded hover:bg-editor-accent/30 transition-colors"
+                        className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-accent/20 text-editor-accent rounded hover:bg-editor-accent/30 transition-colors"
                       >
                         <Play className="w-3 h-3" /> Preview
                       </button>
                       <button
-                        onClick={() => handleExportClip(clip, i)}
+                        onClick={() => createClipDraft(clip)}
+                        className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-border text-editor-text-muted rounded hover:bg-editor-surface transition-colors"
+                      >
+                        <Plus className="w-3 h-3" /> Draft
+                      </button>
+                      <button
+                        onClick={() => handleExportSuggestedClip(clip, i)}
                         disabled={exportingClipIndex === i}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-success/20 text-editor-success rounded hover:bg-editor-success/30 disabled:opacity-50 transition-colors"
+                        className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-success/20 text-editor-success rounded hover:bg-editor-success/30 disabled:opacity-50 transition-colors"
                       >
                         {exportingClipIndex === i ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -308,6 +1168,833 @@ export default function AIPanel() {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ClipDraftCard({
+  draft,
+  isExporting,
+  isPackaging,
+  exportJob,
+  backgroundCapabilities,
+  onChange,
+  onPreview,
+  onExport,
+  onCancelExport,
+  onRetryExport,
+  onPackage,
+  onCopyPackage,
+  onRemove,
+}: {
+  draft: ClipDraft;
+  isExporting: boolean;
+  isPackaging: boolean;
+  exportJob?: ExportJob;
+  backgroundCapabilities: BackgroundCapabilities | null;
+  onChange: (patch: Partial<ClipDraft>) => void;
+  onPreview: () => void;
+  onExport: () => void;
+  onCancelExport: () => void;
+  onRetryExport: () => void;
+  onPackage: () => void;
+  onCopyPackage: () => void;
+  onRemove: () => void;
+}) {
+  const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running';
+  const exportRetryable = exportJob?.status === 'failed' || exportJob?.status === 'canceled';
+
+  return (
+    <div className="space-y-2 rounded bg-editor-surface p-3">
+      <input
+        value={draft.title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-xs font-semibold text-editor-text focus:border-editor-accent focus:outline-none"
+      />
+      <div className="flex items-center justify-between text-[10px] text-editor-text-muted">
+        <span>
+          {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)}
+        </span>
+        <span>{Math.round(draft.endTime - draft.startTime)}s</span>
+      </div>
+      {(draft.source || draft.speaker) && (
+        <div className="flex flex-wrap items-center gap-1 text-[10px]">
+          {draft.source && (
+            <span className="rounded bg-editor-accent/10 px-1.5 py-0.5 text-editor-accent">
+              {draft.source === 'speaker-turn' ? 'Speaker turn' : 'AI clip'}
+            </span>
+          )}
+          {draft.speaker && (
+            <span className="rounded bg-editor-border px-1.5 py-0.5 text-editor-text-muted">
+              {draft.speaker}
+            </span>
+          )}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="In"
+          value={draft.startTime}
+          onChange={(startTime) => onChange({ startTime: Math.max(0, Math.min(startTime, draft.endTime - 0.25)) })}
+        />
+        <NumberField
+          label="Out"
+          value={draft.endTime}
+          onChange={(endTime) => onChange({ endTime: Math.max(draft.startTime + 0.25, endTime) })}
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <MiniSelect
+          label="Frame"
+          value={draft.aspectRatio}
+          onChange={(aspectRatio) =>
+            onChange({
+              aspectRatio: aspectRatio as ClipDraft['aspectRatio'],
+              reframe: draft.reframe || { x: 50, y: 50 },
+            })
+          }
+          options={[
+            { value: 'source', label: 'Source' },
+            { value: 'vertical', label: '9:16' },
+            { value: 'square', label: '1:1' },
+          ]}
+        />
+        <MiniSelect
+          label="Quality"
+          value={draft.resolution}
+          onChange={(resolution) => onChange({ resolution: resolution as ClipDraft['resolution'] })}
+          options={[
+            { value: '720p', label: '720p' },
+            { value: '1080p', label: '1080p' },
+            { value: '4k', label: '4K' },
+          ]}
+        />
+        <MiniSelect
+          label="Format"
+          value={draft.format}
+          onChange={(format) => onChange({ format: format as ClipDraft['format'] })}
+          options={[
+            { value: 'mp4', label: 'MP4' },
+            { value: 'mov', label: 'MOV' },
+            { value: 'webm', label: 'WebM' },
+          ]}
+        />
+      </div>
+      {draft.aspectRatio !== 'source' && (
+        <ClipReframeControls
+          value={draft.reframe}
+          onChange={(reframe) => onChange({ reframe })}
+        />
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <MiniSelect
+          label="Captions"
+          value={draft.captions || 'none'}
+          onChange={(captions) =>
+            onChange({
+              captions: captions as ClipDraft['captions'],
+              captionStyle: draft.captionStyle || CLIP_CAPTION_PRESETS.creator,
+            })
+          }
+          options={[
+            { value: 'none', label: 'None' },
+            { value: 'burn-in', label: 'Burn-in' },
+            { value: 'sidecar', label: 'SRT' },
+          ]}
+        />
+        <MiniSelect
+          label="Style"
+          value={draft.captionStyle?.preset || 'creator'}
+          onChange={(preset) =>
+            onChange({
+              captions: draft.captions === 'none' ? 'burn-in' : draft.captions,
+              captionStyle: CLIP_CAPTION_PRESETS[preset as NonNullable<CaptionStyle['preset']>],
+            })
+          }
+          options={[
+            { value: 'clean', label: 'Clean' },
+            { value: 'creator', label: 'Creator' },
+            { value: 'karaoke', label: 'Karaoke' },
+          ]}
+        />
+      </div>
+      {(draft.captions || 'none') === 'burn-in' && (
+        <ClipCaptionStyleControls
+          value={draft.captionStyle || CLIP_CAPTION_PRESETS.creator}
+          onChange={(captionStyle) => onChange({ captionStyle })}
+        />
+      )}
+      <label className="flex items-center justify-between gap-2 rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text-muted">
+        <span>Enhance audio</span>
+        <input
+          type="checkbox"
+          checked={!!draft.enhanceAudio}
+          onChange={(e) => onChange({ enhanceAudio: e.target.checked })}
+          className="h-3.5 w-3.5 rounded bg-editor-surface border-editor-border accent-editor-accent"
+        />
+      </label>
+      <ClipBackgroundControls
+        draft={draft}
+        capabilities={backgroundCapabilities}
+        onChange={onChange}
+      />
+      <p className="text-[11px] leading-snug text-editor-text-muted">{draft.reason}</p>
+      {(isExporting || exportRetryable) && exportJob && (
+        <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text-muted">
+          <div className="flex justify-between gap-2">
+            <span className="truncate">{exportJob.message || exportJob.status}</span>
+            <span>{Math.round(exportJob.progress || 0)}%</span>
+          </div>
+          <div className="h-1 overflow-hidden rounded bg-editor-border">
+            <div
+              className="h-full bg-editor-success"
+              style={{ width: `${Math.max(4, Math.min(100, exportJob.progress || 0))}%` }}
+            />
+          </div>
+          {exportJob.error && <div className="break-words text-editor-warning">{exportJob.error}</div>}
+        </div>
+      )}
+      {(draft.hook || draft.description || draft.caption || draft.hashtags?.length) && (
+        <div className="space-y-1 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
+          {draft.hook && (
+            <EditableText
+              label="Hook"
+              value={draft.hook}
+              onChange={(hook) => onChange({ hook })}
+            />
+          )}
+          {draft.description && (
+            <EditableText
+              label="Description"
+              value={draft.description}
+              onChange={(description) => onChange({ description })}
+            />
+          )}
+          {draft.caption && (
+            <EditableText
+              label="Caption"
+              value={draft.caption}
+              onChange={(caption) => onChange({ caption })}
+            />
+          )}
+          {draft.hashtags && draft.hashtags.length > 0 && (
+            <EditableText
+              label="Hashtags"
+              value={draft.hashtags.map((tag) => `#${tag.replace(/^#/, '')}`).join(' ')}
+              onChange={(value) =>
+                onChange({
+                  hashtags: value
+                    .split(/\s+/)
+                    .map((tag) => tag.trim().replace(/^#/, ''))
+                    .filter(Boolean),
+                })
+              }
+            />
+          )}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={onPreview}
+          className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30"
+        >
+          <Play className="w-3 h-3" /> Preview
+        </button>
+        <button
+          onClick={onPackage}
+          disabled={isPackaging}
+          className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
+        >
+          {isPackaging ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+          Package
+        </button>
+        <button
+          onClick={onCopyPackage}
+          className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
+        >
+          <Clipboard className="w-3 h-3" /> Copy
+        </button>
+        <button
+          onClick={onExport}
+          disabled={isExporting || exportActive}
+          className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
+        >
+          {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+          Export
+        </button>
+        {exportActive ? (
+          <button
+            onClick={onCancelExport}
+            className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
+          >
+            <X className="w-3 h-3" /> Cancel
+          </button>
+        ) : exportRetryable ? (
+          <button
+            onClick={onRetryExport}
+            className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30"
+          >
+            <RotateCcw className="w-3 h-3" /> Retry
+          </button>
+        ) : (
+          <button
+            onClick={onRemove}
+            className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
+          >
+            <X className="w-3 h-3" /> Remove
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EditableText({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-[10px] uppercase tracking-wide text-editor-text-muted">{label}</span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={label === 'Hook' || label === 'Hashtags' ? 1 : 2}
+        className="w-full resize-none rounded border border-editor-border bg-editor-surface px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+      />
+    </label>
+  );
+}
+
+function ClipBackgroundControls({
+  draft,
+  capabilities,
+  onChange,
+}: {
+  draft: ClipDraft;
+  capabilities: BackgroundCapabilities | null;
+  onChange: (patch: Partial<ClipDraft>) => void;
+}) {
+  const current = draft.backgroundRemoval || { enabled: false, replacement: 'blur' as const, color: '#111827' };
+  const available = !!capabilities?.available;
+  const update = (patch: Partial<NonNullable<ClipDraft['backgroundRemoval']>>) =>
+    onChange({ backgroundRemoval: { ...current, ...patch } });
+
+  const chooseImage = async () => {
+    const imagePath = await window.electronAPI?.openFile({
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    });
+    if (imagePath) update({ enabled: true, replacement: 'image', imagePath });
+  };
+
+  return (
+    <div className="space-y-2 rounded border border-editor-border bg-editor-bg p-2">
+      <label className="flex items-center justify-between gap-2 text-[11px] text-editor-text-muted">
+        <span className="space-y-0.5">
+          <span className="block">Remove background</span>
+          <span className={`block text-[10px] ${available ? 'text-editor-success' : 'text-editor-warning'}`}>
+            {available ? 'Local segmentation ready' : 'Requires MediaPipe + OpenCV'}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={current.enabled}
+          onChange={(e) => update({ enabled: e.target.checked })}
+          className="h-3.5 w-3.5 rounded bg-editor-surface border-editor-border accent-editor-accent"
+        />
+      </label>
+      {current.enabled && (
+        <div className="grid grid-cols-2 gap-2">
+          <MiniSelect
+            label="Replace"
+            value={current.replacement}
+            onChange={(replacement) =>
+              update({ replacement: replacement as NonNullable<ClipDraft['backgroundRemoval']>['replacement'] })
+            }
+            options={[
+              { value: 'blur', label: 'Blur' },
+              { value: 'color', label: 'Color' },
+              { value: 'image', label: 'Image' },
+            ]}
+          />
+          {current.replacement === 'color' ? (
+            <label className="space-y-1">
+              <span className="text-[10px] text-editor-text-muted">Color</span>
+              <input
+                type="color"
+                value={current.color}
+                onChange={(e) => update({ color: e.target.value })}
+                className="h-7 w-full rounded border border-editor-border bg-editor-surface"
+              />
+            </label>
+          ) : (
+            <button
+              onClick={chooseImage}
+              disabled={current.replacement !== 'image'}
+              className="mt-4 flex items-center justify-center gap-1 rounded border border-editor-border bg-editor-surface px-2 py-1.5 text-[11px] text-editor-text-muted hover:text-editor-text disabled:opacity-40"
+            >
+              <Image className="h-3 w-3" />
+              {current.imagePath ? 'Change' : 'Image'}
+            </button>
+          )}
+        </div>
+      )}
+      {current.enabled && current.replacement === 'image' && current.imagePath && (
+        <div className="truncate text-[10px] text-editor-text-muted">{current.imagePath}</div>
+      )}
+      {current.enabled && !available && (
+        <div className="rounded bg-editor-warning/10 px-2 py-1 text-[10px] text-editor-warning">
+          This draft will fail background removal until the backend has MediaPipe and OpenCV available.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClipCaptionStyleControls({
+  value,
+  onChange,
+}: {
+  value: CaptionStyle;
+  onChange: (value: CaptionStyle) => void;
+}) {
+  const update = (patch: Partial<CaptionStyle>) => onChange({ ...value, ...patch, preset: undefined });
+
+  return (
+    <div className="space-y-2 rounded border border-editor-border bg-editor-bg p-2">
+      <div className="grid grid-cols-2 gap-2">
+        <MiniSelect
+          label="Position"
+          value={value.position}
+          onChange={(position) => update({ position: position as CaptionStyle['position'] })}
+          options={[
+            { value: 'bottom', label: 'Bottom' },
+            { value: 'center', label: 'Center' },
+            { value: 'top', label: 'Top' },
+          ]}
+        />
+        <MiniSelect
+          label="Words"
+          value={String(value.wordsPerLine ?? 5)}
+          onChange={(wordsPerLine) => update({ wordsPerLine: Number(wordsPerLine) })}
+          options={[
+            { value: '3', label: '3' },
+            { value: '5', label: '5' },
+            { value: '8', label: '8' },
+            { value: '12', label: '12' },
+          ]}
+        />
+      </div>
+      <label className="space-y-1 block">
+        <span className="text-[10px] text-editor-text-muted">Font Size</span>
+        <input
+          type="range"
+          min="32"
+          max="84"
+          value={value.fontSize}
+          onChange={(e) => update({ fontSize: Number(e.target.value) })}
+          className="w-full accent-editor-accent"
+        />
+        <span className="block text-[10px] text-editor-text-muted">{value.fontSize}px</span>
+      </label>
+      <div className="grid grid-cols-2 gap-2">
+        <MiniColorField
+          label="Text"
+          value={value.fontColor}
+          onChange={(fontColor) => update({ fontColor })}
+        />
+        <MiniColorField
+          label="Highlight"
+          value={value.highlightColor || value.fontColor}
+          onChange={(highlightColor) => update({ highlightColor })}
+        />
+      </div>
+      <label className="flex items-center gap-2 text-[11px] text-editor-text-muted">
+        <input
+          type="checkbox"
+          checked={value.bold}
+          onChange={(e) => update({ bold: e.target.checked })}
+          className="h-3.5 w-3.5 rounded bg-editor-surface border-editor-border accent-editor-accent"
+        />
+        Bold
+      </label>
+    </div>
+  );
+}
+
+function ClipReframeControls({
+  value,
+  onChange,
+}: {
+  value: ClipDraft['reframe'];
+  onChange: (value: NonNullable<ClipDraft['reframe']>) => void;
+}) {
+  const current = value || { x: 50, y: 50 };
+  const update = (patch: Partial<NonNullable<ClipDraft['reframe']>>) =>
+    onChange({ ...current, ...patch });
+
+  return (
+    <div className="space-y-2 rounded border border-editor-border bg-editor-bg p-2">
+      <ClipRangeField
+        label="Horizontal"
+        value={current.x}
+        leftLabel="Left"
+        rightLabel="Right"
+        onChange={(x) => update({ x })}
+      />
+      <ClipRangeField
+        label="Vertical"
+        value={current.y}
+        leftLabel="Top"
+        rightLabel="Bottom"
+        onChange={(y) => update({ y })}
+      />
+      <button
+        onClick={() => onChange({ x: 50, y: 50 })}
+        className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+      >
+        Center crop
+      </button>
+    </div>
+  );
+}
+
+function ClipRangeField({
+  label,
+  value,
+  leftLabel,
+  rightLabel,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  leftLabel: string;
+  rightLabel: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block space-y-1">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="text-editor-text-muted">{label}</span>
+        <span className="font-mono text-editor-text-muted">{Math.round(value)}%</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full accent-editor-accent"
+      />
+      <div className="flex justify-between text-[9px] text-editor-text-muted">
+        <span>{leftLabel}</span>
+        <span>{rightLabel}</span>
+      </div>
+    </label>
+  );
+}
+
+function MiniColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="text-[10px] text-editor-text-muted">{label}</span>
+      <span className="flex items-center gap-1 rounded border border-editor-border bg-editor-surface px-1.5 py-1">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-5 w-5 shrink-0 border-0 bg-transparent p-0"
+        />
+        <span className="truncate font-mono text-[10px] text-editor-text-muted uppercase">{value}</span>
+      </span>
+    </label>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="text-[10px] text-editor-text-muted">{label}</span>
+      <input
+        type="number"
+        min="0"
+        step="0.1"
+        value={Number(value.toFixed(1))}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next)) onChange(next);
+        }}
+        className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1 text-xs text-editor-text focus:border-editor-accent focus:outline-none"
+      />
+    </label>
+  );
+}
+
+function MiniSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label className="space-y-1 min-w-0">
+      <span className="text-[10px] text-editor-text-muted">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded border border-editor-border bg-editor-bg px-1.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function formatClipTime(seconds: number) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function isPreviewAspectRatio(value: unknown): value is ClipDraft['aspectRatio'] {
+  return value === 'source' || value === 'vertical' || value === 'square';
+}
+
+function buildClipCaptionWords(words: Word[], startIndex: number, endIndex: number, clipStartTime: number) {
+  return words.slice(startIndex, endIndex + 1).map((word) => ({
+    ...word,
+    start: Math.max(0, word.start - clipStartTime),
+    end: Math.max(0, word.end - clipStartTime),
+  }));
+}
+
+function formatClipPackage(draft: ClipDraft, words: Word[]) {
+  const transcript = words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim();
+  const hashtags = (draft.hashtags || [])
+    .map((tag) => `#${tag.replace(/^#/, '')}`)
+    .join(' ');
+  const lines = [
+    `Title: ${draft.title}`,
+    draft.hook ? `Hook: ${draft.hook}` : '',
+    draft.caption ? `Caption: ${draft.caption}` : '',
+    draft.description ? `Description: ${draft.description}` : '',
+    hashtags ? `Hashtags: ${hashtags}` : '',
+    `Timing: ${formatClipTime(draft.startTime)} - ${formatClipTime(draft.endTime)} (${Math.round(draft.endTime - draft.startTime)}s)`,
+    `Frame: ${draft.aspectRatio === 'vertical' ? '9:16' : draft.aspectRatio === 'square' ? '1:1' : 'source'}`,
+    `Export: ${draft.resolution} ${draft.format.toUpperCase()}${draft.captions && draft.captions !== 'none' ? `, ${draft.captions} captions` : ''}`,
+    draft.reframe && draft.aspectRatio !== 'source'
+      ? `Reframe: ${Math.round(draft.reframe.x)}% horizontal, ${Math.round(draft.reframe.y)}% vertical`
+      : '',
+    draft.backgroundRemoval?.enabled
+      ? `Background: ${draft.backgroundRemoval.replacement}`
+      : '',
+    transcript ? `Transcript: ${transcript}` : '',
+  ];
+
+  return lines.filter(Boolean).join('\n');
+}
+
+function getFillerReasonBucket(word: string, reason: string) {
+  const text = `${word} ${reason}`.toLowerCase();
+  if (/\b(um|uh|uhh|umm|hmm)\b/.test(text) || text.includes('hesitation')) return 'Hesitation';
+  if (text.includes('stammer') || text.includes('repeat')) return 'Stammer';
+  if (text.includes('like') || text.includes('you know') || text.includes('right')) return 'Discourse marker';
+  if (text.includes('start') || text.includes('sentence')) return 'Sentence starter';
+  if (text.includes('custom') || text.includes('user')) return 'Custom phrase';
+  return 'General filler';
+}
+
+function AIJobStatusCard({
+  job,
+  onCancel,
+  onRetry,
+}: {
+  job: AIJob<unknown> & AIJobContext;
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  const isActive = job.status === 'queued' || job.status === 'running';
+  const canRetry = job.status === 'failed' || job.status === 'canceled';
+  const latestLogs = (job.logs || []).slice(-4);
+
+  return (
+    <div className="mb-4 space-y-2 rounded bg-editor-surface px-3 py-2 text-xs">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium text-editor-text">{job.label}</div>
+          <div className="truncate text-[11px] text-editor-text-muted">
+            {job.message || job.status}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          {isActive && (
+            <button
+              onClick={onCancel}
+              className="rounded bg-editor-border px-2 py-1 text-[11px] text-editor-text-muted hover:bg-editor-panel"
+            >
+              Cancel
+            </button>
+          )}
+          {canRetry && (
+            <button
+              onClick={onRetry}
+              className="rounded bg-editor-accent/20 px-2 py-1 text-[11px] text-editor-accent hover:bg-editor-accent/30"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded bg-editor-border">
+        <div
+          className={`h-full ${
+            job.status === 'failed'
+              ? 'bg-editor-warning'
+              : job.status === 'succeeded'
+                ? 'bg-editor-success'
+                : 'bg-editor-accent'
+          }`}
+          style={{ width: `${Math.max(0, Math.min(100, job.progress || 0))}%` }}
+        />
+      </div>
+      {latestLogs.length > 0 && (
+        <details className="text-[11px] text-editor-text-muted">
+          <summary className="cursor-pointer select-none">Logs</summary>
+          <div className="mt-1 max-h-24 space-y-1 overflow-y-auto rounded bg-editor-panel px-2 py-1">
+            {latestLogs.map((log, index) => (
+              <div key={`${log.time}-${index}`} className="whitespace-pre-wrap break-words">
+                {log.message}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function FillerReviewItem({
+  word,
+  reason,
+  confidence,
+  decision,
+  alreadyCut,
+  onPreview,
+  onAccept,
+  onReject,
+  onRestore,
+}: {
+  word: string;
+  reason: string;
+  confidence?: number;
+  decision?: FillerReviewDecision;
+  alreadyCut?: boolean;
+  onPreview: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+  onRestore: () => void;
+}) {
+  const confidenceValue = confidence ?? 0;
+  const confidenceLabel =
+    confidenceValue >= 0.85 ? 'Safe' : confidenceValue >= 0.6 ? 'Review' : 'Low';
+
+  return (
+    <div className="space-y-2 rounded bg-editor-word-filler px-2.5 py-2 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-semibold truncate">"{word}"</div>
+          <div className="text-[11px] text-editor-text-muted leading-snug">{reason}</div>
+          {confidence !== undefined && (
+            <div className="mt-1 flex items-center gap-1 text-[10px] text-editor-text-muted">
+              <span
+                className={`rounded px-1.5 py-0.5 ${
+                  confidenceValue >= 0.85
+                    ? 'bg-editor-success/20 text-editor-success'
+                    : confidenceValue >= 0.6
+                      ? 'bg-editor-accent/15 text-editor-accent'
+                      : 'bg-editor-warning/10 text-editor-warning'
+                }`}
+              >
+                {confidenceLabel}
+              </span>
+              <span>{Math.round(confidenceValue * 100)}% confidence</span>
+            </div>
+          )}
+        </div>
+        {(decision || alreadyCut) && (
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+              decision === 'accepted'
+                ? 'bg-editor-success/20 text-editor-success'
+                : 'bg-editor-border text-editor-text-muted'
+            }`}
+          >
+            {alreadyCut ? 'Already cut' : decision === 'accepted' ? 'Accepted' : 'Rejected'}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1">
+        <button
+          onClick={onPreview}
+          className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1 text-[11px] text-editor-accent hover:bg-editor-accent/30"
+        >
+          <Play className="w-3 h-3" /> Preview
+        </button>
+        {decision === 'accepted' ? (
+          <button
+            onClick={onRestore}
+            className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1 text-[11px] text-editor-text-muted hover:bg-editor-surface"
+          >
+            <RotateCcw className="w-3 h-3" /> Restore
+          </button>
+        ) : (
+          <button
+            onClick={onAccept}
+            disabled={decision === 'rejected' || alreadyCut}
+            className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[11px] text-editor-success hover:bg-editor-success/30 disabled:opacity-40"
+          >
+            <Check className="w-3 h-3" /> Accept
+          </button>
+        )}
+        <button
+          onClick={onReject}
+          disabled={decision === 'accepted'}
+          className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1 text-[11px] text-editor-text-muted hover:bg-editor-surface disabled:opacity-40"
+        >
+          <X className="w-3 h-3" /> Reject
+        </button>
       </div>
     </div>
   );

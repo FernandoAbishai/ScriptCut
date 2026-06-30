@@ -1,23 +1,32 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { getPlayableSeekTime, getPreviewAudioLayer, type SeekDirection } from '../utils/playback';
 
 export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const rafRef = useRef<number>(0);
+  const noiseRef = useRef<{
+    context: AudioContext;
+    source: AudioBufferSourceNode;
+    gain: GainNode;
+  } | null>(null);
   const {
     setCurrentTime,
     setDuration,
     setIsPlaying,
     deletedRanges,
+    editOperations,
+    previewCuts,
   } = useEditorStore();
 
   const seekTo = useCallback(
-    (time: number) => {
+    (time: number, direction: SeekDirection = 'forward') => {
       if (videoRef.current) {
-        videoRef.current.currentTime = time;
-        setCurrentTime(time);
+        const nextTime = getPlayableSeekTime(time, deletedRanges, previewCuts, direction);
+        videoRef.current.currentTime = nextTime;
+        setCurrentTime(nextTime);
       }
     },
-    [videoRef, setCurrentTime],
+    [videoRef, previewCuts, deletedRanges, setCurrentTime],
   );
 
   const togglePlay = useCallback(() => {
@@ -29,26 +38,95 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
     }
   }, [videoRef]);
 
+  const ensureRoomTone = useCallback(() => {
+    if (noiseRef.current) return noiseRef.current;
+
+    const context = new AudioContext();
+    const bufferSize = context.sampleRate * 2;
+    const buffer = context.createBuffer(1, bufferSize, context.sampleRate);
+    const channel = buffer.getChannelData(0);
+    let previous = 0;
+
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      previous = (previous + 0.02 * white) / 1.02;
+      channel[i] = previous * 0.35;
+    }
+
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    source.loop = true;
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.start();
+
+    noiseRef.current = { context, source, gain };
+    return noiseRef.current;
+  }, []);
+
+  const setRoomToneActive = useCallback(
+    (active: boolean) => {
+      if (!active) {
+        if (noiseRef.current) noiseRef.current.gain.gain.value = 0;
+        return;
+      }
+
+      const noise = ensureRoomTone();
+      if (noise.context.state === 'suspended') {
+        void noise.context.resume();
+      }
+      noise.gain.gain.value = 0.012;
+    },
+    [ensureRoomTone],
+  );
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const onTimeUpdate = () => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
+    const syncPreviewFrame = () => {
+      if (!video.paused && !video.ended) {
         const t = video.currentTime;
-        for (const range of deletedRanges) {
-          if (t >= range.start && t < range.end) {
-            video.currentTime = range.end;
-            return;
-          }
+        const skippedTime = getPlayableSeekTime(t, deletedRanges, previewCuts, 'forward');
+
+        if (skippedTime !== t) {
+          video.currentTime = skippedTime;
+          setCurrentTime(skippedTime);
+          rafRef.current = requestAnimationFrame(syncPreviewFrame);
+          return;
         }
+
+        const audioLayer = getPreviewAudioLayer(t, editOperations, previewCuts);
+        video.muted = audioLayer === 'mute' || audioLayer === 'room-tone';
+        setRoomToneActive(audioLayer === 'room-tone');
+
         setCurrentTime(t);
-      });
+      }
+
+      rafRef.current = requestAnimationFrame(syncPreviewFrame);
     };
 
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onTimeUpdate = () => {
+      const t = video.currentTime;
+      const audioLayer = getPreviewAudioLayer(t, editOperations, previewCuts);
+      video.muted = audioLayer === 'mute' || audioLayer === 'room-tone';
+      setRoomToneActive(audioLayer === 'room-tone' && !video.paused && !video.ended);
+      setCurrentTime(t);
+    };
+
+    const onPlay = () => {
+      setIsPlaying(true);
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(syncPreviewFrame);
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      video.muted = false;
+      setRoomToneActive(false);
+      cancelAnimationFrame(rafRef.current);
+    };
     const onLoadedMetadata = () => setDuration(video.duration);
 
     video.addEventListener('timeupdate', onTimeUpdate);
@@ -61,9 +139,20 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.muted = false;
+      setRoomToneActive(false);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [videoRef, deletedRanges, setCurrentTime, setIsPlaying, setDuration]);
+  }, [videoRef, deletedRanges, editOperations, previewCuts, setCurrentTime, setIsPlaying, setDuration, setRoomToneActive]);
+
+  useEffect(() => {
+    return () => {
+      if (!noiseRef.current) return;
+      noiseRef.current.source.stop();
+      void noiseRef.current.context.close();
+      noiseRef.current = null;
+    };
+  }, []);
 
   return { seekTo, togglePlay };
 }

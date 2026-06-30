@@ -4,6 +4,7 @@
   "type": "object",
   "required": ["version", "videoPath", "words", "segments", "deletedRanges", "language", "createdAt", "modifiedAt"],
   "properties": {
+    "app": { "type": "string" },
     "version": { "type": "integer", "const": 1 },
     "videoPath": { "type": "string" },
     "words": {
@@ -48,8 +49,151 @@
         }
       }
     },
+    "editOperations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "start", "end", "wordIndices"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["delete", "mute", "caption-only", "speaker-label", "room-tone"] },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "wordIndices": { "type": "array", "items": { "type": "integer" } },
+          "speakerLabel": { "type": "string" },
+          "originalSpeaker": { "type": "string" }
+        }
+      }
+    },
+    "exportOptions": {
+      "type": "object",
+      "properties": {
+        "preset": { "type": "string", "enum": ["source", "youtube-shorts", "tiktok-reels", "podcast-square"] },
+        "mode": { "type": "string", "enum": ["fast", "reencode"] },
+        "resolution": { "type": "string", "enum": ["720p", "1080p", "4k"] },
+        "aspectRatio": { "type": "string", "enum": ["source", "vertical", "square"] },
+        "reframe": { "$ref": "#/definitions/reframe" },
+        "format": { "type": "string", "enum": ["mp4", "mov", "webm"] },
+        "enhanceAudio": { "type": "boolean" },
+        "captions": { "type": "string", "enum": ["none", "burn-in", "sidecar"] },
+        "captionStyle": { "$ref": "#/definitions/captionStyle" },
+        "backgroundRemoval": { "$ref": "#/definitions/backgroundRemoval" }
+      }
+    },
+    "aiWorkspace": {
+      "type": "object",
+      "properties": {
+        "customFillerWords": { "type": "string" },
+        "fillerResult": {
+          "type": ["object", "null"],
+          "properties": {
+            "wordIndices": { "type": "array", "items": { "type": "integer" } },
+            "fillerWords": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["index", "word", "reason"],
+                "properties": {
+                  "index": { "type": "integer" },
+                  "word": { "type": "string" },
+                  "reason": { "type": "string" },
+                  "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "fillerDecisions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["accepted", "rejected"]
+          }
+        },
+        "clipSuggestions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/clipSuggestion" }
+        },
+        "clipDrafts": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/definitions/clipSuggestion" },
+              {
+                "type": "object",
+                "required": ["id", "format", "resolution", "aspectRatio"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "format": { "type": "string", "enum": ["mp4", "mov", "webm"] },
+                  "resolution": { "type": "string", "enum": ["720p", "1080p", "4k"] },
+                  "aspectRatio": { "type": "string", "enum": ["source", "vertical", "square"] },
+                  "reframe": { "$ref": "#/definitions/reframe" },
+                  "enhanceAudio": { "type": "boolean" },
+                  "captions": { "type": "string", "enum": ["none", "burn-in", "sidecar"] },
+                  "captionStyle": { "$ref": "#/definitions/captionStyle" },
+                  "backgroundRemoval": { "$ref": "#/definitions/backgroundRemoval" },
+                  "hook": { "type": "string" },
+                  "description": { "type": "string" },
+                  "caption": { "type": "string" },
+                  "hashtags": { "type": "array", "items": { "type": "string" } },
+                  "source": { "type": "string", "enum": ["ai", "speaker-turn"] },
+                  "speaker": { "type": "string" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "language": { "type": "string" },
     "createdAt": { "type": "string", "format": "date-time" },
     "modifiedAt": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "clipSuggestion": {
+      "type": "object",
+      "required": ["title", "startWordIndex", "endWordIndex", "startTime", "endTime", "reason"],
+      "properties": {
+        "title": { "type": "string" },
+        "startWordIndex": { "type": "integer" },
+        "endWordIndex": { "type": "integer" },
+        "startTime": { "type": "number" },
+        "endTime": { "type": "number" },
+        "reason": { "type": "string" }
+      }
+    },
+    "captionStyle": {
+      "type": "object",
+      "required": ["fontName", "fontSize", "fontColor", "backgroundColor", "position", "bold"],
+      "properties": {
+        "fontName": { "type": "string" },
+        "fontSize": { "type": "number" },
+        "fontColor": { "type": "string" },
+        "backgroundColor": { "type": "string" },
+        "position": { "type": "string", "enum": ["bottom", "top", "center"] },
+        "bold": { "type": "boolean" },
+        "preset": { "type": "string", "enum": ["clean", "creator", "karaoke"] },
+        "highlightColor": { "type": "string" },
+        "wordsPerLine": { "type": "integer" }
+      }
+    },
+    "backgroundRemoval": {
+      "type": "object",
+      "required": ["enabled", "replacement", "color"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replacement": { "type": "string", "enum": ["blur", "color", "image"] },
+        "color": { "type": "string" },
+        "imagePath": { "type": "string" }
+      }
+    },
+    "reframe": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 100 },
+        "y": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    }
   }
 }

@@ -267,7 +267,7 @@ def detect_filler_words(
 ) -> dict:
     """
     Use an LLM to identify filler words in the transcript.
-    Returns {"wordIndices": [...], "fillerWords": [{"index": N, "word": "...", "reason": "..."}]}
+    Returns {"wordIndices": [...], "fillerWords": [{"index": N, "word": "...", "reason": "...", "confidence": 0.0-1.0}]}
     """
     word_list = "\n".join(f"{w['index']}: {w['word']}" for w in words)
 
@@ -285,8 +285,10 @@ Here are the words with their indices:
 {word_list}
 
 Return ONLY a valid JSON object with this exact structure:
-{{"wordIndices": [list of integer indices to remove], "fillerWords": [{{"index": integer, "word": "the word", "reason": "brief reason"}}]}}
+{{"wordIndices": [list of integer indices to remove], "fillerWords": [{{"index": integer, "word": "the word", "reason": "brief reason", "confidence": number from 0 to 1}}]}}
 
+Use confidence >= 0.85 only for obvious standalone filler words or clear stammers.
+Use confidence 0.60-0.84 for context-dependent filler words.
 Be conservative -- only flag clear filler words, not words that are part of meaningful sentences."""
 
     system = "You are a precise text analysis tool. Return only valid JSON, no explanation."
@@ -305,11 +307,77 @@ Be conservative -- only flag clear filler words, not words that are part of mean
         start = result_text.find("{")
         end = result_text.rfind("}") + 1
         if start >= 0 and end > start:
-            return json.loads(result_text[start:end])
+            return _normalize_filler_result(json.loads(result_text[start:end]), words)
     except json.JSONDecodeError:
         logger.error(f"Failed to parse AI response as JSON: {result_text[:200]}")
 
     return {"wordIndices": [], "fillerWords": []}
+
+
+def _normalize_filler_result(parsed: object, words: List[dict]) -> dict:
+    if not isinstance(parsed, dict):
+        return {"wordIndices": [], "fillerWords": []}
+
+    word_lookup = {int(w["index"]): str(w.get("word", "")) for w in words if "index" in w}
+    raw_fillers = parsed.get("fillerWords", [])
+    if not isinstance(raw_fillers, list):
+        raw_fillers = []
+
+    fillers = []
+    seen = set()
+    for item in raw_fillers:
+        if not isinstance(item, dict):
+            continue
+        try:
+            index = int(item.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if index in seen or index not in word_lookup:
+            continue
+        seen.add(index)
+
+        word = str(item.get("word") or word_lookup[index])
+        reason = str(item.get("reason") or "Likely filler word")
+        confidence = _coerce_confidence(item.get("confidence"), word)
+        fillers.append({
+            "index": index,
+            "word": word,
+            "reason": reason,
+            "confidence": confidence,
+        })
+
+    raw_indices = parsed.get("wordIndices", [])
+    if isinstance(raw_indices, list):
+        for raw_index in raw_indices:
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if index in seen or index not in word_lookup:
+                continue
+            seen.add(index)
+            word = word_lookup[index]
+            fillers.append({
+                "index": index,
+                "word": word,
+                "reason": "Likely filler word",
+                "confidence": _coerce_confidence(None, word),
+            })
+
+    fillers.sort(key=lambda item: item["index"])
+    return {
+        "wordIndices": [item["index"] for item in fillers],
+        "fillerWords": fillers,
+    }
+
+
+def _coerce_confidence(value: object, word: str) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        clear_fillers = {"um", "uh", "uhh", "umm", "hmm"}
+        confidence = 0.9 if word.strip().lower() in clear_fillers else 0.72
+    return max(0.0, min(1.0, round(confidence, 2)))
 
 
 def create_clip_suggestion(
@@ -362,3 +430,66 @@ Suggest 1-3 clips, each approximately {target_duration} seconds long."""
         logger.error(f"Failed to parse clip suggestions: {result_text[:200]}")
 
     return {"clips": []}
+
+
+def create_clip_metadata(
+    transcript: str,
+    provider: str = "ollama",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> dict:
+    """Generate social publishing metadata for a selected clip transcript."""
+    prompt = f"""Create social video metadata for this clip transcript:
+
+{transcript}
+
+Return ONLY a valid JSON object with this exact structure:
+{{
+  "hook": "one short opening hook, max 12 words",
+  "titles": ["3 short title options"],
+  "description": "1-2 sentence platform description",
+  "caption": "short social caption with a clear reason to watch",
+  "hashtags": ["5 relevant hashtags without # symbols"]
+}}
+
+Make it specific to the transcript. Avoid clickbait that the transcript cannot support."""
+
+    system = "You are a concise social video packaging expert. Return only valid JSON, no explanation."
+
+    result_text = AIProvider.complete(
+        prompt=prompt,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        system_prompt=system,
+        temperature=0.6,
+    )
+
+    try:
+        start = result_text.find("{")
+        end = result_text.rfind("}") + 1
+        if start >= 0 and end > start:
+            parsed = json.loads(result_text[start:end])
+            titles = parsed.get("titles", [])
+            if isinstance(titles, str):
+                titles = [titles]
+            if not isinstance(titles, list):
+                titles = []
+            hashtags = parsed.get("hashtags", [])
+            if isinstance(hashtags, str):
+                hashtags = hashtags.replace(",", " ").split()
+            if not isinstance(hashtags, list):
+                hashtags = []
+            return {
+                "hook": str(parsed.get("hook", "")),
+                "titles": [str(title) for title in titles if str(title).strip()][:3],
+                "description": str(parsed.get("description", "")),
+                "caption": str(parsed.get("caption", "")),
+                "hashtags": [str(tag).strip().lstrip("#") for tag in hashtags if str(tag).strip()][:8],
+            }
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse clip metadata: {result_text[:200]}")
+
+    return {"hook": "", "titles": [], "description": "", "caption": "", "hashtags": []}

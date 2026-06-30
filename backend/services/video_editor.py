@@ -28,6 +28,7 @@ def export_stream_copy(
     input_path: str,
     output_path: str,
     keep_segments: List[dict],
+    progress_callback=None,
 ) -> str:
     """
     Export video using FFmpeg concat demuxer with stream copy.
@@ -53,6 +54,7 @@ def export_stream_copy(
     try:
         segment_files = []
         for i, seg in enumerate(keep_segments):
+            _check_canceled(progress_callback)
             seg_file = os.path.join(temp_dir, f"seg_{i:04d}.ts")
             cmd = [
                 ffmpeg, "-y",
@@ -65,10 +67,10 @@ def export_stream_copy(
                 seg_file,
             ]
             logger.info(f"Extracting segment {i}: {seg['start']:.2f}s - {seg['end']:.2f}s")
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = _run_ffmpeg(cmd, progress_callback)
             if result.returncode != 0:
                 logger.warning(f"Stream copy segment {i} failed, will try re-encode: {result.stderr[-200:]}")
-                return export_reencode(input_path, output_path, keep_segments)
+                return export_reencode(input_path, output_path, keep_segments, progress_callback=progress_callback)
             segment_files.append(seg_file)
 
         concat_str = "|".join(segment_files)
@@ -80,10 +82,10 @@ def export_stream_copy(
             output_path,
         ]
         logger.info(f"Concatenating {len(segment_files)} segments -> {output_path}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = _run_ffmpeg(cmd, progress_callback)
         if result.returncode != 0:
             logger.warning(f"Concat failed, falling back to re-encode: {result.stderr[-200:]}")
-            return export_reencode(input_path, output_path, keep_segments)
+            return export_reencode(input_path, output_path, keep_segments, progress_callback=progress_callback)
 
         return output_path
 
@@ -105,6 +107,10 @@ def export_reencode(
     keep_segments: List[dict],
     resolution: str = "1080p",
     format_hint: str = "mp4",
+    aspect_ratio: str = "source",
+    reframe: dict | None = None,
+    muted_ranges: List[dict] | None = None,
+    progress_callback=None,
 ) -> str:
     """
     Export video with full re-encode. Slower but supports resolution changes,
@@ -117,17 +123,13 @@ def export_reencode(
     if not keep_segments:
         raise ValueError("No segments to export")
 
-    scale_map = {
-        "720p": "scale=-2:720",
-        "1080p": "scale=-2:1080",
-        "4k": "scale=-2:2160",
-    }
-
+    muted_ranges = muted_ranges or []
     filter_parts = []
     for i, seg in enumerate(keep_segments):
+        audio_label = _build_audio_trim_filter(i, seg, muted_ranges)
         filter_parts.append(
             f"[0:v]trim=start={seg['start']}:end={seg['end']},setpts=PTS-STARTPTS[v{i}];"
-            f"[0:a]atrim=start={seg['start']}:end={seg['end']},asetpts=PTS-STARTPTS[a{i}];"
+            f"{audio_label}"
         )
 
     n = len(keep_segments)
@@ -136,9 +138,9 @@ def export_reencode(
 
     filter_complex = "".join(filter_parts)
 
-    scale = scale_map.get(resolution, "")
-    if scale:
-        filter_complex += f";[outv]{scale}[outv_scaled]"
+    video_filter = _build_video_filter(resolution, aspect_ratio, reframe)
+    if video_filter:
+        filter_complex += f";[outv]{video_filter}[outv_scaled]"
         video_map = "[outv_scaled]"
     else:
         video_map = "[outv]"
@@ -158,8 +160,8 @@ def export_reencode(
         output_path,
     ]
 
-    logger.info(f"Re-encoding {n} segments -> {output_path} ({resolution})")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    logger.info(f"Re-encoding {n} segments -> {output_path} ({resolution}, {aspect_ratio})")
+    result = _run_ffmpeg(cmd, progress_callback)
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg re-encode failed: {result.stderr[-500:]}")
 
@@ -173,6 +175,10 @@ def export_reencode_with_subs(
     subtitle_path: str,
     resolution: str = "1080p",
     format_hint: str = "mp4",
+    aspect_ratio: str = "source",
+    reframe: dict | None = None,
+    muted_ranges: List[dict] | None = None,
+    progress_callback=None,
 ) -> str:
     """
     Export video with re-encode and burn-in subtitles (ASS format).
@@ -186,17 +192,13 @@ def export_reencode_with_subs(
     if not keep_segments:
         raise ValueError("No segments to export")
 
-    scale_map = {
-        "720p": "scale=-2:720",
-        "1080p": "scale=-2:1080",
-        "4k": "scale=-2:2160",
-    }
-
+    muted_ranges = muted_ranges or []
     filter_parts = []
     for i, seg in enumerate(keep_segments):
+        audio_label = _build_audio_trim_filter(i, seg, muted_ranges)
         filter_parts.append(
             f"[0:v]trim=start={seg['start']}:end={seg['end']},setpts=PTS-STARTPTS[v{i}];"
-            f"[0:a]atrim=start={seg['start']}:end={seg['end']},asetpts=PTS-STARTPTS[a{i}];"
+            f"{audio_label}"
         )
 
     n = len(keep_segments)
@@ -208,9 +210,9 @@ def export_reencode_with_subs(
     # Escape path for FFmpeg subtitle filter (Windows backslashes need escaping)
     escaped_sub = subtitle_path.replace("\\", "/").replace(":", "\\:")
 
-    scale = scale_map.get(resolution, "")
-    if scale:
-        filter_complex += f";[outv]{scale},ass='{escaped_sub}'[outv_final]"
+    video_filter = _build_video_filter(resolution, aspect_ratio, reframe)
+    if video_filter:
+        filter_complex += f";[outv]{video_filter},ass='{escaped_sub}'[outv_final]"
     else:
         filter_complex += f";[outv]ass='{escaped_sub}'[outv_final]"
     video_map = "[outv_final]"
@@ -230,12 +232,125 @@ def export_reencode_with_subs(
         output_path,
     ]
 
-    logger.info(f"Re-encoding {n} segments with subtitles -> {output_path} ({resolution})")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    logger.info(f"Re-encoding {n} segments with subtitles -> {output_path} ({resolution}, {aspect_ratio})")
+    result = _run_ffmpeg(cmd, progress_callback)
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg re-encode with subs failed: {result.stderr[-500:]}")
 
     return output_path
+
+
+def _build_audio_trim_filter(index: int, segment: dict, muted_ranges: List[dict]) -> str:
+    segment_duration = max(0, segment["end"] - segment["start"])
+    chain = (
+        f"[0:a]atrim=start={segment['start']}:end={segment['end']},"
+        f"asetpts=PTS-STARTPTS[a{index}base];"
+    )
+    current_label = f"a{index}base"
+    step = 0
+
+    for muted in muted_ranges:
+        start = max(segment["start"], muted["start"])
+        end = min(segment["end"], muted["end"])
+        if end <= start:
+            continue
+
+        local_start = max(0, start - segment["start"])
+        local_end = max(local_start, end - segment["start"])
+        next_label = f"a{index}m{step}"
+        chain += (
+            f"[{current_label}]volume=0:enable='between(t,{local_start:.3f},{local_end:.3f})'"
+            f"[{next_label}];"
+        )
+        current_label = next_label
+
+        if muted.get("kind") == "room-tone" and segment_duration > 0:
+            noise_label = f"a{index}n{step}"
+            mixed_label = f"a{index}r{step}"
+            chain += (
+                f"anoisesrc=color=pink:duration={segment_duration:.3f}:amplitude=0.006,"
+                f"volume='if(between(t,{local_start:.3f},{local_end:.3f}),1,0)':eval=frame"
+                f"[{noise_label}];"
+                f"[{current_label}][{noise_label}]amix=inputs=2:duration=first:normalize=0"
+                f"[{mixed_label}];"
+            )
+            current_label = mixed_label
+
+        step += 1
+
+    if current_label != f"a{index}":
+        chain += f"[{current_label}]anull[a{index}];"
+    return chain
+
+
+def _build_video_filter(resolution: str, aspect_ratio: str, reframe: dict | None = None) -> str:
+    source_height = {
+        "720p": 720,
+        "1080p": 1080,
+        "4k": 2160,
+    }.get(resolution)
+
+    if not source_height:
+        return ""
+
+    x = _clamp_percent((reframe or {}).get("x", 50)) / 100
+    y = _clamp_percent((reframe or {}).get("y", 50)) / 100
+    crop_x = f"(iw-ow)*{x:.4f}"
+    crop_y = f"(ih-oh)*{y:.4f}"
+
+    if aspect_ratio == "vertical":
+        width = source_height
+        height = int(source_height * 16 / 9)
+        return (
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height}:{crop_x}:{crop_y}"
+        )
+
+    if aspect_ratio == "square":
+        return (
+            f"scale={source_height}:{source_height}:force_original_aspect_ratio=increase,"
+            f"crop={source_height}:{source_height}:{crop_x}:{crop_y}"
+        )
+
+    return f"scale=-2:{source_height}"
+
+
+def _clamp_percent(value: object) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        return 50.0
+    return max(0.0, min(100.0, percent))
+
+
+def _check_canceled(progress_callback=None) -> None:
+    check = getattr(progress_callback, "check_canceled", None)
+    if callable(check):
+        check()
+
+
+def _run_ffmpeg(cmd: list[str], progress_callback=None) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    while process.poll() is None:
+        try:
+            _check_canceled(progress_callback)
+        except Exception:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
+
+        try:
+            process.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            continue
+
+    stdout, stderr = process.communicate()
+    return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
 
 
 def get_video_info(input_path: str) -> dict:
