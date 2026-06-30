@@ -183,6 +183,8 @@ scriptcut/
 | GET | `/audio/capabilities` | Audio processing availability |
 | GET | `/background/capabilities` | Background removal availability |
 
+Job statuses are `queued`, `running`, `canceling`, `succeeded`, `failed`, and `canceled`. A canceled job is retryable only after it leaves `canceling` and reaches final `canceled`.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).

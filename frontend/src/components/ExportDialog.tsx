@@ -14,7 +14,7 @@ interface ExportResult {
 
 interface ExportJob {
   id: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
   message: string;
   logs?: Array<{ time: string; message: string }>;
@@ -137,7 +137,7 @@ export default function ExportDialog() {
         const job = (await res.json()) as ExportJob;
         setExportMessage(job.message || job.status);
         setExportLogs(job.logs || []);
-        setExporting(job.status === 'queued' || job.status === 'running', job.progress);
+        setExporting(job.status === 'queued' || job.status === 'running' || job.status === 'canceling', job.progress);
 
         if (job.status === 'succeeded') {
           setExportResult({

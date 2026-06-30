@@ -34,7 +34,7 @@ const IS_ELECTRON = !!window.electronAPI;
 type Panel = 'ai' | 'settings' | 'export' | null;
 
 interface BackendJob<T> {
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
   message: string;
   logs?: Array<{ time: string; message: string }>;
@@ -257,7 +257,7 @@ export default function App() {
       const job = (await res.json()) as BackendJob<Parameters<typeof setTranscription>[0]>;
       setTranscriptionMessage(job.message || job.status);
       setTranscriptionLogs(job.logs || []);
-      setTranscribing(job.status === 'queued' || job.status === 'running', job.progress);
+      setTranscribing(job.status === 'queued' || job.status === 'running' || job.status === 'canceling', job.progress);
 
       if (job.status === 'succeeded') {
         if (!job.result) throw new Error('Transcription job finished without a result');

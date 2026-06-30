@@ -88,10 +88,11 @@ class JobManager:
             if job["status"] in TERMINAL_STATUSES:
                 return self._public_job(job)
             job["cancelRequested"] = True
-            job["status"] = "canceled"
+            now = _now()
+            job["status"] = "canceling"
             job["message"] = "Cancel requested"
-            job["updatedAt"] = _now()
-            self._append_log_locked(job, job["updatedAt"], "Cancel requested")
+            job["updatedAt"] = now
+            self._append_log_locked(job, now, "Cancel requested")
             return self._public_job(job)
 
     def _run(self, job_id: str, target: Callable[[Callable[[int, str], None]], Any]) -> None:

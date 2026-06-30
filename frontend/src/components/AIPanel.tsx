@@ -9,7 +9,7 @@ type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'acc
 type AIJob<T> = {
   id: string;
   kind: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
   message: string;
   logs?: Array<{ time: string; message: string }>;
@@ -24,7 +24,7 @@ type AIJobContext = {
 
 type ExportJob = {
   id: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
   message: string;
   logs?: Array<{ time: string; message: string }>;
@@ -246,7 +246,10 @@ export default function AIPanel() {
         if (!jobRes.ok) throw new Error(`${fallbackMessage} status failed: ${jobRes.statusText}`);
         const job = (await jobRes.json()) as AIJob<T>;
         setActiveAIJob({ ...job, ...context });
-        setProcessing(job.status === 'queued' || job.status === 'running', job.message || fallbackMessage);
+        setProcessing(
+          job.status === 'queued' || job.status === 'running' || job.status === 'canceling',
+          job.message || fallbackMessage,
+        );
 
         if (job.status === 'succeeded') {
           if (!job.result) throw new Error(`${fallbackMessage} finished without a result`);
@@ -1202,7 +1205,7 @@ function ClipDraftCard({
   onCopyPackage: () => void;
   onRemove: () => void;
 }) {
-  const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running';
+  const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running' || exportJob?.status === 'canceling';
   const exportRetryable = exportJob?.status === 'failed' || exportJob?.status === 'canceled';
 
   return (
@@ -1844,7 +1847,7 @@ function AIJobStatusCard({
   onCancel: () => void;
   onRetry: () => void;
 }) {
-  const isActive = job.status === 'queued' || job.status === 'running';
+  const canCancel = job.status === 'queued' || job.status === 'running';
   const canRetry = job.status === 'failed' || job.status === 'canceled';
   const latestLogs = (job.logs || []).slice(-4);
 
@@ -1858,7 +1861,7 @@ function AIJobStatusCard({
           </div>
         </div>
         <div className="flex shrink-0 gap-1">
-          {isActive && (
+          {canCancel && (
             <button
               onClick={onCancel}
               className="rounded bg-editor-border px-2 py-1 text-[11px] text-editor-text-muted hover:bg-editor-panel"
