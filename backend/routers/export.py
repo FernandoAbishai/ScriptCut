@@ -17,6 +17,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _remove_if_exists(path: Optional[str]) -> None:
+    if not path or not os.path.exists(path):
+        return
+    try:
+        os.remove(path)
+    except OSError as e:
+        logger.warning(f"Failed to remove temporary export file {path}: {e}")
+
+
 class SegmentModel(BaseModel):
     start: float
     end: float
@@ -178,17 +187,24 @@ def run_export(req: ExportRequest, progress_callback=None):
                 background_progress.check_canceled = getattr(progress_callback, "check_canceled", None)  # type: ignore[attr-defined]
                 background_progress.is_cancel_requested = getattr(progress_callback, "is_cancel_requested", None)  # type: ignore[attr-defined]
 
-            remove_background_on_export(
-                output,
-                background_output,
-                replacement=req.backgroundRemoval.replacement,
-                replacement_value=replacement_value or "",
-                progress_callback=background_progress,
-            )
-            os.replace(background_output, output)
+            try:
+                remove_background_on_export(
+                    output,
+                    background_output,
+                    replacement=req.backgroundRemoval.replacement,
+                    replacement_value=replacement_value or "",
+                    progress_callback=background_progress,
+                )
+                os.replace(background_output, output)
+                background_output = None
+            finally:
+                _remove_if_exists(background_output)
 
         # Audio enhancement: clean, then mux back into the exported video
         if req.enhanceAudio:
+            tmp_dir = None
+            cleaned_audio = None
+            muxed_path = None
             try:
                 progress(80, "Enhancing audio")
                 tmp_dir = tempfile.mkdtemp(prefix="scriptcut_audio_")
@@ -199,17 +215,19 @@ def run_export(req: ExportRequest, progress_callback=None):
                 _mux_audio(output, cleaned_audio, muxed_path)
 
                 os.replace(muxed_path, output)
+                muxed_path = None
                 logger.info(f"Audio enhanced and muxed into {output}")
-
-                # Cleanup
-                try:
-                    os.remove(cleaned_audio)
-                    os.rmdir(tmp_dir)
-                except OSError:
-                    pass
             except Exception as e:
                 logger.warning(f"Audio enhancement failed (non-fatal): {e}")
                 warnings.append(f"Audio enhancement failed: {e}")
+            finally:
+                _remove_if_exists(muxed_path)
+                _remove_if_exists(cleaned_audio)
+                if tmp_dir:
+                    try:
+                        os.rmdir(tmp_dir)
+                    except OSError:
+                        pass
 
         # Sidecar SRT: generate and save alongside video
         srt_path = None
