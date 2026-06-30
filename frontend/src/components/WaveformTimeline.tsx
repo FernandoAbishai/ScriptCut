@@ -9,6 +9,7 @@ export default function WaveformTimeline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [waveformRevision, setWaveformRevision] = useState(0);
 
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const videoPath = useEditorStore((s) => s.videoPath);
@@ -109,36 +110,49 @@ export default function WaveformTimeline() {
 
   useEffect(() => {
     if (!videoUrl || !videoPath) return;
+    let canceled = false;
+    const controller = new AbortController();
+
     setAudioError(null);
+    audioBufferRef.current = null;
+    setWaveformRevision((revision) => revision + 1);
 
     const loadAudio = async () => {
       try {
+        await audioContextRef.current?.close();
         const ctx = new AudioContext();
         audioContextRef.current = ctx;
 
-        const response = await fetch(videoUrl);
+        const response = await fetch(videoUrl, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        if (canceled) return;
         audioBufferRef.current = audioBuffer;
-        drawStaticWaveform();
+        setWaveformRevision((revision) => revision + 1);
       } catch (err) {
+        if (canceled || (err instanceof DOMException && err.name === 'AbortError')) return;
         console.warn('Could not decode audio for waveform:', err);
+        audioBufferRef.current = null;
         setAudioError('Waveform unavailable — audio could not be decoded');
+        setWaveformRevision((revision) => revision + 1);
       }
     };
 
     loadAudio();
 
     return () => {
-      audioContextRef.current?.close();
+      canceled = true;
+      controller.abort();
+      void audioContextRef.current?.close();
+      audioContextRef.current = null;
     };
-  }, [videoUrl, videoPath, drawStaticWaveform]);
+  }, [videoUrl, videoPath]);
 
   // Redraw static layer when deletedRanges change
   useEffect(() => {
     drawStaticWaveform();
-  }, [drawStaticWaveform]);
+  }, [drawStaticWaveform, waveformRevision]);
 
   useEffect(() => {
     drawStaticWaveform();
