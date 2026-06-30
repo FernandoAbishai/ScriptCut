@@ -9,6 +9,7 @@ export default function VideoPlayer() {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const duration = useEditorStore((s) => s.duration);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
+  const editOperations = useEditorStore((s) => s.editOperations);
   const previewCuts = useEditorStore((s) => s.previewCuts);
   const previewAspectRatio = useEditorStore((s) => s.previewAspectRatio);
   const previewReframe = useEditorStore((s) => s.exportOptions.reframe || { x: 50, y: 50 });
@@ -16,6 +17,9 @@ export default function VideoPlayer() {
   const { seekTo, togglePlay } = useVideoSync(videoRef);
 
   const [displayTime, setDisplayTime] = useState(0);
+  const hasPlaybackEdits =
+    deletedRanges.length > 0 ||
+    editOperations.some((operation) => operation.kind === 'mute' || operation.kind === 'room-tone');
 
   useEffect(() => {
     const video = videoRef.current;
@@ -127,16 +131,16 @@ export default function VideoPlayer() {
             </ControlButton>
             <ControlButton
               onClick={() => setPreviewCuts(!previewCuts)}
-              title={previewCuts ? 'Preview skips cuts' : 'Preview original media'}
+              title={previewCuts ? 'Preview edited playback' : 'Preview original media'}
               active={previewCuts}
-              disabled={deletedRanges.length === 0}
+              disabled={!hasPlaybackEdits}
             >
               <Scissors className="w-4 h-4" />
             </ControlButton>
           </div>
 
           <div className="flex items-center gap-3 text-xs text-editor-text-muted">
-            {deletedRanges.length > 0 && (
+            {hasPlaybackEdits && (
               <span className="hidden sm:inline">
                 {previewCuts ? 'Edited preview' : 'Original playback'}
               </span>
