@@ -10,7 +10,8 @@
     "dev:electron": "electron .",
     "dev:backend": "node electron/run-backend.js --reload --port 8642",
     "build": "cd frontend && npm run build && electron-builder",
-    "lint": "cd frontend && npm run lint"
+    "lint": "cd frontend && npm run lint",
+    "smoke:backend": "cd backend && (../.venv311/bin/python scripts/smoke_backend.py || ../.venv/bin/python scripts/smoke_backend.py || python scripts/smoke_backend.py)"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

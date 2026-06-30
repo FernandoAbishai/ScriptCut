@@ -187,6 +187,10 @@ Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `vers
 
 Job statuses are `queued`, `running`, `canceling`, `succeeded`, `failed`, and `canceled`. A canceled job is retryable only after it leaves `canceling` and reaches final `canceled`.
 
+## QA
+
+Run `npm run smoke:backend` for fast backend smoke checks covering sidecar caption export settings, deleted-word caption filtering, and job cancellation lifecycle behavior. Run it alongside `npm run lint`, `npm run build`, and `python -m compileall -q backend` before release-oriented changes.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).

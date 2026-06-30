@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useVideoSync } from '../hooks/useVideoSync';
+import { getPreviewDuration, previewToSourceTime, sourceToPreviewTime } from '../utils/playback';
 import { Play, Pause, Scissors, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 
 export default function VideoPlayer() {
@@ -20,18 +21,19 @@ export default function VideoPlayer() {
   const hasPlaybackEdits =
     deletedRanges.length > 0 ||
     editOperations.some((operation) => operation.kind === 'mute' || operation.kind === 'room-tone');
+  const previewDuration = getPreviewDuration(duration, deletedRanges, previewCuts);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     let raf = 0;
     const tick = () => {
-      setDisplayTime(video.currentTime);
+      setDisplayTime(sourceToPreviewTime(video.currentTime, duration, deletedRanges, previewCuts));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [videoUrl]);
+  }, [videoUrl, duration, deletedRanges, previewCuts]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -43,21 +45,21 @@ export default function VideoPlayer() {
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const ratio = (e.clientX - rect.left) / rect.width;
-      seekTo(ratio * duration);
+      const targetPreviewTime = ratio * previewDuration;
+      seekTo(previewToSourceTime(targetPreviewTime, duration, deletedRanges, previewCuts));
     },
-    [seekTo, duration],
+    [seekTo, duration, deletedRanges, previewCuts, previewDuration],
   );
 
   const skip = useCallback(
     (delta: number) => {
       const video = videoRef.current;
       if (!video) return;
-      seekTo(
-        Math.max(0, Math.min(duration, video.currentTime + delta)),
-        delta < 0 ? 'backward' : 'forward',
-      );
+      const targetPreviewTime = displayTime + delta;
+      const sourceTime = previewToSourceTime(targetPreviewTime, duration, deletedRanges, previewCuts);
+      seekTo(sourceTime, delta < 0 ? 'backward' : 'forward');
     },
-    [seekTo, duration],
+    [seekTo, duration, deletedRanges, displayTime, previewCuts],
   );
 
   if (!videoUrl) {
@@ -112,7 +114,7 @@ export default function VideoPlayer() {
         >
           <div
             className="h-full bg-editor-accent rounded-full relative transition-all group-hover:h-2"
-            style={{ width: duration > 0 ? `${(displayTime / duration) * 100}%` : '0%' }}
+            style={{ width: previewDuration > 0 ? `${(displayTime / previewDuration) * 100}%` : '0%' }}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
@@ -147,7 +149,7 @@ export default function VideoPlayer() {
             )}
             <Volume2 className="w-3.5 h-3.5" />
             <span className="font-mono">
-              {formatTime(displayTime)} / {formatTime(duration)}
+              {formatTime(displayTime)} / {formatTime(previewDuration)}
             </span>
           </div>
         </div>
