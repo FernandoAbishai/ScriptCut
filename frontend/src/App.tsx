@@ -9,7 +9,7 @@ import ExportDialog from './components/ExportDialog';
 import SettingsPanel from './components/SettingsPanel';
 import { saveProject, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import {
-  getAutosavePath,
+  getAutosaveCandidatePaths,
   listAutosaveCandidates,
   parseProjectFile,
   removeAutosaveCandidate,
@@ -158,21 +158,25 @@ export default function App() {
   const tryRestoreAutosave = async (path: string) => {
     if (!IS_ELECTRON) return false;
 
-    try {
-      const content = await window.electronAPI!.readFile(getAutosavePath(path));
-      const data = parseProjectFile(content);
-      if (data.videoPath !== path || !Array.isArray(data.words)) return false;
+    for (const autosavePath of getAutosaveCandidatePaths(path)) {
+      try {
+        const content = await window.electronAPI!.readFile(autosavePath);
+        const data = parseProjectFile(content);
+        if (data.videoPath !== path || !Array.isArray(data.words)) continue;
 
-      const shouldRestore = window.confirm(
-        'An autosaved ScriptCut project exists for this media file. Restore it instead of starting a new transcription?',
-      );
-      if (!shouldRestore) return false;
+        const shouldRestore = window.confirm(
+          'An autosaved ScriptCut project exists for this media file. Restore it instead of starting a new transcription?',
+        );
+        if (!shouldRestore) return false;
 
-      loadProjectState(data);
-      return true;
-    } catch {
-      return false;
+        loadProjectState(data);
+        return true;
+      } catch {
+        // Try the next autosave naming convention.
+      }
     }
+
+    return false;
   };
 
   const transcribeVideo = async (path: string) => {

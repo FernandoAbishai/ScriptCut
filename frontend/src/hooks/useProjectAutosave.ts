@@ -22,8 +22,22 @@ export interface AutosaveCandidate {
 }
 
 export function getAutosavePath(videoPath: string) {
-  const autosavePath = videoPath.replace(/\.[^.\\/]+$/, '_autosave.aive');
-  return autosavePath === videoPath ? `${videoPath}_autosave.aive` : autosavePath;
+  return getAutosavePathWithExtension(videoPath, 'scriptcut');
+}
+
+export function getLegacyAutosavePath(videoPath: string) {
+  return getAutosavePathWithExtension(videoPath, 'aive');
+}
+
+export function getAutosaveCandidatePaths(videoPath: string) {
+  const current = getAutosavePath(videoPath);
+  const legacy = getLegacyAutosavePath(videoPath);
+  return current === legacy ? [current] : [current, legacy];
+}
+
+function getAutosavePathWithExtension(videoPath: string, extension: 'scriptcut' | 'aive') {
+  const autosavePath = videoPath.replace(/\.[^.\\/]+$/, `_autosave.${extension}`);
+  return autosavePath === videoPath ? `${videoPath}_autosave.${extension}` : autosavePath;
 }
 
 export function listAutosaveCandidates(): AutosaveCandidate[] {
