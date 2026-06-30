@@ -32,6 +32,7 @@
           "end": { "type": "number" },
           "text": { "type": "string" },
           "words": { "$ref": "#/properties/words" },
+          "globalStartIndex": { "type": "integer" },
           "speaker": { "type": "string" }
         }
       }

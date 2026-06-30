@@ -150,17 +150,21 @@ export function normalizeProjectFile(raw: unknown): ProjectFile {
 function normalizeExportOptions(options: ProjectExportOptions | undefined): ProjectExportOptions | undefined {
   if (!options || typeof options !== 'object') return undefined;
   return {
-    preset: options.preset || 'source',
-    mode: options.mode || 'fast',
-    resolution: options.resolution || '1080p',
-    aspectRatio: options.aspectRatio || 'source',
+    preset: oneOf(options.preset, ['source', 'youtube-shorts', 'tiktok-reels', 'podcast-square'], 'source'),
+    mode: oneOf(options.mode, ['fast', 'reencode'], 'fast'),
+    resolution: oneOf(options.resolution, ['720p', '1080p', '4k'], '1080p'),
+    aspectRatio: oneOf(options.aspectRatio, ['source', 'vertical', 'square'], 'source'),
     reframe: normalizeReframe(options.reframe),
-    format: options.format || 'mp4',
+    format: oneOf(options.format, ['mp4', 'mov', 'webm'], 'mp4'),
     enhanceAudio: !!options.enhanceAudio,
-    captions: options.captions || 'none',
-    captionStyle: options.captionStyle,
-    backgroundRemoval: options.backgroundRemoval,
+    captions: oneOf(options.captions, ['none', 'burn-in', 'sidecar'], 'none'),
+    captionStyle: normalizeCaptionStyle(options.captionStyle),
+    backgroundRemoval: normalizeBackgroundRemoval(options.backgroundRemoval),
   };
+}
+
+function oneOf<const T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
 function normalizeReframe(reframe: ProjectExportOptions['reframe'] | undefined) {
@@ -173,6 +177,35 @@ function normalizeReframe(reframe: ProjectExportOptions['reframe'] | undefined) 
 
 function clampPercent(value: unknown) {
   return Math.max(0, Math.min(100, typeof value === 'number' && Number.isFinite(value) ? value : 50));
+}
+
+function normalizeCaptionStyle(style: ProjectExportOptions['captionStyle'] | undefined) {
+  if (!style || typeof style !== 'object') return undefined;
+  return {
+    fontName: typeof style.fontName === 'string' ? style.fontName : 'Arial',
+    fontSize: finiteNumber(style.fontSize, 48),
+    fontColor: typeof style.fontColor === 'string' ? style.fontColor : '#ffffff',
+    backgroundColor: typeof style.backgroundColor === 'string' ? style.backgroundColor : '#000000',
+    position: oneOf(style.position, ['bottom', 'top', 'center'], 'bottom'),
+    bold: typeof style.bold === 'boolean' ? style.bold : true,
+    preset: style.preset ? oneOf(style.preset, ['clean', 'creator', 'karaoke'], 'clean') : undefined,
+    highlightColor: typeof style.highlightColor === 'string' ? style.highlightColor : undefined,
+    wordsPerLine: Number.isInteger(style.wordsPerLine) ? style.wordsPerLine : undefined,
+  };
+}
+
+function normalizeBackgroundRemoval(background: ProjectExportOptions['backgroundRemoval'] | undefined) {
+  if (!background || typeof background !== 'object') return undefined;
+  return {
+    enabled: !!background.enabled,
+    replacement: oneOf(background.replacement, ['blur', 'color', 'image'], 'blur'),
+    color: typeof background.color === 'string' ? background.color : '#111827',
+    imagePath: typeof background.imagePath === 'string' ? background.imagePath : undefined,
+  };
+}
+
+function finiteNumber(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function normalizeAIWorkspace(workspace: ProjectFile['aiWorkspace']) {
@@ -239,14 +272,14 @@ function normalizeClipDrafts(drafts: ClipDraft[]) {
     .filter((draft) => typeof draft.id === 'string')
     .map((draft) => ({
       ...draft,
-      format: draft.format || 'mp4',
-      resolution: draft.resolution || '1080p',
-      aspectRatio: draft.aspectRatio || 'source',
+      format: oneOf(draft.format, ['mp4', 'mov', 'webm'], 'mp4'),
+      resolution: oneOf(draft.resolution, ['720p', '1080p', '4k'], '1080p'),
+      aspectRatio: oneOf(draft.aspectRatio, ['source', 'vertical', 'square'], 'source'),
       reframe: normalizeReframe(draft.reframe),
       enhanceAudio: !!draft.enhanceAudio,
-      captions: draft.captions || 'none',
-      captionStyle: draft.captionStyle,
-      backgroundRemoval: draft.backgroundRemoval,
+      captions: oneOf(draft.captions, ['none', 'burn-in', 'sidecar'], 'none'),
+      captionStyle: normalizeCaptionStyle(draft.captionStyle),
+      backgroundRemoval: normalizeBackgroundRemoval(draft.backgroundRemoval),
     }));
 }
 
