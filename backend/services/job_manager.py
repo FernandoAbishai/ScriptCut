@@ -12,6 +12,7 @@ TERMINAL_STATUSES = {"succeeded", "failed", "canceled"}
 RETRYABLE_STATUSES = {"failed", "canceled"}
 MAX_RETAINED_JOBS = 100
 TERMINAL_JOB_TTL = timedelta(hours=6)
+MAX_JOB_LOGS = 100
 
 
 class JobCanceled(RuntimeError):
@@ -90,7 +91,7 @@ class JobManager:
             job["status"] = "canceled"
             job["message"] = "Cancel requested"
             job["updatedAt"] = _now()
-            job["logs"].append({"time": job["updatedAt"], "message": "Cancel requested"})
+            self._append_log_locked(job, job["updatedAt"], "Cancel requested")
             return self._public_job(job)
 
     def _run(self, job_id: str, target: Callable[[Callable[[int, str], None]], Any]) -> None:
@@ -139,9 +140,9 @@ class JobManager:
             message = patch.get("message")
             log = patch.get("log")
             if message:
-                job["logs"].append({"time": now, "message": message})
+                self._append_log_locked(job, now, message)
             if log:
-                job["logs"].append({"time": now, "message": log})
+                self._append_log_locked(job, now, log)
 
     @staticmethod
     def _public_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -154,6 +155,12 @@ class JobManager:
     def _raise_if_canceled(self, job_id: str) -> None:
         if self._is_cancel_requested(job_id):
             raise JobCanceled("Job was canceled")
+
+    @staticmethod
+    def _append_log_locked(job: dict[str, Any], time: str, message: str) -> None:
+        job.setdefault("logs", []).append({"time": time, "message": message})
+        if len(job["logs"]) > MAX_JOB_LOGS:
+            job["logs"] = job["logs"][-MAX_JOB_LOGS:]
 
     def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc)
