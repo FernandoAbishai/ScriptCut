@@ -14,16 +14,21 @@ export default function WaveformTimeline() {
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const videoPath = useEditorStore((s) => s.videoPath);
   const duration = useEditorStore((s) => s.duration);
+  const words = useEditorStore((s) => s.words);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
   const editOperations = useEditorStore((s) => s.editOperations);
+  const selectedWordIndices = useEditorStore((s) => s.selectedWordIndices);
   const previewCuts = useEditorStore((s) => s.previewCuts);
   const currentTime = useEditorStore((s) => s.currentTime);
   const requestSeek = useEditorStore((s) => s.requestSeek);
+  const setSelectedWordIndices = useEditorStore((s) => s.setSelectedWordIndices);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const rafRef = useRef(0);
   const currentTimeRef = useRef(0);
+  const dragStartTimeRef = useRef<number | null>(null);
+  const dragMovedRef = useRef(false);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
@@ -72,6 +77,19 @@ export default function WaveformTimeline() {
       ctx.fillRect(x1, 0, x2 - x1, height);
     }
 
+    if (selectedWordIndices.length > 0 && words.length > 0) {
+      const selectedRanges = getSelectedTimeRanges(words, selectedWordIndices);
+      for (const range of selectedRanges) {
+        const x1 = (range.start / timelineDuration) * width;
+        const x2 = (range.end / timelineDuration) * width;
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.28)';
+        ctx.fillRect(x1, 0, Math.max(2, x2 - x1), height);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x1, 0.5, Math.max(2, x2 - x1), height - 1);
+      }
+    }
+
     const mid = height / 2;
     ctx.beginPath();
     ctx.strokeStyle = '#4a4d5e';
@@ -111,7 +129,7 @@ export default function WaveformTimeline() {
       ctx.lineTo(x, yMax);
     }
     ctx.stroke();
-  }, [deletedRanges, duration, editOperations]);
+  }, [deletedRanges, duration, editOperations, selectedWordIndices, words]);
 
   useEffect(() => {
     if (!videoUrl || !videoPath) return;
@@ -213,17 +231,74 @@ export default function WaveformTimeline() {
     return () => observer.disconnect();
   }, [drawStaticWaveform]);
 
-  const handleClick = useCallback(
+  const timeFromPointer = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!headCanvasRef.current || duration === 0) return;
       const rect = headCanvasRef.current.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      const rawTime = ratio * duration;
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      return ratio * duration;
+    },
+    [duration],
+  );
+
+  const selectWordsForTimeRange = useCallback(
+    (startTime: number, endTime: number) => {
+      if (words.length === 0) return;
+      const start = Math.min(startTime, endTime);
+      const end = Math.max(startTime, endTime);
+      const indices = [];
+      for (let index = 0; index < words.length; index++) {
+        const word = words[index];
+        if (word.end >= start && word.start <= end) indices.push(index);
+      }
+      setSelectedWordIndices(indices);
+    },
+    [setSelectedWordIndices, words],
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rawTime = timeFromPointer(e);
+      if (rawTime === undefined) return;
+      dragStartTimeRef.current = rawTime;
+      dragMovedRef.current = false;
+    },
+    [timeFromPointer],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (dragStartTimeRef.current === null) return;
+      const rawTime = timeFromPointer(e);
+      if (rawTime === undefined) return;
+      if (Math.abs(rawTime - dragStartTimeRef.current) < 0.05) return;
+      dragMovedRef.current = true;
+      selectWordsForTimeRange(dragStartTimeRef.current, rawTime);
+    },
+    [selectWordsForTimeRange, timeFromPointer],
+  );
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rawTime = timeFromPointer(e);
+      const startTime = dragStartTimeRef.current;
+      dragStartTimeRef.current = null;
+      if (rawTime === undefined || startTime === null) return;
+
+      if (dragMovedRef.current) {
+        selectWordsForTimeRange(startTime, rawTime);
+        const direction = rawTime < currentTime ? 'backward' : 'forward';
+        const nextTime = getPlayableSeekTime(Math.min(startTime, rawTime), deletedRanges, previewCuts, direction);
+        requestSeek(nextTime, direction, false);
+        dragMovedRef.current = false;
+        return;
+      }
+
       const direction = rawTime < currentTime ? 'backward' : 'forward';
       const nextTime = getPlayableSeekTime(rawTime, deletedRanges, previewCuts, direction);
       requestSeek(nextTime, direction, false);
     },
-    [currentTime, deletedRanges, duration, previewCuts, requestSeek],
+    [currentTime, deletedRanges, previewCuts, requestSeek, selectWordsForTimeRange, timeFromPointer],
   );
 
   if (!videoUrl) {
@@ -264,7 +339,13 @@ export default function WaveformTimeline() {
           <canvas
             ref={headCanvasRef}
             className="absolute inset-0 h-full w-full cursor-crosshair"
-            onClick={handleClick}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={() => {
+              dragStartTimeRef.current = null;
+              dragMovedRef.current = false;
+            }}
           />
         </div>
         {audioError && (
@@ -276,4 +357,31 @@ export default function WaveformTimeline() {
       </div>
     </div>
   );
+}
+
+function getSelectedTimeRanges(words: Array<{ start: number; end: number }>, selectedWordIndices: number[]) {
+  const sorted = [...new Set(selectedWordIndices)]
+    .filter((index) => index >= 0 && index < words.length)
+    .sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+
+  const ranges: Array<{ start: number; end: number }> = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+
+  const flush = () => {
+    ranges.push({ start: words[start].start, end: words[previous].end });
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === previous + 1) {
+      previous = sorted[i];
+      continue;
+    }
+    flush();
+    start = sorted[i];
+    previous = sorted[i];
+  }
+  flush();
+  return ranges;
 }

@@ -72,6 +72,41 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIn("keep also-keep", srt)
         self.assertNotIn("hide", srt)
 
+    def test_parakeet_timestamps_normalize_to_editor_contract(self) -> None:
+        transcription = self._load_transcription_service_or_skip()
+        words = [
+            {"word": "Hello", "start": 0, "end": 0.4, "score": 0.92},
+            {"word": "world", "start": 0.4, "end": 0.9},
+        ]
+        segments = [
+            {"segment": "Hello world", "start": 0, "end": 0.9},
+        ]
+
+        normalized_words = [transcription._normalize_parakeet_word(stamp) for stamp in words]
+        normalized_segments = transcription._normalize_parakeet_segments(segments, normalized_words, "Hello world")
+
+        self.assertEqual(
+            normalized_words,
+            [
+                {"word": "Hello", "start": 0.0, "end": 0.4, "confidence": 0.92},
+                {"word": "world", "start": 0.4, "end": 0.9, "confidence": 0.9},
+            ],
+        )
+        self.assertEqual(normalized_segments[0]["words"], normalized_words)
+        self.assertEqual(normalized_segments[0]["text"], "Hello world")
+
+    def test_unknown_transcription_engine_fails_clearly(self) -> None:
+        transcription = self._load_transcription_service_or_skip()
+        with self.assertRaisesRegex(RuntimeError, "Unknown transcription engine"):
+            transcription._resolve_engine("not-real")
+
+    def _load_transcription_service_or_skip(self):
+        try:
+            from services import transcription
+            return transcription
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"transcription stack unavailable in lean smoke environment: {exc}")
+
     def test_canceling_job_finalizes_as_canceled(self) -> None:
         manager = JobManager()
 

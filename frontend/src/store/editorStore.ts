@@ -15,6 +15,7 @@ interface EditorState {
   projectModifiedAt: string;
 
   currentTime: number;
+  activeWordIndex: number;
   duration: number;
   isPlaying: boolean;
   seekRequest: {
@@ -123,6 +124,7 @@ const initialState: EditorState = {
   projectCreatedAt: '',
   projectModifiedAt: '',
   currentTime: 0,
+  activeWordIndex: -1,
   duration: 0,
   isPlaying: false,
   seekRequest: null,
@@ -168,6 +170,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           words: result.words,
           segments: annotatedSegments,
           language: result.language,
+          activeWordIndex: getWordIndexAtTime(result.words, get().currentTime),
           deletedRanges: [],
           editOperations: [],
           selectedWordIndices: [],
@@ -176,7 +179,12 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         });
       },
 
-      setCurrentTime: (time) => set({ currentTime: time }),
+      setCurrentTime: (time) =>
+        set((state) => {
+          const activeWordIndex = getWordIndexAtTime(state.words, time);
+          if (activeWordIndex === state.activeWordIndex) return { currentTime: time };
+          return { currentTime: time, activeWordIndex };
+        }),
       setDuration: (duration) => set({ duration }),
       setIsPlaying: (playing) => set({ isPlaying: playing }),
       requestSeek: (time, direction = 'forward', play = false) =>
@@ -497,16 +505,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       },
 
       getWordAtTime: (time) => {
-        const { words } = get();
-        let lo = 0;
-        let hi = words.length - 1;
-        while (lo <= hi) {
-          const mid = (lo + hi) >>> 1;
-          if (words[mid].end < time) lo = mid + 1;
-          else if (words[mid].start > time) hi = mid - 1;
-          else return mid;
-        }
-        return lo < words.length ? lo : words.length - 1;
+        return getWordIndexAtTime(get().words, time);
       },
 
       loadProject: (data) => {
@@ -531,6 +530,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           editOperations: reconcileDeleteOperations(data.deletedRanges || [], data.editOperations || []),
           exportOptions: mergeExportOptions(data.exportOptions),
           language: data.language || '',
+          activeWordIndex: getWordIndexAtTime(data.words || [], 0),
           projectCreatedAt: data.createdAt || '',
           projectModifiedAt: data.modifiedAt || '',
         });
@@ -558,6 +558,29 @@ function reconcileDeleteOperations(deletedRanges: DeletedRange[], editOperations
     .filter((range) => !existingIds.has(range.id))
     .map(deletedRangeToOperation);
   return [...editOperations, ...missingDeleteOperations];
+}
+
+function getWordIndexAtTime(words: Word[], time: number) {
+  if (words.length === 0) return -1;
+
+  let lo = 0;
+  let hi = words.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const word = words[mid];
+    if (word.end < time) lo = mid + 1;
+    else if (word.start > time) hi = mid - 1;
+    else return mid;
+  }
+
+  const previous = hi >= 0 ? hi : -1;
+  const next = lo < words.length ? lo : -1;
+  const previousDistance = previous >= 0 ? Math.abs(time - words[previous].end) : Number.POSITIVE_INFINITY;
+  const nextDistance = next >= 0 ? Math.abs(words[next].start - time) : Number.POSITIVE_INFINITY;
+  const nearestDistance = Math.min(previousDistance, nextDistance);
+
+  if (nearestDistance > 0.35) return -1;
+  return previousDistance <= nextDistance ? previous : next;
 }
 
 function mergeExportOptions(options?: ProjectExportOptions): ProjectExportOptions {

@@ -7,8 +7,9 @@ Edit videos by editing the transcript:
 - delete words -> cut video
 - remove filler words -> clean edit
 - generate captions -> export clip
+- choose WhisperX, Whisper, or experimental Parakeet TDT v3 transcription
 
-Built with Electron, React, FastAPI, WhisperX, FFmpeg, and local/cloud LLM integrations.
+Built with Electron, React, FastAPI, WhisperX/Whisper, FFmpeg, and local/cloud LLM integrations.
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
 
@@ -28,7 +29,7 @@ This version focuses on:
 
 - **Electron + React** desktop app with Tailwind CSS
 - **FastAPI** Python backend
-- **WhisperX / Whisper** transcription pipeline
+- **WhisperX / Whisper** transcription pipeline, with experimental Parakeet TDT v3 support behind an engine selector
 - **FFmpeg** for video and audio processing
 - **Ollama / OpenAI / Claude / 9router** for AI features
 

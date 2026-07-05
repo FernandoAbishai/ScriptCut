@@ -68,6 +68,8 @@ export interface TranscriptionResult {
   words: Word[];
   segments: Segment[];
   language: string;
+  engine?: string;
+  model?: string;
 }
 
 export interface ExportOptions {

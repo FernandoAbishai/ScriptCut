@@ -32,6 +32,32 @@ import {
 const IS_ELECTRON = !!window.electronAPI;
 
 type Panel = 'ai' | 'settings' | 'export' | null;
+type TranscriptionEngine = 'auto' | 'whisperx' | 'whisper' | 'parakeet';
+
+const TRANSCRIPTION_MODELS: Record<TranscriptionEngine, Array<{ value: string; label: string }>> = {
+  auto: [
+    { value: 'base', label: 'base (~140 MB, balanced)' },
+    { value: 'small', label: 'small (~460 MB, better)' },
+    { value: 'medium', label: 'medium (~1.5 GB, high accuracy)' },
+  ],
+  whisperx: [
+    { value: 'tiny', label: 'tiny (~75 MB, fastest)' },
+    { value: 'base', label: 'base (~140 MB, fast)' },
+    { value: 'small', label: 'small (~460 MB, good)' },
+    { value: 'medium', label: 'medium (~1.5 GB, better)' },
+    { value: 'large', label: 'large (~2.9 GB, best)' },
+  ],
+  whisper: [
+    { value: 'tiny', label: 'tiny (~75 MB, fastest)' },
+    { value: 'base', label: 'base (~140 MB, fast)' },
+    { value: 'small', label: 'small (~460 MB, good)' },
+    { value: 'medium', label: 'medium (~1.5 GB, better)' },
+    { value: 'large', label: 'large (~2.9 GB, best)' },
+  ],
+  parakeet: [
+    { value: 'nvidia/parakeet-tdt-0.6b-v3', label: 'Parakeet TDT v3 multilingual' },
+  ],
+};
 
 interface BackendJob<T> {
   status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
@@ -57,7 +83,8 @@ export default function App() {
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
   const [manualPath, setManualPath] = useState('');
-  const [whisperModel, setWhisperModel] = useState('base');
+  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
+  const [transcriptionModel, setTranscriptionModel] = useState('base');
   const [transcriptionMessage, setTranscriptionMessage] = useState('');
   const [transcriptionError, setTranscriptionError] = useState('');
   const [transcriptionLogs, setTranscriptionLogs] = useState<Array<{ time: string; message: string }>>([]);
@@ -189,7 +216,7 @@ export default function App() {
       const res = await fetch(`${backendUrl}/jobs/transcribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_path: path, model: whisperModel }),
+        body: JSON.stringify({ file_path: path, engine: transcriptionEngine, model: transcriptionModel }),
       });
       if (!res.ok) {
         let detail = res.statusText;
@@ -283,19 +310,32 @@ export default function App() {
           </p>
         </div>
 
-        {/* Whisper model selector */}
-        <div className="flex items-center gap-3">
-          <label className="text-xs text-editor-text-muted whitespace-nowrap">Whisper model:</label>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <label className="text-xs text-editor-text-muted whitespace-nowrap">Transcription engine:</label>
           <select
-            value={whisperModel}
-            onChange={(e) => setWhisperModel(e.target.value)}
+            value={transcriptionEngine}
+            onChange={(e) => {
+              const engine = e.target.value as TranscriptionEngine;
+              setTranscriptionEngine(engine);
+              setTranscriptionModel(TRANSCRIPTION_MODELS[engine][0].value);
+            }}
             className="px-3 py-1.5 bg-editor-surface border border-editor-border rounded-lg text-xs text-editor-text focus:outline-none focus:border-editor-accent"
           >
-            <option value="tiny">tiny (~75 MB, fastest)</option>
-            <option value="base">base (~140 MB, fast)</option>
-            <option value="small">small (~460 MB, good)</option>
-            <option value="medium">medium (~1.5 GB, better)</option>
-            <option value="large">large (~2.9 GB, best)</option>
+            <option value="auto">Auto (prefer WhisperX)</option>
+            <option value="whisperx">WhisperX aligned</option>
+            <option value="whisper">Whisper fallback</option>
+            <option value="parakeet">Parakeet TDT v3 experimental</option>
+          </select>
+          <select
+            value={transcriptionModel}
+            onChange={(e) => setTranscriptionModel(e.target.value)}
+            className="px-3 py-1.5 bg-editor-surface border border-editor-border rounded-lg text-xs text-editor-text focus:outline-none focus:border-editor-accent"
+          >
+            {TRANSCRIPTION_MODELS[transcriptionEngine].map((model) => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
           </select>
         </div>
 

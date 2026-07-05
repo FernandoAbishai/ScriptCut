@@ -11,6 +11,7 @@ export default function TranscriptEditor() {
   const editOperations = useEditorStore((s) => s.editOperations);
   const selectedWordIndices = useEditorStore((s) => s.selectedWordIndices);
   const hoveredWordIndex = useEditorStore((s) => s.hoveredWordIndex);
+  const activeWordIndex = useEditorStore((s) => s.activeWordIndex);
   const setSelectedWordIndices = useEditorStore((s) => s.setSelectedWordIndices);
   const setHoveredWordIndex = useEditorStore((s) => s.setHoveredWordIndex);
   const deleteSelectedWords = useEditorStore((s) => s.deleteSelectedWords);
@@ -22,13 +23,13 @@ export default function TranscriptEditor() {
   const selectSpeakerWords = useEditorStore((s) => s.selectSpeakerWords);
   const restoreRange = useEditorStore((s) => s.restoreRange);
   const restoreEditOperation = useEditorStore((s) => s.restoreEditOperation);
-  const getWordAtTime = useEditorStore((s) => s.getWordAtTime);
   const requestSeek = useEditorStore((s) => s.requestSeek);
 
   const selectionStart = useRef<number | null>(null);
   const wasDragging = useRef(false);
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const activeSegmentIndexRef = useRef(-1);
+  const selectedSegmentIndexRef = useRef(-1);
   const userScrollPauseUntilRef = useRef(0);
   const userScrollTimerRef = useRef(0);
 
@@ -49,7 +50,6 @@ export default function TranscriptEditor() {
     return map;
   }, [editOperations]);
 
-  const [activeWordIndex, setActiveWordIndex] = useState(-1);
   const [speakerFilter, setSpeakerFilter] = useState('all');
 
   const speakers = useMemo(
@@ -74,23 +74,6 @@ export default function TranscriptEditor() {
     [editOperations],
   );
 
-  useEffect(() => {
-    if (words.length === 0) {
-      setActiveWordIndex(-1);
-      return;
-    }
-
-    const updateActiveWord = (time: number) => {
-      const idx = getWordAtTime(time);
-      setActiveWordIndex((prev) => (prev === idx ? prev : idx));
-    };
-
-    updateActiveWord(useEditorStore.getState().currentTime);
-    return useEditorStore.subscribe((state) => {
-      updateActiveWord(state.currentTime);
-    });
-  }, [words.length, getWordAtTime]);
-
   // Auto-scroll to active segment via Virtuoso
   useEffect(() => {
     if (activeWordIndex < 0 || visibleSegments.length === 0) return;
@@ -108,6 +91,29 @@ export default function TranscriptEditor() {
       virtuosoRef.current.scrollIntoView({ index: segIdx, behavior: 'smooth', align: 'center' });
     }
   }, [activeWordIndex, visibleSegments]);
+
+  useEffect(() => {
+    if (selectedWordIndices.length === 0 || visibleSegments.length === 0) {
+      selectedSegmentIndexRef.current = -1;
+      return;
+    }
+
+    const firstSelected = Math.min(...selectedWordIndices);
+    const segIdx = visibleSegments.findIndex(({ segment }) => {
+      const start = segment.globalStartIndex ?? 0;
+      return firstSelected >= start && firstSelected < start + segment.words.length;
+    });
+
+    if (
+      segIdx >= 0 &&
+      segIdx !== selectedSegmentIndexRef.current &&
+      virtuosoRef.current &&
+      selectionStart.current === null
+    ) {
+      selectedSegmentIndexRef.current = segIdx;
+      virtuosoRef.current.scrollIntoView({ index: segIdx, behavior: 'smooth', align: 'center' });
+    }
+  }, [selectedWordIndices, visibleSegments]);
 
   const pauseAutoScroll = useCallback(() => {
     userScrollPauseUntilRef.current = Date.now() + 1800;

@@ -1,4 +1,4 @@
-"""Transcription endpoint using WhisperX."""
+"""Transcription endpoints."""
 
 import logging
 from typing import Optional
@@ -16,6 +16,7 @@ router = APIRouter()
 class TranscribeRequest(BaseModel):
     file_path: str
     model: str = "base"
+    engine: str = "auto"
     language: Optional[str] = None
     use_gpu: bool = True
     use_cache: bool = True
@@ -34,6 +35,7 @@ def run_transcription(req: TranscribeRequest, progress_callback=None):
         result = transcribe_audio(
             file_path=req.file_path,
             model_name=req.model,
+            engine=req.engine,
             use_gpu=req.use_gpu,
             use_cache=req.use_cache,
             language=req.language,
