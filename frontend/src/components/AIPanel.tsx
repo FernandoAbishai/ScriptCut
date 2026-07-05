@@ -3,6 +3,12 @@ import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard } from 'lucide-react';
 import type { CaptionStyle, ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
+import {
+  getClipTranscript,
+  getWordIndicesForClip,
+  normalizeClipDraftRange,
+  validateClipDraftForExport,
+} from '../utils/clipDrafts';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
 
@@ -116,6 +122,8 @@ export default function AIPanel() {
     setExportOptions,
     getMutedRanges,
     getCaptionHiddenIndices,
+    setSelectedWordIndices,
+    activeWordIndex,
   } = useEditorStore();
   const {
     defaultProvider,
@@ -146,6 +154,7 @@ export default function AIPanel() {
   const [fillerReasonFilter, setFillerReasonFilter] = useState('all');
   const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
+  const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
   const deletedWordMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const range of deletedRanges) {
@@ -569,6 +578,10 @@ export default function AIPanel() {
   const handlePreviewClip = useCallback(
     (clip: ClipSuggestion) => {
       const draftSettings = clip as Partial<ClipDraft>;
+      if (draftSettings.id) {
+        setActiveClipDraftId(draftSettings.id);
+      }
+      setSelectedWordIndices(getWordIndicesForClip(words, clip));
       if (isPreviewAspectRatio(draftSettings.aspectRatio)) {
         const aspectRatio = draftSettings.aspectRatio;
         setPreviewAspectRatio(aspectRatio);
@@ -580,7 +593,7 @@ export default function AIPanel() {
       }
       requestSeek(clip.startTime, 'forward', true);
     },
-    [requestSeek, setExportOptions, setPreviewAspectRatio],
+    [requestSeek, setExportOptions, setPreviewAspectRatio, setSelectedWordIndices, words],
   );
 
   const [exportingClipIndex, setExportingClipIndex] = useState<number | null>(null);
@@ -594,14 +607,31 @@ export default function AIPanel() {
     () => clipDrafts.filter((draft) => EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft')).length,
     [clipDrafts],
   );
+  const readyDraftCount = useMemo(
+    () =>
+      clipDrafts.filter(
+        (draft) =>
+          EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft') &&
+          validateClipDraftForExport(draft, words, videoPath).ready,
+      ).length,
+    [clipDrafts, videoPath, words],
+  );
 
   const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
     setClipDrafts((current) =>
-      current.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
+      current.map((draft) => {
+        if (draft.id !== id) return draft;
+        const normalizedPatch =
+          patch.startTime !== undefined || patch.endTime !== undefined
+            ? normalizeClipDraftRange(draft, patch, words)
+            : patch;
+        return { ...draft, ...normalizedPatch };
+      }),
     );
-  }, [setClipDrafts]);
+  }, [setClipDrafts, words]);
 
   const approveClipDraft = useCallback((id: string) => {
+    setActiveClipDraftId(id);
     updateClipDraft(id, { status: 'draft', lastError: undefined });
   }, [updateClipDraft]);
 
@@ -624,8 +654,21 @@ export default function AIPanel() {
   );
 
   const removeClipDraft = useCallback((id: string) => {
+    setActiveClipDraftId((current) => (current === id ? null : current));
     setClipDrafts((current) => current.filter((draft) => draft.id !== id));
   }, [setClipDrafts]);
+
+  const trimClipDraft = useCallback(
+    (draft: ClipDraft, patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => {
+      const normalizedPatch = normalizeClipDraftRange(draft, patch, words);
+      const nextDraft = { ...draft, ...normalizedPatch };
+      setActiveClipDraftId(draft.id);
+      updateClipDraft(draft.id, normalizedPatch);
+      setSelectedWordIndices(getWordIndicesForClip(words, nextDraft));
+      requestSeek(nextDraft.startTime, 'forward', false);
+    },
+    [requestSeek, setSelectedWordIndices, updateClipDraft, words],
+  );
 
   const pollClipExportJob = useCallback(
     async (jobId: string, draftId?: string) => {
@@ -858,6 +901,11 @@ export default function AIPanel() {
 
   const handleExportDraft = useCallback(
     async (draft: ClipDraft) => {
+      const validation = validateClipDraftForExport(draft, words, videoPath);
+      if (!validation.ready) {
+        alert(`Clip is not ready to export.\n\n${validation.reasons.join('\n')}`);
+        return;
+      }
       setExportingDraftId(draft.id);
       try {
         await handleExportClip(draft, draft);
@@ -870,11 +918,15 @@ export default function AIPanel() {
         setExportingDraftId(null);
       }
     },
-    [handleExportClip],
+    [handleExportClip, videoPath, words],
   );
 
   const handleExportAllDrafts = useCallback(async () => {
-    const exportableDrafts = clipDrafts.filter((draft) => EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft'));
+    const exportableDrafts = clipDrafts.filter(
+      (draft) =>
+        EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft') &&
+        validateClipDraftForExport(draft, words, videoPath).ready,
+    );
     if (exportableDrafts.length === 0) return;
     stopBatchExportRef.current = false;
     setBatchExporting(true);
@@ -914,7 +966,7 @@ export default function AIPanel() {
       stopBatchExportRef.current = false;
       setBatchExportProgress((current) => ({ ...current, stopping: false }));
     }
-  }, [clipDrafts, handleExportClip]);
+  }, [clipDrafts, handleExportClip, videoPath, words]);
 
   const stopBatchExport = useCallback(() => {
     stopBatchExportRef.current = true;
@@ -1324,7 +1376,7 @@ export default function AIPanel() {
                     )}
                     <button
                       onClick={handleExportAllDrafts}
-                      disabled={isBatchExporting || exportableDraftCount === 0}
+                      disabled={isBatchExporting || readyDraftCount === 0}
                       className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
                     >
                       {isBatchExporting ? (
@@ -1337,7 +1389,7 @@ export default function AIPanel() {
                   </div>
                 </div>
                 <div className="text-[10px] text-editor-text-muted">
-                  {exportableDraftCount} approved/exportable of {clipDrafts.length} drafts
+                  {readyDraftCount} ready, {exportableDraftCount} approved/exportable of {clipDrafts.length} drafts
                 </div>
                 {isBatchExporting && (
                   <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
@@ -1374,7 +1426,12 @@ export default function AIPanel() {
                       exportJob={clipExportJobs[draft.id]}
                       backgroundCapabilities={backgroundCapabilities}
                       transcriptSnippet={getClipTranscript(words, draft)}
+                      clipWords={words.slice(draft.startWordIndex, draft.endWordIndex + 1)}
+                      activeWordIndex={activeWordIndex}
+                      isActive={activeClipDraftId === draft.id}
+                      exportValidation={validateClipDraftForExport(draft, words, videoPath)}
                       onChange={(patch) => updateClipDraft(draft.id, patch)}
+                      onTrim={(patch) => trimClipDraft(draft, patch)}
                       onApprove={() => approveClipDraft(draft.id)}
                       onPreview={() => handlePreviewClip(draft)}
                       onExport={() => handleExportDraft(draft)}
@@ -1527,7 +1584,12 @@ function ClipDraftCard({
   exportJob,
   backgroundCapabilities,
   transcriptSnippet,
+  clipWords,
+  activeWordIndex,
+  isActive,
+  exportValidation,
   onChange,
+  onTrim,
   onApprove,
   onPreview,
   onExport,
@@ -1544,7 +1606,12 @@ function ClipDraftCard({
   exportJob?: ExportJob;
   backgroundCapabilities: BackgroundCapabilities | null;
   transcriptSnippet: string;
+  clipWords: Word[];
+  activeWordIndex: number;
+  isActive: boolean;
+  exportValidation: ReturnType<typeof validateClipDraftForExport>;
   onChange: (patch: Partial<ClipDraft>) => void;
+  onTrim: (patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => void;
   onApprove: () => void;
   onPreview: () => void;
   onExport: () => void;
@@ -1559,9 +1626,10 @@ function ClipDraftCard({
   const exportRetryable = exportJob?.status === 'failed' || exportJob?.status === 'canceled';
   const status = draft.status || 'draft';
   const isSuggested = status === 'suggested';
+  const canExport = exportValidation.ready && !isSuggested;
 
   return (
-    <div className="space-y-2 rounded bg-editor-surface p-3">
+    <div className={`space-y-2 rounded border p-3 ${isActive ? 'border-editor-accent bg-editor-accent/5' : 'border-transparent bg-editor-surface'}`}>
       <div className="flex items-start gap-2">
         <input
           value={draft.title}
@@ -1586,6 +1654,13 @@ function ClipDraftCard({
           {draft.lastError}
         </div>
       )}
+      {!canExport && !isSuggested && exportValidation.reasons.length > 0 && (
+        <div className="space-y-0.5 rounded bg-editor-warning/10 px-2 py-1 text-[10px] text-editor-warning">
+          {exportValidation.reasons.map((reason) => (
+            <div key={reason}>{reason}</div>
+          ))}
+        </div>
+      )}
       {(draft.source || draft.speaker) && (
         <div className="flex flex-wrap items-center gap-1 text-[10px]">
           {draft.source && (
@@ -1604,12 +1679,12 @@ function ClipDraftCard({
         <NumberField
           label="In"
           value={draft.startTime}
-          onChange={(startTime) => onChange({ startTime: Math.max(0, Math.min(startTime, draft.endTime - 0.25)) })}
+          onChange={(startTime) => onTrim({ startTime: Math.max(0, Math.min(startTime, draft.endTime - 0.25)) })}
         />
         <NumberField
           label="Out"
           value={draft.endTime}
-          onChange={(endTime) => onChange({ endTime: Math.max(draft.startTime + 0.25, endTime) })}
+          onChange={(endTime) => onTrim({ endTime: Math.max(draft.startTime + 0.25, endTime) })}
         />
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -1726,43 +1801,44 @@ function ClipDraftCard({
       <div className="space-y-1 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
           <div>
             <span className="font-medium text-editor-text">Transcript</span>
-            <p className="mt-1 line-clamp-3 leading-snug">{transcriptSnippet || 'No transcript text available for this clip.'}</p>
+            <ClipTranscriptPreview
+              words={clipWords}
+              startWordIndex={draft.startWordIndex}
+              activeWordIndex={isActive ? activeWordIndex : -1}
+              fallback={transcriptSnippet || 'No transcript text available for this clip.'}
+            />
           </div>
-          {draft.hook && (
-            <EditableText
-              label="Hook"
-              value={draft.hook}
-              onChange={(hook) => onChange({ hook })}
-            />
-          )}
-          {draft.description && (
-            <EditableText
-              label="Description"
-              value={draft.description}
-              onChange={(description) => onChange({ description })}
-            />
-          )}
-          {draft.caption && (
-            <EditableText
-              label="Caption"
-              value={draft.caption}
-              onChange={(caption) => onChange({ caption })}
-            />
-          )}
-          {draft.hashtags && draft.hashtags.length > 0 && (
-            <EditableText
-              label="Hashtags"
-              value={draft.hashtags.map((tag) => `#${tag.replace(/^#/, '')}`).join(' ')}
-              onChange={(value) =>
-                onChange({
-                  hashtags: value
-                    .split(/\s+/)
-                    .map((tag) => tag.trim().replace(/^#/, ''))
-                    .filter(Boolean),
-                })
-              }
-              />
-          )}
+          <EditableText
+            label="Hook"
+            value={draft.hook || ''}
+            placeholder="Opening hook"
+            onChange={(hook) => onChange({ hook })}
+          />
+          <EditableText
+            label="Description"
+            value={draft.description || ''}
+            placeholder="Short description"
+            onChange={(description) => onChange({ description })}
+          />
+          <EditableText
+            label="Caption"
+            value={draft.caption || ''}
+            placeholder="Social caption"
+            onChange={(caption) => onChange({ caption })}
+          />
+          <EditableText
+            label="Hashtags"
+            value={(draft.hashtags || []).map((tag) => `#${tag.replace(/^#/, '')}`).join(' ')}
+            placeholder="#shorts #clip"
+            onChange={(value) =>
+              onChange({
+                hashtags: value
+                  .split(/\s+/)
+                  .map((tag) => tag.trim().replace(/^#/, ''))
+                  .filter(Boolean),
+              })
+            }
+          />
       </div>
       <div className="grid grid-cols-2 gap-2">
         {isSuggested ? (
@@ -1802,7 +1878,7 @@ function ClipDraftCard({
         </button>
         <button
           onClick={onExport}
-          disabled={isSuggested || isExporting || exportActive}
+          disabled={!canExport || isExporting || exportActive}
           className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
         >
           {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -1838,10 +1914,12 @@ function ClipDraftCard({
 function EditableText({
   label,
   value,
+  placeholder,
   onChange,
 }: {
   label: string;
   value: string;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -1849,11 +1927,45 @@ function EditableText({
       <span className="text-[10px] uppercase tracking-wide text-editor-text-muted">{label}</span>
       <textarea
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         rows={label === 'Hook' || label === 'Hashtags' ? 1 : 2}
         className="w-full resize-none rounded border border-editor-border bg-editor-surface px-2 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
       />
     </label>
+  );
+}
+
+function ClipTranscriptPreview({
+  words,
+  startWordIndex,
+  activeWordIndex,
+  fallback,
+}: {
+  words: Word[];
+  startWordIndex: number;
+  activeWordIndex: number;
+  fallback: string;
+}) {
+  if (words.length === 0) {
+    return <p className="mt-1 line-clamp-3 leading-snug">{fallback}</p>;
+  }
+
+  return (
+    <p className="mt-1 line-clamp-4 leading-snug">
+      {words.map((word, localIndex) => {
+        const globalIndex = startWordIndex + localIndex;
+        const isActive = globalIndex === activeWordIndex;
+        return (
+          <span
+            key={`${globalIndex}-${word.start}`}
+            className={isActive ? 'rounded bg-editor-accent px-0.5 text-white' : undefined}
+          >
+            {word.word}{' '}
+          </span>
+        );
+      })}
+    </p>
   );
 }
 
@@ -2053,15 +2165,6 @@ function createShortsClipDraft(
     source,
     speaker,
   };
-}
-
-function getClipTranscript(words: Word[], clip: Pick<ClipSuggestion, 'startWordIndex' | 'endWordIndex'>) {
-  return words
-    .slice(clip.startWordIndex, clip.endWordIndex + 1)
-    .map((word) => word.word)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function ClipReframeControls({
