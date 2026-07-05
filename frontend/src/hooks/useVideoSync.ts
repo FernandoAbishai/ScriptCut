@@ -4,29 +4,39 @@ import { getPlayableSeekTime, getPreviewAudioLayer, type SeekDirection } from '.
 
 export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const rafRef = useRef<number>(0);
+  const lastPublishedTimeRef = useRef(-1);
+  const lastSeekRequestIdRef = useRef(0);
   const noiseRef = useRef<{
     context: AudioContext;
     source: AudioBufferSourceNode;
     gain: GainNode;
   } | null>(null);
-  const {
-    setCurrentTime,
-    setDuration,
-    setIsPlaying,
-    deletedRanges,
-    editOperations,
-    previewCuts,
-  } = useEditorStore();
+  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const setDuration = useEditorStore((s) => s.setDuration);
+  const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const deletedRanges = useEditorStore((s) => s.deletedRanges);
+  const editOperations = useEditorStore((s) => s.editOperations);
+  const previewCuts = useEditorStore((s) => s.previewCuts);
+  const seekRequest = useEditorStore((s) => s.seekRequest);
+
+  const publishCurrentTime = useCallback(
+    (time: number, force = false) => {
+      if (!force && Math.abs(time - lastPublishedTimeRef.current) < 0.05) return;
+      lastPublishedTimeRef.current = time;
+      setCurrentTime(time);
+    },
+    [setCurrentTime],
+  );
 
   const seekTo = useCallback(
     (time: number, direction: SeekDirection = 'forward') => {
       if (videoRef.current) {
         const nextTime = getPlayableSeekTime(time, deletedRanges, previewCuts, direction);
         videoRef.current.currentTime = nextTime;
-        setCurrentTime(nextTime);
+        publishCurrentTime(nextTime, true);
       }
     },
-    [videoRef, previewCuts, deletedRanges, setCurrentTime],
+    [videoRef, previewCuts, deletedRanges, publishCurrentTime],
   );
 
   const togglePlay = useCallback(() => {
@@ -93,7 +103,7 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
 
         if (skippedTime !== t) {
           video.currentTime = skippedTime;
-          setCurrentTime(skippedTime);
+          publishCurrentTime(skippedTime, true);
           rafRef.current = requestAnimationFrame(syncPreviewFrame);
           return;
         }
@@ -102,7 +112,7 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
         video.muted = audioLayer === 'mute' || audioLayer === 'room-tone';
         setRoomToneActive(audioLayer === 'room-tone');
 
-        setCurrentTime(t);
+        publishCurrentTime(t);
       }
 
       rafRef.current = requestAnimationFrame(syncPreviewFrame);
@@ -113,7 +123,7 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
       const audioLayer = getPreviewAudioLayer(t, editOperations, previewCuts);
       video.muted = audioLayer === 'mute' || audioLayer === 'room-tone';
       setRoomToneActive(audioLayer === 'room-tone' && !video.paused && !video.ended);
-      setCurrentTime(t);
+      publishCurrentTime(t);
     };
 
     const onPlay = () => {
@@ -143,7 +153,27 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
       setRoomToneActive(false);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [videoRef, deletedRanges, editOperations, previewCuts, setCurrentTime, setIsPlaying, setDuration, setRoomToneActive]);
+  }, [videoRef, deletedRanges, editOperations, previewCuts, publishCurrentTime, setIsPlaying, setDuration, setRoomToneActive]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !seekRequest) return;
+    if (seekRequest.id === lastSeekRequestIdRef.current) return;
+    lastSeekRequestIdRef.current = seekRequest.id;
+
+    const nextTime = getPlayableSeekTime(
+      seekRequest.time,
+      deletedRanges,
+      previewCuts,
+      seekRequest.direction,
+    );
+    video.currentTime = nextTime;
+    publishCurrentTime(nextTime, true);
+
+    if (seekRequest.play) {
+      void video.play();
+    }
+  }, [videoRef, seekRequest, deletedRanges, previewCuts, publishCurrentTime]);
 
   useEffect(() => {
     return () => {

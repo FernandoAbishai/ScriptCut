@@ -17,6 +17,12 @@ interface EditorState {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
+  seekRequest: {
+    id: number;
+    time: number;
+    direction: 'forward' | 'backward';
+    play: boolean;
+  } | null;
   previewCuts: boolean;
   previewAspectRatio: 'source' | 'vertical' | 'square';
 
@@ -38,6 +44,7 @@ interface EditorActions {
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
   setIsPlaying: (playing: boolean) => void;
+  requestSeek: (time: number, direction?: 'forward' | 'backward', play?: boolean) => void;
   setPreviewCuts: (enabled: boolean) => void;
   setPreviewAspectRatio: (aspectRatio: EditorState['previewAspectRatio']) => void;
   setExportOptions: (options: ProjectExportOptions | ((current: ProjectExportOptions) => ProjectExportOptions)) => void;
@@ -118,6 +125,7 @@ const initialState: EditorState = {
   currentTime: 0,
   duration: 0,
   isPlaying: false,
+  seekRequest: null,
   previewCuts: true,
   previewAspectRatio: 'source',
   selectedWordIndices: [],
@@ -171,6 +179,15 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       setCurrentTime: (time) => set({ currentTime: time }),
       setDuration: (duration) => set({ duration }),
       setIsPlaying: (playing) => set({ isPlaying: playing }),
+      requestSeek: (time, direction = 'forward', play = false) =>
+        set((state) => ({
+          seekRequest: {
+            id: (state.seekRequest?.id ?? 0) + 1,
+            time,
+            direction,
+            play,
+          },
+        })),
       setPreviewCuts: (enabled) => set({ previewCuts: enabled }),
       setPreviewAspectRatio: (aspectRatio) => set({ previewAspectRatio: aspectRatio }),
       setExportOptions: (options) =>

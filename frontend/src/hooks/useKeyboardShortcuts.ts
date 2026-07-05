@@ -1,13 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { createProjectSnapshot, serializeProjectFile } from './useProjectAutosave';
-import { getPlayableSeekTime } from '../utils/playback';
 
 export function useKeyboardShortcuts() {
   const deleteSelectedWords = useEditorStore((s) => s.deleteSelectedWords);
   const selectedWordIndices = useEditorStore((s) => s.selectedWordIndices);
-  const deletedRanges = useEditorStore((s) => s.deletedRanges);
-  const previewCuts = useEditorStore((s) => s.previewCuts);
+  const requestSeek = useEditorStore((s) => s.requestSeek);
 
   const playbackRateRef = useRef(1);
 
@@ -59,7 +57,7 @@ export function useKeyboardShortcuts() {
             playbackRateRef.current = Math.max(-2, playbackRateRef.current - 0.5);
             if (playbackRateRef.current < 0) {
               // HTML5 video doesn't support negative rates natively; step back
-              video.currentTime = Math.max(0, video.currentTime - 2);
+              requestSeek(Math.max(0, useEditorStore.getState().currentTime - 2), 'backward');
             } else {
               video.playbackRate = playbackRateRef.current;
               if (video.paused) video.play();
@@ -92,42 +90,29 @@ export function useKeyboardShortcuts() {
         // --- Arrow Left: seek back 5s ---
         case e.key === 'ArrowLeft' && !e.ctrlKey: {
           e.preventDefault();
-          if (video) {
-            video.currentTime = getPlayableSeekTime(
-              Math.max(0, video.currentTime - 5),
-              deletedRanges,
-              previewCuts,
-              'backward',
-            );
-          }
+          requestSeek(Math.max(0, useEditorStore.getState().currentTime - 5), 'backward');
           return;
         }
 
         // --- Arrow Right: seek forward 5s ---
         case e.key === 'ArrowRight' && !e.ctrlKey: {
           e.preventDefault();
-          if (video) {
-            video.currentTime = getPlayableSeekTime(
-              Math.min(video.duration, video.currentTime + 5),
-              deletedRanges,
-              previewCuts,
-              'forward',
-            );
-          }
+          const { currentTime, duration } = useEditorStore.getState();
+          requestSeek(Math.min(duration, currentTime + 5), 'forward');
           return;
         }
 
         // --- [ mark in-point (home) ---
         case e.key === '[': {
           e.preventDefault();
-          if (video) video.currentTime = 0;
+          requestSeek(0, 'backward');
           return;
         }
 
         // --- ] mark out-point (end) ---
         case e.key === ']': {
           e.preventDefault();
-          if (video) video.currentTime = video.duration;
+          requestSeek(useEditorStore.getState().duration, 'forward');
           return;
         }
 
@@ -161,7 +146,7 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [deleteSelectedWords, selectedWordIndices, deletedRanges, previewCuts]);
+  }, [deleteSelectedWords, requestSeek, selectedWordIndices]);
 }
 
 export async function saveProject() {

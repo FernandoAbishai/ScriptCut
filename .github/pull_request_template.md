@@ -5,7 +5,7 @@
 ## Verification
 
 - [ ] `npm run lint`
-- [ ] `npm run build`
+- [ ] `npm run build --prefix frontend`
 - [ ] `npm run smoke:backend`
 - [ ] `python -m compileall -q backend`
 

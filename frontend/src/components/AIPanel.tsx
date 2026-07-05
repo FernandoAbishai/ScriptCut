@@ -91,7 +91,7 @@ export default function AIPanel() {
     deletedRanges,
     deleteWordRange,
     restoreRange,
-    setCurrentTime,
+    requestSeek,
     setPreviewAspectRatio,
     setExportOptions,
     getMutedRanges,
@@ -405,14 +405,9 @@ export default function AIPanel() {
       if (!word) return;
 
       const previewStart = Math.max(0, word.start - 0.35);
-      setCurrentTime(previewStart);
-      const video = document.querySelector('video');
-      if (video) {
-        video.currentTime = previewStart;
-        video.play();
-      }
+      requestSeek(previewStart, 'backward', true);
     },
-    [words, setCurrentTime],
+    [requestSeek, words],
   );
 
   const acceptFiller = useCallback(
@@ -454,14 +449,9 @@ export default function AIPanel() {
           reframe: draftSettings.reframe || current.reframe || { x: 50, y: 50 },
         }));
       }
-      setCurrentTime(clip.startTime);
-      const video = document.querySelector('video');
-      if (video) {
-        video.currentTime = clip.startTime;
-        video.play();
-      }
+      requestSeek(clip.startTime, 'forward', true);
     },
-    [setCurrentTime, setExportOptions, setPreviewAspectRatio],
+    [requestSeek, setExportOptions, setPreviewAspectRatio],
   );
 
   const [exportingClipIndex, setExportingClipIndex] = useState<number | null>(null);

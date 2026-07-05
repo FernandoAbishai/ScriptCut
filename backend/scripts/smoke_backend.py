@@ -89,6 +89,89 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIsNotNone(final)
         self.assertEqual(final["status"], "canceled")
 
+    def test_retry_failed_job_tracks_original_and_attempt(self) -> None:
+        manager = JobManager()
+
+        def target(progress):
+            progress(20, "about to fail")
+            raise RuntimeError("expected failure")
+
+        job_id = manager.create("smoke", target)
+        time.sleep(0.08)
+        failed = manager.get(job_id)
+        self.assertIsNotNone(failed)
+        self.assertEqual(failed["status"], "failed")
+
+        retry_job_id = manager.retry(job_id)
+        self.assertIsNotNone(retry_job_id)
+        time.sleep(0.08)
+        retried = manager.get(retry_job_id)
+        self.assertIsNotNone(retried)
+        self.assertEqual(retried["status"], "failed")
+        self.assertEqual(retried["originalJobId"], job_id)
+        self.assertEqual(retried["attempt"], 2)
+
+    def test_background_failure_cleans_temporary_export_artifact(self) -> None:
+        def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        def fake_remove_background(input_path, output_path, replacement, replacement_value, progress_callback=None):
+            Path(output_path).write_text("partial background render", encoding="utf-8")
+            raise RuntimeError("background removal failed")
+
+        with TemporaryDirectory() as tmp:
+            output_path = str(Path(tmp) / "edited.mp4")
+            background_path = output_path + ".bg.mp4"
+            request = export_router.ExportRequest(
+                input_path=str(Path(tmp) / "input.mp4"),
+                output_path=output_path,
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+                backgroundRemoval=export_router.BackgroundRemovalModel(enabled=True),
+            )
+
+            with (
+                patch.object(export_router, "export_stream_copy", fake_stream_copy),
+                patch.object(export_router, "remove_background_on_export", fake_remove_background),
+            ):
+                with self.assertRaises(RuntimeError):
+                    export_router.run_export(request)
+
+        self.assertFalse(Path(background_path).exists())
+
+    def test_audio_enhancement_failure_cleans_temporary_mux_artifact(self) -> None:
+        def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        def fake_clean_audio(input_path, output_path):
+            Path(output_path).write_text("audio", encoding="utf-8")
+
+        def fake_mux_audio(video_path, audio_path, output_path):
+            Path(output_path).write_text("partial mux", encoding="utf-8")
+            raise RuntimeError("mux failed")
+
+        with TemporaryDirectory() as tmp:
+            output_path = str(Path(tmp) / "edited.mp4")
+            muxed_path = output_path + ".muxed.mp4"
+            request = export_router.ExportRequest(
+                input_path=str(Path(tmp) / "input.mp4"),
+                output_path=output_path,
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+                enhanceAudio=True,
+            )
+
+            with (
+                patch.object(export_router, "export_stream_copy", fake_stream_copy),
+                patch.object(export_router, "clean_audio", fake_clean_audio),
+                patch.object(export_router, "_mux_audio", fake_mux_audio),
+            ):
+                result = export_router.run_export(request)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("warnings", result)
+        self.assertFalse(Path(muxed_path).exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -23,10 +23,14 @@ export default function TranscriptEditor() {
   const restoreRange = useEditorStore((s) => s.restoreRange);
   const restoreEditOperation = useEditorStore((s) => s.restoreEditOperation);
   const getWordAtTime = useEditorStore((s) => s.getWordAtTime);
+  const requestSeek = useEditorStore((s) => s.requestSeek);
 
   const selectionStart = useRef<number | null>(null);
   const wasDragging = useRef(false);
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
+  const activeSegmentIndexRef = useRef(-1);
+  const userScrollPauseUntilRef = useRef(0);
+  const userScrollTimerRef = useRef(0);
 
   const deletedSet = useMemo(() => {
     const s = new Set<number>();
@@ -71,15 +75,21 @@ export default function TranscriptEditor() {
   );
 
   useEffect(() => {
-    if (words.length === 0) return;
-    const interval = setInterval(() => {
-      const video = document.querySelector('video') as HTMLVideoElement | null;
-      if (!video) return;
-      const idx = getWordAtTime(video.currentTime);
+    if (words.length === 0) {
+      setActiveWordIndex(-1);
+      return;
+    }
+
+    const updateActiveWord = (time: number) => {
+      const idx = getWordAtTime(time);
       setActiveWordIndex((prev) => (prev === idx ? prev : idx));
-    }, 250);
-    return () => clearInterval(interval);
-  }, [words, getWordAtTime]);
+    };
+
+    updateActiveWord(useEditorStore.getState().currentTime);
+    return useEditorStore.subscribe((state) => {
+      updateActiveWord(state.currentTime);
+    });
+  }, [words.length, getWordAtTime]);
 
   // Auto-scroll to active segment via Virtuoso
   useEffect(() => {
@@ -88,14 +98,36 @@ export default function TranscriptEditor() {
       const start = segment.globalStartIndex ?? 0;
       return activeWordIndex >= start && activeWordIndex < start + segment.words.length;
     });
-    if (segIdx >= 0 && virtuosoRef.current) {
+    if (
+      segIdx >= 0 &&
+      segIdx !== activeSegmentIndexRef.current &&
+      virtuosoRef.current &&
+      Date.now() > userScrollPauseUntilRef.current
+    ) {
+      activeSegmentIndexRef.current = segIdx;
       virtuosoRef.current.scrollIntoView({ index: segIdx, behavior: 'smooth', align: 'center' });
     }
   }, [activeWordIndex, visibleSegments]);
 
+  const pauseAutoScroll = useCallback(() => {
+    userScrollPauseUntilRef.current = Date.now() + 1800;
+    window.clearTimeout(userScrollTimerRef.current);
+    userScrollTimerRef.current = window.setTimeout(() => {
+      userScrollPauseUntilRef.current = 0;
+    }, 1900);
+  }, []);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(userScrollTimerRef.current);
+    },
+    [],
+  );
+
   const handleWordMouseDown = useCallback(
     (index: number, e: React.MouseEvent) => {
       e.preventDefault();
+      pauseAutoScroll();
       wasDragging.current = false;
       if (e.shiftKey && selectedWordIndices.length > 0) {
         const first = selectedWordIndices[0];
@@ -107,9 +139,10 @@ export default function TranscriptEditor() {
       } else {
         selectionStart.current = index;
         setSelectedWordIndices([index]);
+        requestSeek(words[index]?.start ?? 0, 'forward', false);
       }
     },
-    [selectedWordIndices, setSelectedWordIndices],
+    [pauseAutoScroll, requestSeek, selectedWordIndices, setSelectedWordIndices, words],
   );
 
   const handleWordMouseEnter = useCallback(
@@ -329,6 +362,9 @@ export default function TranscriptEditor() {
       <div
         className="flex-1 min-h-0 select-none"
         onMouseUp={handleMouseUp}
+        onMouseDown={pauseAutoScroll}
+        onWheel={pauseAutoScroll}
+        onTouchStart={pauseAutoScroll}
         onClick={handleClickOutside}
       >
         <Virtuoso

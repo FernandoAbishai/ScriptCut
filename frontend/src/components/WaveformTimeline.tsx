@@ -18,11 +18,16 @@ export default function WaveformTimeline() {
   const editOperations = useEditorStore((s) => s.editOperations);
   const previewCuts = useEditorStore((s) => s.previewCuts);
   const currentTime = useEditorStore((s) => s.currentTime);
-  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const requestSeek = useEditorStore((s) => s.requestSeek);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const rafRef = useRef(0);
+  const currentTimeRef = useRef(0);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
 
   const drawStaticWaveform = useCallback(() => {
     const canvas = waveCanvasRef.current;
@@ -158,7 +163,7 @@ export default function WaveformTimeline() {
     drawStaticWaveform();
   }, [drawStaticWaveform, zoom]);
 
-  // Lightweight RAF loop for playhead only -- reads video.currentTime directly,
+  // Lightweight RAF loop for playhead only -- reads store time from a ref,
   // never triggers React re-renders
   useEffect(() => {
     const headCanvas = headCanvasRef.current;
@@ -169,7 +174,6 @@ export default function WaveformTimeline() {
       const ctx = headCanvas.getContext('2d');
       if (!ctx) { rafRef.current = requestAnimationFrame(tick); return; }
 
-      const video = document.querySelector('video') as HTMLVideoElement | null;
       const dur = audioBufferRef.current?.duration || duration;
 
       const dpr = window.devicePixelRatio || 1;
@@ -184,8 +188,8 @@ export default function WaveformTimeline() {
       const height = rect.height;
       ctx.clearRect(0, 0, width, height);
 
-      if (dur > 0 && video) {
-        const px = (video.currentTime / dur) * width;
+      if (dur > 0) {
+        const px = (currentTimeRef.current / dur) * width;
         ctx.beginPath();
         ctx.strokeStyle = '#6366f1';
         ctx.lineWidth = 2;
@@ -217,11 +221,9 @@ export default function WaveformTimeline() {
       const rawTime = ratio * duration;
       const direction = rawTime < currentTime ? 'backward' : 'forward';
       const nextTime = getPlayableSeekTime(rawTime, deletedRanges, previewCuts, direction);
-      setCurrentTime(nextTime);
-      const video = document.querySelector('video');
-      if (video) video.currentTime = nextTime;
+      requestSeek(nextTime, direction, false);
     },
-    [currentTime, deletedRanges, duration, previewCuts, setCurrentTime],
+    [currentTime, deletedRanges, duration, previewCuts, requestSeek],
   );
 
   if (!videoUrl) {
