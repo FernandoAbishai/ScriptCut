@@ -14,6 +14,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from routers import export as export_router
+from routers import ai as ai_router
 from services import ai_provider
 from services.caption_generator import generate_srt
 from services.job_manager import JobManager
@@ -241,6 +242,47 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(suggestion["startTime"], 0.0)
         self.assertEqual(suggestion["endTime"], 0.2)
         self.assertEqual(suggestion["text"], "Well")
+
+    def test_clip_request_includes_shorts_platform_guidance(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_complete(**kwargs):
+            captured["prompt"] = kwargs["prompt"]
+            return """
+            {
+              "clips": [
+                {
+                  "title": "Strong opener",
+                  "startWordIndex": 0,
+                  "endWordIndex": 1,
+                  "startTime": 0,
+                  "endTime": 31,
+                  "reason": "Clear hook"
+                }
+              ]
+            }
+            """
+
+        request = ai_router.ClipRequest(
+            transcript="hello world",
+            words=[
+                ai_router.WordInfo(index=0, word="hello", start=0, end=0.5),
+                ai_router.WordInfo(index=1, word="world", start=30.5, end=31),
+            ],
+            target_duration=60,
+            platform="shorts",
+            instruction="favor surprising hooks",
+            min_duration=30,
+            max_duration=90,
+        )
+
+        with patch.object(ai_provider.AIProvider, "complete", side_effect=fake_complete):
+            result = ai_router.run_create_clip(request)
+
+        self.assertEqual(len(result["clips"]), 1)
+        self.assertIn("shorts", captured["prompt"])
+        self.assertIn("30-90 seconds", captured["prompt"])
+        self.assertIn("favor surprising hooks", captured["prompt"])
 
 
 if __name__ == "__main__":

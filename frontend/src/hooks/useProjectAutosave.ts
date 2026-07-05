@@ -321,13 +321,28 @@ function normalizeClipDrafts(drafts: ClipDraft[]) {
     .filter((draft) => typeof draft.id === 'string')
     .map((draft) => ({
       ...draft,
+      status: oneOf(draft.status, ['suggested', 'draft', 'packaged', 'exporting', 'exported', 'failed'], 'draft'),
+      platform: oneOf(draft.platform, ['shorts', 'generic'], 'shorts'),
+      exportPath: typeof draft.exportPath === 'string' ? draft.exportPath : undefined,
+      exportedAt: typeof draft.exportedAt === 'string' ? draft.exportedAt : undefined,
+      lastError: typeof draft.lastError === 'string' ? draft.lastError : undefined,
       format: oneOf(draft.format, ['mp4', 'mov', 'webm'], 'mp4'),
       resolution: oneOf(draft.resolution, ['720p', '1080p', '4k'], '1080p'),
-      aspectRatio: oneOf(draft.aspectRatio, ['source', 'vertical', 'square'], 'source'),
+      aspectRatio: oneOf(draft.aspectRatio, ['source', 'vertical', 'square'], 'vertical'),
       reframe: normalizeReframe(draft.reframe),
       enhanceAudio: !!draft.enhanceAudio,
-      captions: oneOf(draft.captions, ['none', 'burn-in', 'sidecar'], 'none'),
-      captionStyle: normalizeCaptionStyle(draft.captionStyle),
+      captions: oneOf(draft.captions, ['none', 'burn-in', 'sidecar'], 'burn-in'),
+      captionStyle: normalizeCaptionStyle(draft.captionStyle) || {
+        preset: 'creator',
+        fontName: 'Arial',
+        fontSize: 58,
+        fontColor: '#ffffff',
+        backgroundColor: '#111827',
+        position: 'bottom',
+        bold: true,
+        highlightColor: '#facc15',
+        wordsPerLine: 5,
+      },
       backgroundRemoval: normalizeBackgroundRemoval(draft.backgroundRemoval),
     }));
 }

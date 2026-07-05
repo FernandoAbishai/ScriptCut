@@ -37,6 +37,10 @@ class ClipRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     target_duration: int = 60
+    platform: Optional[str] = None
+    instruction: Optional[str] = None
+    min_duration: Optional[int] = None
+    max_duration: Optional[int] = None
 
 
 class ClipMetadataRequest(BaseModel):
@@ -123,6 +127,10 @@ def run_create_clip(req: ClipRequest, progress_callback=None):
         transcript=req.transcript,
         words=words_dicts,
         target_duration=req.target_duration,
+        platform=req.platform,
+        instruction=req.instruction,
+        min_duration=req.min_duration,
+        max_duration=req.max_duration,
         provider=req.provider,
         model=req.model,
         api_key=req.api_key,

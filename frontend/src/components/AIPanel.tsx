@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard } from 'lucide-react';
-import type { CaptionStyle, ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
+import type { CaptionStyle, ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
 
@@ -48,6 +48,12 @@ type ClipMetadataResult = {
   hashtags?: string[];
 };
 
+type BatchExportResult = {
+  draft: ClipDraft;
+  outputPath?: string;
+  error?: string;
+};
+
 const CLIP_CAPTION_PRESETS: Record<NonNullable<CaptionStyle['preset']>, CaptionStyle> = {
   clean: {
     preset: 'clean',
@@ -82,6 +88,20 @@ const CLIP_CAPTION_PRESETS: Record<NonNullable<CaptionStyle['preset']>, CaptionS
     wordsPerLine: 3,
   },
 };
+
+const SHORTS_DRAFT_DEFAULTS = {
+  format: 'mp4',
+  resolution: '1080p',
+  aspectRatio: 'vertical',
+  reframe: { x: 50, y: 50 },
+  enhanceAudio: false,
+  captions: 'burn-in',
+  captionStyle: CLIP_CAPTION_PRESETS.creator,
+  backgroundRemoval: { enabled: false, replacement: 'blur', color: '#111827' },
+  platform: 'shorts',
+} satisfies Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'platform'>;
+
+const EXPORTABLE_DRAFT_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged', 'failed']);
 
 export default function AIPanel() {
   const {
@@ -452,18 +472,26 @@ export default function AIPanel() {
           api_key: config.apiKey || undefined,
           base_url: config.baseUrl || undefined,
           target_duration: 60,
+          platform: 'shorts',
+          min_duration: 30,
+          max_duration: 90,
         },
         'Clip discovery',
         { label: 'Clip discovery' },
       );
-      setClipSuggestions(data.clips || []);
+      const clips = data.clips || [];
+      setClipSuggestions(clips);
+      setClipDrafts((current) => [
+        ...current,
+        ...clips.map((clip, index) => createShortsClipDraft(clip, `suggested_clip_${Date.now()}_${current.length}_${index}`, 'suggested')),
+      ]);
     } catch (err) {
       console.error(err);
       alert(`Clip creation failed.\n\n${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setProcessing(false);
     }
-  }, [words, defaultProvider, providers, setProcessing, setClipSuggestions, startAIJob]);
+  }, [words, defaultProvider, providers, setProcessing, setClipSuggestions, setClipDrafts, startAIJob]);
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
@@ -562,6 +590,42 @@ export default function AIPanel() {
   const [batchExportProgress, setBatchExportProgress] = useState({ completed: 0, total: 0, stopping: false });
   const stopBatchExportRef = useRef(false);
   const [packagingDraftId, setPackagingDraftId] = useState<string | null>(null);
+  const exportableDraftCount = useMemo(
+    () => clipDrafts.filter((draft) => EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft')).length,
+    [clipDrafts],
+  );
+
+  const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
+    setClipDrafts((current) =>
+      current.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
+    );
+  }, [setClipDrafts]);
+
+  const approveClipDraft = useCallback((id: string) => {
+    updateClipDraft(id, { status: 'draft', lastError: undefined });
+  }, [updateClipDraft]);
+
+  const duplicateClipDraft = useCallback(
+    (draft: ClipDraft) => {
+      setClipDrafts((current) => [
+        ...current,
+        {
+          ...draft,
+          id: `clip_copy_${Date.now()}_${current.length}`,
+          title: `${draft.title} Copy`,
+          status: 'draft',
+          exportPath: undefined,
+          exportedAt: undefined,
+          lastError: undefined,
+        },
+      ]);
+    },
+    [setClipDrafts],
+  );
+
+  const removeClipDraft = useCallback((id: string) => {
+    setClipDrafts((current) => current.filter((draft) => draft.id !== id));
+  }, [setClipDrafts]);
 
   const pollClipExportJob = useCallback(
     async (jobId: string, draftId?: string) => {
@@ -638,6 +702,7 @@ export default function AIPanel() {
         if (!res.ok) throw new Error('Export start failed');
         const { job_id: jobId } = await res.json();
         if (settings?.id) {
+          updateClipDraft(settings.id, { status: 'exporting', lastError: undefined });
           setClipExportJobs((current) => ({
             ...current,
             [settings.id!]: {
@@ -650,6 +715,14 @@ export default function AIPanel() {
           }));
         }
         const output = await pollClipExportJob(jobId, settings?.id);
+        if (settings?.id) {
+          updateClipDraft(settings.id, {
+            status: 'exported',
+            exportPath: output.outputPath,
+            exportedAt: new Date().toISOString(),
+            lastError: undefined,
+          });
+        }
         if (!silent) {
           alert(
             output.srtPath
@@ -661,6 +734,9 @@ export default function AIPanel() {
       } catch (err) {
         console.error(err);
         const message = err instanceof Error ? err.message : String(err);
+        if (settings?.id) {
+          updateClipDraft(settings.id, { status: 'failed', lastError: message });
+        }
         if (!silent && !message.toLowerCase().includes('canceled')) {
           alert('Failed to export clip. Check console for details.');
         }
@@ -669,7 +745,7 @@ export default function AIPanel() {
         setExportingClipIndex(null);
       }
     },
-    [videoPath, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob],
+    [videoPath, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob, updateClipDraft],
   );
 
   const cancelDraftExport = useCallback(
@@ -680,10 +756,11 @@ export default function AIPanel() {
       if (res.ok) {
         const canceledJob = (await res.json()) as ExportJob;
         setClipExportJobs((current) => ({ ...current, [draftId]: canceledJob }));
+        updateClipDraft(draftId, { status: 'failed', lastError: canceledJob.error || canceledJob.message || 'Export canceled' });
       }
       setExportingDraftId((current) => (current === draftId ? null : current));
     },
-    [backendUrl, clipExportJobs],
+    [backendUrl, clipExportJobs, updateClipDraft],
   );
 
   const retryDraftExport = useCallback(
@@ -705,7 +782,14 @@ export default function AIPanel() {
             logs: [],
           },
         }));
+        updateClipDraft(draft.id, { status: 'exporting', lastError: undefined });
         const output = await pollClipExportJob(jobId, draft.id);
+        updateClipDraft(draft.id, {
+          status: 'exported',
+          exportPath: output.outputPath,
+          exportedAt: new Date().toISOString(),
+          lastError: undefined,
+        });
         alert(
           output.srtPath
             ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}`
@@ -713,12 +797,13 @@ export default function AIPanel() {
         );
       } catch (err) {
         console.error(err);
+        updateClipDraft(draft.id, { status: 'failed', lastError: err instanceof Error ? err.message : String(err) });
         alert(`Clip retry failed.\n\n${err instanceof Error ? err.message : String(err)}`);
       } finally {
         setExportingDraftId(null);
       }
     },
-    [backendUrl, clipExportJobs, pollClipExportJob],
+    [backendUrl, clipExportJobs, pollClipExportJob, updateClipDraft],
   );
 
   const handleExportSuggestedClip = useCallback(
@@ -737,20 +822,7 @@ export default function AIPanel() {
     (clip: ClipSuggestion, source: ClipDraft['source'] = 'ai', speaker?: string) => {
       setClipDrafts((current) => [
         ...current,
-        {
-          ...clip,
-          id: `clip_${Date.now()}_${current.length}`,
-          format: 'mp4',
-          resolution: '1080p',
-          aspectRatio: 'source',
-          reframe: { x: 50, y: 50 },
-          enhanceAudio: false,
-          captions: 'none',
-          captionStyle: CLIP_CAPTION_PRESETS.creator,
-          backgroundRemoval: { enabled: false, replacement: 'blur', color: '#111827' },
-          source,
-          speaker,
-        },
+        createShortsClipDraft(clip, `clip_${Date.now()}_${current.length}`, 'draft', source, speaker),
       ]);
     },
     [setClipDrafts],
@@ -762,33 +834,10 @@ export default function AIPanel() {
       ...current,
       ...speakerTurnClips.map((clip, index) => {
         const speaker = words[clip.startWordIndex]?.speaker || 'Unknown speaker';
-        return {
-          ...clip,
-          id: `speaker_clip_${Date.now()}_${current.length}_${index}`,
-          format: 'mp4' as const,
-          resolution: '1080p' as const,
-          aspectRatio: 'source' as const,
-          reframe: { x: 50, y: 50 },
-          enhanceAudio: false,
-          captions: 'none' as const,
-          captionStyle: CLIP_CAPTION_PRESETS.creator,
-          backgroundRemoval: { enabled: false, replacement: 'blur' as const, color: '#111827' },
-          source: 'speaker-turn' as const,
-          speaker,
-        };
+        return createShortsClipDraft(clip, `speaker_clip_${Date.now()}_${current.length}_${index}`, 'draft', 'speaker-turn', speaker);
       }),
     ]);
   }, [setClipDrafts, speakerTurnClips, words]);
-
-  const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
-    setClipDrafts((current) =>
-      current.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
-    );
-  }, [setClipDrafts]);
-
-  const removeClipDraft = useCallback((id: string) => {
-    setClipDrafts((current) => current.filter((draft) => draft.id !== id));
-  }, [setClipDrafts]);
 
   const copyClipPackage = useCallback(
     async (draft: ClipDraft) => {
@@ -825,29 +874,36 @@ export default function AIPanel() {
   );
 
   const handleExportAllDrafts = useCallback(async () => {
-    if (clipDrafts.length === 0) return;
+    const exportableDrafts = clipDrafts.filter((draft) => EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft'));
+    if (exportableDrafts.length === 0) return;
     stopBatchExportRef.current = false;
     setBatchExporting(true);
-    setBatchExportProgress({ completed: 0, total: clipDrafts.length, stopping: false });
-    let completedCount = 0;
+    setBatchExportProgress({ completed: 0, total: exportableDrafts.length, stopping: false });
+    const results: BatchExportResult[] = [];
     try {
-      for (let index = 0; index < clipDrafts.length; index++) {
+      for (let index = 0; index < exportableDrafts.length; index++) {
         if (stopBatchExportRef.current) break;
-        const draft = clipDrafts[index];
+        const draft = exportableDrafts[index];
         setExportingDraftId(draft.id);
         setClipExportJobs((current) => {
           const next = { ...current };
           delete next[draft.id];
           return next;
         });
-        await handleExportClip(draft, draft, true);
-        completedCount = index + 1;
+        try {
+          const outputPath = await handleExportClip(draft, draft, true);
+          results.push({ draft, outputPath });
+        } catch (err) {
+          results.push({ draft, error: err instanceof Error ? err.message : String(err) });
+        }
         setBatchExportProgress((current) => ({ ...current, completed: index + 1 }));
       }
+      const successCount = results.filter((result) => result.outputPath).length;
+      const failedCount = results.filter((result) => result.error).length;
       alert(
         stopBatchExportRef.current
-          ? `Stopped batch export after ${completedCount} of ${clipDrafts.length} clips.`
-          : `Exported ${clipDrafts.length} clip drafts.`,
+          ? `Stopped batch export after ${results.length} of ${exportableDrafts.length} clips.\n${successCount} exported, ${failedCount} failed.`
+          : `Batch export finished.\n${successCount} exported, ${failedCount} failed.`,
       );
     } catch (err) {
       console.error(err);
@@ -893,9 +949,12 @@ export default function AIPanel() {
           description: data.description || '',
           caption: data.caption || '',
           hashtags: data.hashtags || [],
+          status: 'packaged',
+          lastError: undefined,
         });
       } catch (err) {
         console.error(err);
+        updateClipDraft(draft.id, { lastError: err instanceof Error ? err.message : String(err) });
         alert(`Clip packaging failed.\n\n${err instanceof Error ? err.message : String(err)}`);
       } finally {
         setPackagingDraftId(null);
@@ -918,7 +977,12 @@ export default function AIPanel() {
         setFillerResult(result as FillerWordResult);
       } else if (activeAIJob.kind === 'ai:create-clip') {
         const clipResult = result as { clips?: ClipSuggestion[] };
-        setClipSuggestions(clipResult.clips || []);
+        const clips = clipResult.clips || [];
+        setClipSuggestions(clips);
+        setClipDrafts((current) => [
+          ...current,
+          ...clips.map((clip, index) => createShortsClipDraft(clip, `suggested_clip_retry_${Date.now()}_${current.length}_${index}`, 'suggested')),
+        ]);
       } else if (activeAIJob.kind === 'ai:edit-plan') {
         setEditPlanResult(result as EditPlanResult);
       } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
@@ -930,6 +994,8 @@ export default function AIPanel() {
           hashtags: metadata.hashtags || [],
         };
         if (metadata.titles?.[0]) patch.title = metadata.titles[0];
+        patch.status = 'packaged';
+        patch.lastError = undefined;
         updateClipDraft(activeAIJob.draftId, patch);
       }
     } catch (err) {
@@ -942,6 +1008,7 @@ export default function AIPanel() {
     activeAIJob,
     backendUrl,
     pollAIJob,
+    setClipDrafts,
     setClipSuggestions,
     setEditPlanResult,
     setFillerResult,
@@ -1257,7 +1324,7 @@ export default function AIPanel() {
                     )}
                     <button
                       onClick={handleExportAllDrafts}
-                      disabled={isBatchExporting}
+                      disabled={isBatchExporting || exportableDraftCount === 0}
                       className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
                     >
                       {isBatchExporting ? (
@@ -1265,9 +1332,12 @@ export default function AIPanel() {
                       ) : (
                         <Download className="w-3 h-3" />
                       )}
-                      Export All
+                      Export Approved
                     </button>
                   </div>
+                </div>
+                <div className="text-[10px] text-editor-text-muted">
+                  {exportableDraftCount} approved/exportable of {clipDrafts.length} drafts
                 </div>
                 {isBatchExporting && (
                   <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
@@ -1303,13 +1373,16 @@ export default function AIPanel() {
                       isExporting={exportingDraftId === draft.id}
                       exportJob={clipExportJobs[draft.id]}
                       backgroundCapabilities={backgroundCapabilities}
+                      transcriptSnippet={getClipTranscript(words, draft)}
                       onChange={(patch) => updateClipDraft(draft.id, patch)}
+                      onApprove={() => approveClipDraft(draft.id)}
                       onPreview={() => handlePreviewClip(draft)}
                       onExport={() => handleExportDraft(draft)}
                       onCancelExport={() => cancelDraftExport(draft.id)}
                       onRetryExport={() => retryDraftExport(draft)}
                       onPackage={() => packageClipDraft(draft)}
                       onCopyPackage={() => copyClipPackage(draft)}
+                      onDuplicate={() => duplicateClipDraft(draft)}
                       onRemove={() => removeClipDraft(draft.id)}
                       isPackaging={packagingDraftId === draft.id}
                     />
@@ -1453,13 +1526,16 @@ function ClipDraftCard({
   isPackaging,
   exportJob,
   backgroundCapabilities,
+  transcriptSnippet,
   onChange,
+  onApprove,
   onPreview,
   onExport,
   onCancelExport,
   onRetryExport,
   onPackage,
   onCopyPackage,
+  onDuplicate,
   onRemove,
 }: {
   draft: ClipDraft;
@@ -1467,31 +1543,49 @@ function ClipDraftCard({
   isPackaging: boolean;
   exportJob?: ExportJob;
   backgroundCapabilities: BackgroundCapabilities | null;
+  transcriptSnippet: string;
   onChange: (patch: Partial<ClipDraft>) => void;
+  onApprove: () => void;
   onPreview: () => void;
   onExport: () => void;
   onCancelExport: () => void;
   onRetryExport: () => void;
   onPackage: () => void;
   onCopyPackage: () => void;
+  onDuplicate: () => void;
   onRemove: () => void;
 }) {
   const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running' || exportJob?.status === 'canceling';
   const exportRetryable = exportJob?.status === 'failed' || exportJob?.status === 'canceled';
+  const status = draft.status || 'draft';
+  const isSuggested = status === 'suggested';
 
   return (
     <div className="space-y-2 rounded bg-editor-surface p-3">
-      <input
-        value={draft.title}
-        onChange={(e) => onChange({ title: e.target.value })}
-        className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-xs font-semibold text-editor-text focus:border-editor-accent focus:outline-none"
-      />
+      <div className="flex items-start gap-2">
+        <input
+          value={draft.title}
+          onChange={(e) => onChange({ title: e.target.value })}
+          className="min-w-0 flex-1 rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-xs font-semibold text-editor-text focus:border-editor-accent focus:outline-none"
+        />
+        <ClipStatusBadge status={status} />
+      </div>
       <div className="flex items-center justify-between text-[10px] text-editor-text-muted">
         <span>
           {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)}
         </span>
         <span>{Math.round(draft.endTime - draft.startTime)}s</span>
       </div>
+      {draft.exportPath && (
+        <div className="truncate rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-success" title={draft.exportPath}>
+          Exported: {draft.exportPath}
+        </div>
+      )}
+      {draft.lastError && (
+        <div className="break-words rounded bg-editor-warning/10 px-2 py-1 text-[10px] text-editor-warning">
+          {draft.lastError}
+        </div>
+      )}
       {(draft.source || draft.speaker) && (
         <div className="flex flex-wrap items-center gap-1 text-[10px]">
           {draft.source && (
@@ -1629,8 +1723,11 @@ function ClipDraftCard({
           {exportJob.error && <div className="break-words text-editor-warning">{exportJob.error}</div>}
         </div>
       )}
-      {(draft.hook || draft.description || draft.caption || draft.hashtags?.length) && (
-        <div className="space-y-1 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
+      <div className="space-y-1 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
+          <div>
+            <span className="font-medium text-editor-text">Transcript</span>
+            <p className="mt-1 line-clamp-3 leading-snug">{transcriptSnippet || 'No transcript text available for this clip.'}</p>
+          </div>
           {draft.hook && (
             <EditableText
               label="Hook"
@@ -1664,11 +1761,25 @@ function ClipDraftCard({
                     .filter(Boolean),
                 })
               }
-            />
+              />
           )}
-        </div>
-      )}
+      </div>
       <div className="grid grid-cols-2 gap-2">
+        {isSuggested ? (
+          <button
+            onClick={onApprove}
+            className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30"
+          >
+            <Check className="w-3 h-3" /> Approve
+          </button>
+        ) : (
+          <button
+            onClick={onDuplicate}
+            className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
+          >
+            <Plus className="w-3 h-3" /> Duplicate
+          </button>
+        )}
         <button
           onClick={onPreview}
           className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30"
@@ -1677,7 +1788,7 @@ function ClipDraftCard({
         </button>
         <button
           onClick={onPackage}
-          disabled={isPackaging}
+          disabled={isSuggested || isPackaging}
           className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
         >
           {isPackaging ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
@@ -1691,7 +1802,7 @@ function ClipDraftCard({
         </button>
         <button
           onClick={onExport}
-          disabled={isExporting || exportActive}
+          disabled={isSuggested || isExporting || exportActive}
           className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
         >
           {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -1716,7 +1827,7 @@ function ClipDraftCard({
             onClick={onRemove}
             className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
           >
-            <X className="w-3 h-3" /> Remove
+            <X className="w-3 h-3" /> {isSuggested ? 'Reject' : 'Remove'}
           </button>
         )}
       </div>
@@ -1900,6 +2011,57 @@ function ClipCaptionStyleControls({
       </label>
     </div>
   );
+}
+
+function ClipStatusBadge({ status }: { status: ClipDraftStatus }) {
+  const classes: Record<ClipDraftStatus, string> = {
+    suggested: 'bg-editor-accent/15 text-editor-accent',
+    draft: 'bg-editor-border text-editor-text-muted',
+    packaged: 'bg-editor-success/20 text-editor-success',
+    exporting: 'bg-editor-accent/20 text-editor-accent',
+    exported: 'bg-editor-success/20 text-editor-success',
+    failed: 'bg-editor-warning/10 text-editor-warning',
+  };
+  const labels: Record<ClipDraftStatus, string> = {
+    suggested: 'Suggested',
+    draft: 'Approved',
+    packaged: 'Packaged',
+    exporting: 'Exporting',
+    exported: 'Exported',
+    failed: 'Failed',
+  };
+
+  return (
+    <span className={`shrink-0 rounded px-1.5 py-1 text-[10px] font-medium ${classes[status]}`}>
+      {labels[status]}
+    </span>
+  );
+}
+
+function createShortsClipDraft(
+  clip: ClipSuggestion,
+  id: string,
+  status: ClipDraftStatus,
+  source: ClipDraft['source'] = 'ai',
+  speaker?: string,
+): ClipDraft {
+  return {
+    ...clip,
+    id,
+    status,
+    ...SHORTS_DRAFT_DEFAULTS,
+    source,
+    speaker,
+  };
+}
+
+function getClipTranscript(words: Word[], clip: Pick<ClipSuggestion, 'startWordIndex' | 'endWordIndex'>) {
+  return words
+    .slice(clip.startWordIndex, clip.endWordIndex + 1)
+    .map((word) => word.word)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function ClipReframeControls({

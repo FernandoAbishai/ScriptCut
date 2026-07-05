@@ -156,8 +156,16 @@ export interface ClipSuggestion {
   reason: string;
 }
 
+export type ClipDraftStatus = 'suggested' | 'draft' | 'packaged' | 'exporting' | 'exported' | 'failed';
+export type ClipPlatform = 'shorts' | 'generic';
+
 export interface ClipDraft extends ClipSuggestion {
   id: string;
+  status?: ClipDraftStatus;
+  platform?: ClipPlatform;
+  exportPath?: string;
+  exportedAt?: string;
+  lastError?: string;
   format: ExportOptions['format'];
   resolution: ExportOptions['resolution'];
   aspectRatio: ExportOptions['aspectRatio'];

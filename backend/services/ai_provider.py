@@ -384,6 +384,10 @@ def create_clip_suggestion(
     transcript: str,
     words: List[dict],
     target_duration: int = 60,
+    platform: Optional[str] = None,
+    instruction: Optional[str] = None,
+    min_duration: Optional[int] = None,
+    max_duration: Optional[int] = None,
     provider: str = "ollama",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -396,10 +400,18 @@ def create_clip_suggestion(
         f"{w['index']}: \"{w['word']}\" ({w.get('start', 0):.1f}s - {w.get('end', 0):.1f}s)"
         for w in words
     )
+    platform_name = platform or "shorts"
+    duration_guidance = (
+        f"Target duration: {target_duration} seconds. "
+        f"Acceptable range: {min_duration or max(15, target_duration - 15)}-{max_duration or target_duration + 15} seconds."
+    )
+    instruction_guidance = f"\nCreator instruction: {instruction.strip()}" if instruction and instruction.strip() else ""
 
-    prompt = f"""Analyze this transcript and find the most engaging {target_duration}-second segment(s) that would work well as a YouTube Short or social media clip.
+    prompt = f"""Analyze this transcript and find the most engaging segment(s) for {platform_name} short-form video.
 
 Look for: compelling stories, surprising facts, emotional moments, clear explanations, humor, or quotable statements.
+{duration_guidance}
+Prefer self-contained clips that make sense without extra context and start with a strong spoken hook.{instruction_guidance}
 
 Words with indices and timestamps:
 {word_list}
@@ -407,7 +419,7 @@ Words with indices and timestamps:
 Return ONLY a valid JSON object:
 {{"clips": [{{"title": "short catchy title", "startWordIndex": integer, "endWordIndex": integer, "startTime": float, "endTime": float, "reason": "why this segment is engaging"}}]}}
 
-Suggest 1-3 clips, each approximately {target_duration} seconds long."""
+Suggest 1-3 clips. Favor vertical social clips with strong retention potential."""
 
     system = "You are a viral content expert. Return only valid JSON, no explanation."
 
