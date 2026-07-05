@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.ai_provider import AIProvider, detect_filler_words, create_clip_suggestion, create_clip_metadata
+from services.ai_provider import AIProvider, detect_filler_words, create_clip_suggestion, create_clip_metadata, create_edit_plan
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,6 +47,16 @@ class ClipMetadataRequest(BaseModel):
     base_url: Optional[str] = None
 
 
+class EditPlanRequest(BaseModel):
+    instruction: str
+    transcript: str
+    words: List[WordInfo]
+    provider: str = "ollama"
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
 class ModelListRequest(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
@@ -76,6 +86,15 @@ async def clip_metadata(req: ClipMetadataRequest):
         return run_clip_metadata(req)
     except Exception as e:
         logger.error(f"Clip metadata failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai/edit-plan")
+async def edit_plan(req: EditPlanRequest):
+    try:
+        return run_edit_plan(req)
+    except Exception as e:
+        logger.error(f"Edit plan failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -124,6 +143,23 @@ def run_clip_metadata(req: ClipMetadataRequest, progress_callback=None):
         base_url=req.base_url,
     )
     _progress(progress_callback, 100, "Clip package complete")
+    return result
+
+
+def run_edit_plan(req: EditPlanRequest, progress_callback=None):
+    _progress(progress_callback, 10, "Preparing edit plan")
+    words_dicts = [w.model_dump() for w in req.words]
+    _progress(progress_callback, 35, "Calling AI editor")
+    result = create_edit_plan(
+        instruction=req.instruction,
+        transcript=req.transcript,
+        words=words_dicts,
+        provider=req.provider,
+        model=req.model,
+        api_key=req.api_key,
+        base_url=req.base_url,
+    )
+    _progress(progress_callback, 100, "Edit plan ready")
     return result
 
 

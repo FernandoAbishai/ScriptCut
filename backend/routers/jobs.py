@@ -5,9 +5,11 @@ from fastapi import APIRouter, HTTPException
 from routers.ai import (
     ClipMetadataRequest,
     ClipRequest,
+    EditPlanRequest,
     FillerRequest,
     run_clip_metadata,
     run_create_clip,
+    run_edit_plan,
     run_filler_removal,
 )
 from routers.export import ExportRequest, run_export
@@ -44,6 +46,12 @@ async def create_clip_job(req: ClipRequest):
 @router.post("/jobs/ai/clip-metadata")
 async def create_clip_metadata_job(req: ClipMetadataRequest):
     job_id = job_manager.create("ai:clip-metadata", lambda progress: run_clip_metadata(req, progress))
+    return {"job_id": job_id}
+
+
+@router.post("/jobs/ai/edit-plan")
+async def create_edit_plan_job(req: EditPlanRequest):
+    job_id = job_manager.create("ai:edit-plan", lambda progress: run_edit_plan(req, progress))
     return {"job_id": job_id}
 
 

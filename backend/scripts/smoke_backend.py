@@ -14,6 +14,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from routers import export as export_router
+from services import ai_provider
 from services.caption_generator import generate_srt
 from services.job_manager import JobManager
 
@@ -171,6 +172,40 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertIn("warnings", result)
         self.assertFalse(Path(muxed_path).exists())
+
+    def test_edit_plan_normalizes_safe_delete_ranges(self) -> None:
+        words = [
+            {"index": 0, "word": "Well", "start": 0.0, "end": 0.2},
+            {"index": 1, "word": "I", "start": 0.2, "end": 0.4},
+            {"index": 2, "word": "think", "start": 0.4, "end": 0.8},
+        ]
+        response = """
+        {
+          "summary": "Tighten the opening.",
+          "suggestions": [
+            {"action": "delete", "startWordIndex": 0, "endWordIndex": 0, "reason": "Filler opener", "confidence": 0.91},
+            {"action": "replace", "startWordIndex": 1, "endWordIndex": 2, "reason": "Unsupported action", "confidence": 0.8},
+            {"action": "delete", "startWordIndex": 9, "endWordIndex": 10, "reason": "Out of range", "confidence": 0.8}
+          ]
+        }
+        """
+
+        with patch.object(ai_provider.AIProvider, "complete", return_value=response):
+            result = ai_provider.create_edit_plan(
+                instruction="Make this tighter",
+                transcript="Well I think",
+                words=words,
+            )
+
+        self.assertEqual(result["summary"], "Tighten the opening.")
+        self.assertEqual(len(result["suggestions"]), 1)
+        suggestion = result["suggestions"][0]
+        self.assertEqual(suggestion["action"], "delete")
+        self.assertEqual(suggestion["startWordIndex"], 0)
+        self.assertEqual(suggestion["endWordIndex"], 0)
+        self.assertEqual(suggestion["startTime"], 0.0)
+        self.assertEqual(suggestion["endTime"], 0.2)
+        self.assertEqual(suggestion["text"], "Well")
 
 
 if __name__ == "__main__":

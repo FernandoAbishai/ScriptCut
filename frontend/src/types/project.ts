@@ -57,6 +57,9 @@ export interface ProjectAIWorkspace {
   customFillerWords?: string;
   fillerResult?: FillerWordResult | null;
   fillerDecisions?: Record<number, FillerReviewDecision>;
+  editPlanInstruction?: string;
+  editPlanResult?: EditPlanResult | null;
+  editPlanDecisions?: Record<string, EditPlanReviewDecision>;
   clipSuggestions?: ClipSuggestion[];
   clipDrafts?: ClipDraft[];
 }
@@ -122,6 +125,25 @@ export interface FillerWordResult {
 }
 
 export type FillerReviewDecision = 'accepted' | 'rejected';
+
+export interface EditPlanSuggestion {
+  id: string;
+  action: 'delete';
+  startWordIndex: number;
+  endWordIndex: number;
+  startTime: number;
+  endTime: number;
+  text: string;
+  reason: string;
+  confidence?: number;
+}
+
+export interface EditPlanResult {
+  summary: string;
+  suggestions: EditPlanSuggestion[];
+}
+
+export type EditPlanReviewDecision = 'accepted' | 'rejected';
 
 export interface ClipSuggestion {
   title: string;

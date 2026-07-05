@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision } from '../types/project';
+import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision, EditPlanResult, EditPlanReviewDecision } from '../types/project';
 
 const ENCRYPTED_KEY_PREFIX = 'scriptcut_enc_';
 const LEGACY_ENCRYPTED_KEY_PREFIX = 'aive_enc_';
@@ -28,6 +28,9 @@ interface AIState {
   customFillerWords: string;
   fillerResult: FillerWordResult | null;
   fillerDecisions: Record<number, FillerReviewDecision>;
+  editPlanInstruction: string;
+  editPlanResult: EditPlanResult | null;
+  editPlanDecisions: Record<string, EditPlanReviewDecision>;
   clipSuggestions: ClipSuggestion[];
   clipDrafts: ClipDraft[];
   isProcessing: boolean;
@@ -44,6 +47,13 @@ interface AIActions {
     decisions:
       | Record<number, FillerReviewDecision>
       | ((current: Record<number, FillerReviewDecision>) => Record<number, FillerReviewDecision>),
+  ) => void;
+  setEditPlanInstruction: (instruction: string) => void;
+  setEditPlanResult: (result: EditPlanResult | null) => void;
+  setEditPlanDecisions: (
+    decisions:
+      | Record<string, EditPlanReviewDecision>
+      | ((current: Record<string, EditPlanReviewDecision>) => Record<string, EditPlanReviewDecision>),
   ) => void;
   setClipSuggestions: (suggestions: ClipSuggestion[]) => void;
   setClipDrafts: (drafts: ClipDraft[] | ((current: ClipDraft[]) => ClipDraft[])) => void;
@@ -92,6 +102,9 @@ export const useAIStore = create<AIState & AIActions>()(
       customFillerWords: '',
       fillerResult: null,
       fillerDecisions: {},
+      editPlanInstruction: '',
+      editPlanResult: null,
+      editPlanDecisions: {},
       clipSuggestions: [],
       clipDrafts: [],
       isProcessing: false,
@@ -123,6 +136,16 @@ export const useAIStore = create<AIState & AIActions>()(
             typeof decisions === 'function' ? decisions(state.fillerDecisions) : decisions,
         })),
 
+      setEditPlanInstruction: (instruction) => set({ editPlanInstruction: instruction }),
+
+      setEditPlanResult: (result) => set({ editPlanResult: result, editPlanDecisions: {} }),
+
+      setEditPlanDecisions: (decisions) =>
+        set((state) => ({
+          editPlanDecisions:
+            typeof decisions === 'function' ? decisions(state.editPlanDecisions) : decisions,
+        })),
+
       setClipSuggestions: (suggestions) => set({ clipSuggestions: suggestions }),
 
       setClipDrafts: (drafts) =>
@@ -138,6 +161,9 @@ export const useAIStore = create<AIState & AIActions>()(
           customFillerWords: workspace?.customFillerWords ?? get().customFillerWords,
           fillerResult: workspace?.fillerResult ?? null,
           fillerDecisions: workspace?.fillerDecisions ?? {},
+          editPlanInstruction: workspace?.editPlanInstruction ?? '',
+          editPlanResult: workspace?.editPlanResult ?? null,
+          editPlanDecisions: workspace?.editPlanDecisions ?? {},
           clipSuggestions: workspace?.clipSuggestions ?? [],
           clipDrafts: workspace?.clipDrafts ?? [],
           isProcessing: false,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
-import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, FillerWordResult, ProjectExportOptions, ProjectFile, Segment, Word } from '../types/project';
+import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, EditPlanResult, FillerWordResult, ProjectExportOptions, ProjectFile, Segment, Word } from '../types/project';
 
 const AUTOSAVE_INTERVAL_MS = 5000;
 const PROJECT_APP = 'ScriptCut';
@@ -104,6 +104,9 @@ export function createProjectSnapshot() {
       customFillerWords: aiState.customFillerWords,
       fillerResult: aiState.fillerResult,
       fillerDecisions: aiState.fillerDecisions,
+      editPlanInstruction: aiState.editPlanInstruction,
+      editPlanResult: aiState.editPlanResult,
+      editPlanDecisions: aiState.editPlanDecisions,
       clipSuggestions: aiState.clipSuggestions,
       clipDrafts: aiState.clipDrafts,
     },
@@ -224,6 +227,9 @@ function normalizeAIWorkspace(workspace: ProjectFile['aiWorkspace']) {
       customFillerWords: '',
       fillerResult: null,
       fillerDecisions: {},
+      editPlanInstruction: '',
+      editPlanResult: null,
+      editPlanDecisions: {},
       clipSuggestions: [],
       clipDrafts: [],
     };
@@ -234,6 +240,10 @@ function normalizeAIWorkspace(workspace: ProjectFile['aiWorkspace']) {
       typeof workspace.customFillerWords === 'string' ? workspace.customFillerWords : '',
     fillerResult: normalizeFillerResult(workspace.fillerResult),
     fillerDecisions: normalizeFillerDecisions(workspace.fillerDecisions),
+    editPlanInstruction:
+      typeof workspace.editPlanInstruction === 'string' ? workspace.editPlanInstruction : '',
+    editPlanResult: normalizeEditPlanResult(workspace.editPlanResult),
+    editPlanDecisions: normalizeEditPlanDecisions(workspace.editPlanDecisions),
     clipSuggestions: normalizeClipSuggestions(workspace.clipSuggestions || []),
     clipDrafts: normalizeClipDrafts(workspace.clipDrafts || []),
   };
@@ -261,6 +271,35 @@ function normalizeFillerResult(result: FillerWordResult | null | undefined) {
   return {
     wordIndices: fillerWords.map((item) => item.index),
     fillerWords,
+  };
+}
+
+function normalizeEditPlanDecisions(decisions: unknown) {
+  if (!decisions || typeof decisions !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(decisions).filter(
+      ([id, decision]) =>
+        typeof id === 'string' && id.length > 0 && (decision === 'accepted' || decision === 'rejected'),
+    ),
+  );
+}
+
+function normalizeEditPlanResult(result: EditPlanResult | null | undefined) {
+  if (!result || typeof result !== 'object' || !Array.isArray(result.suggestions)) return null;
+  const suggestions = result.suggestions.filter(
+    (item) =>
+      item &&
+      typeof item.id === 'string' &&
+      item.action === 'delete' &&
+      typeof item.startWordIndex === 'number' &&
+      typeof item.endWordIndex === 'number' &&
+      typeof item.startTime === 'number' &&
+      typeof item.endTime === 'number' &&
+      typeof item.reason === 'string',
+  );
+  return {
+    summary: typeof result.summary === 'string' ? result.summary : '',
+    suggestions,
   };
 }
 
@@ -366,6 +405,9 @@ export function useProjectAutosave() {
   const customFillerWords = useAIStore((s) => s.customFillerWords);
   const fillerResult = useAIStore((s) => s.fillerResult);
   const fillerDecisions = useAIStore((s) => s.fillerDecisions);
+  const editPlanInstruction = useAIStore((s) => s.editPlanInstruction);
+  const editPlanResult = useAIStore((s) => s.editPlanResult);
+  const editPlanDecisions = useAIStore((s) => s.editPlanDecisions);
   const clipSuggestions = useAIStore((s) => s.clipSuggestions);
   const clipDrafts = useAIStore((s) => s.clipDrafts);
   const lastSavedRef = useRef('');
@@ -442,6 +484,9 @@ export function useProjectAutosave() {
     customFillerWords,
     fillerResult,
     fillerDecisions,
+    editPlanInstruction,
+    editPlanResult,
+    editPlanDecisions,
     clipSuggestions,
     clipDrafts,
   ]);

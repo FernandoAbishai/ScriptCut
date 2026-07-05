@@ -493,3 +493,139 @@ Make it specific to the transcript. Avoid clickbait that the transcript cannot s
         logger.error(f"Failed to parse clip metadata: {result_text[:200]}")
 
     return {"hook": "", "titles": [], "description": "", "caption": "", "hashtags": []}
+
+
+def create_edit_plan(
+    instruction: str,
+    transcript: str,
+    words: List[dict],
+    provider: str = "ollama",
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> dict:
+    """Generate structured transcript edit suggestions from a natural-language instruction."""
+    word_list = "\n".join(
+        f"{w['index']}: \"{w['word']}\" ({float(w.get('start') or 0):.2f}s - {float(w.get('end') or 0):.2f}s)"
+        for w in words
+    )
+
+    prompt = f"""Create a conservative edit plan for this transcript.
+
+User instruction:
+{instruction}
+
+Transcript:
+{transcript}
+
+Words with indices and timestamps:
+{word_list}
+
+Return ONLY a valid JSON object with this exact shape:
+{{
+  "summary": "one sentence summary of the plan",
+  "suggestions": [
+    {{
+      "action": "delete",
+      "startWordIndex": integer,
+      "endWordIndex": integer,
+      "reason": "brief reason",
+      "confidence": number from 0 to 1
+    }}
+  ]
+}}
+
+Rules:
+- Only propose delete actions in this version.
+- Prefer short, reviewable ranges over large rewrites.
+- Preserve meaning; do not remove important claims, names, numbers, or context.
+- Use confidence >= 0.85 only for obvious filler, duplicate starts, or dead air.
+- Return at most 12 suggestions.
+- If the instruction cannot be safely translated into cuts, return an empty suggestions array."""
+
+    system = "You are a careful transcript video editor. Return only valid JSON, no explanation."
+
+    result_text = AIProvider.complete(
+        prompt=prompt,
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        system_prompt=system,
+        temperature=0.2,
+    )
+
+    try:
+        start = result_text.find("{")
+        end = result_text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return _normalize_edit_plan_result(json.loads(result_text[start:end]), words)
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse edit plan: {result_text[:200]}")
+
+    return {"summary": "No safe edit suggestions were found.", "suggestions": []}
+
+
+def _normalize_edit_plan_result(parsed: object, words: List[dict]) -> dict:
+    if not isinstance(parsed, dict):
+        return {"summary": "No safe edit suggestions were found.", "suggestions": []}
+
+    word_by_index = {}
+    for word in words:
+        try:
+            index = int(word["index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        word_by_index[index] = word
+
+    raw_suggestions = parsed.get("suggestions", [])
+    if not isinstance(raw_suggestions, list):
+        raw_suggestions = []
+
+    suggestions = []
+    seen_ranges = set()
+    for item in raw_suggestions:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("action") or "delete").lower() != "delete":
+            continue
+        try:
+            start_index = int(item.get("startWordIndex"))
+            end_index = int(item.get("endWordIndex"))
+        except (TypeError, ValueError):
+            continue
+        if end_index < start_index:
+            start_index, end_index = end_index, start_index
+        if start_index not in word_by_index or end_index not in word_by_index:
+            continue
+        range_key = (start_index, end_index)
+        if range_key in seen_ranges:
+            continue
+        seen_ranges.add(range_key)
+
+        start_word = word_by_index[start_index]
+        end_word = word_by_index[end_index]
+        reason = str(item.get("reason") or "Suggested by AI edit plan").strip()
+        confidence = _coerce_confidence(item.get("confidence"), "")
+        suggestions.append({
+            "id": f"edit_{len(suggestions)}_{start_index}_{end_index}",
+            "action": "delete",
+            "startWordIndex": start_index,
+            "endWordIndex": end_index,
+            "startTime": float(start_word.get("start") or 0),
+            "endTime": float(end_word.get("end") or start_word.get("end") or 0),
+            "text": " ".join(str(word_by_index[index].get("word", "")) for index in range(start_index, end_index + 1)).strip(),
+            "reason": reason[:240],
+            "confidence": confidence,
+        })
+        if len(suggestions) >= 12:
+            break
+
+    summary = str(parsed.get("summary") or "").strip()
+    if not summary:
+        summary = f"{len(suggestions)} edit suggestion{'s' if len(suggestions) != 1 else ''} ready for review."
+
+    return {
+        "summary": summary[:240],
+        "suggestions": suggestions,
+    }

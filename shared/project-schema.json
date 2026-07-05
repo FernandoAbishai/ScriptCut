@@ -111,6 +111,24 @@
             "enum": ["accepted", "rejected"]
           }
         },
+        "editPlanInstruction": { "type": "string" },
+        "editPlanResult": {
+          "type": ["object", "null"],
+          "properties": {
+            "summary": { "type": "string" },
+            "suggestions": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/editPlanSuggestion" }
+            }
+          }
+        },
+        "editPlanDecisions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["accepted", "rejected"]
+          }
+        },
         "clipSuggestions": {
           "type": "array",
           "items": { "$ref": "#/definitions/clipSuggestion" }
@@ -161,6 +179,21 @@
         "startTime": { "type": "number" },
         "endTime": { "type": "number" },
         "reason": { "type": "string" }
+      }
+    },
+    "editPlanSuggestion": {
+      "type": "object",
+      "required": ["id", "action", "startWordIndex", "endWordIndex", "startTime", "endTime", "text", "reason"],
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string", "enum": ["delete"] },
+        "startWordIndex": { "type": "integer" },
+        "endWordIndex": { "type": "integer" },
+        "startTime": { "type": "number" },
+        "endTime": { "type": "number" },
+        "text": { "type": "string" },
+        "reason": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
     "captionStyle": {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard } from 'lucide-react';
-import type { CaptionStyle, ClipDraft, ClipSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
+import type { CaptionStyle, ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
 
@@ -103,6 +103,9 @@ export default function AIPanel() {
     customFillerWords,
     fillerResult,
     fillerDecisions,
+    editPlanInstruction,
+    editPlanResult,
+    editPlanDecisions,
     clipSuggestions,
     clipDrafts,
     isProcessing,
@@ -110,12 +113,15 @@ export default function AIPanel() {
     setCustomFillerWords,
     setFillerResult,
     setFillerDecisions,
+    setEditPlanInstruction,
+    setEditPlanResult,
+    setEditPlanDecisions,
     setClipSuggestions,
     setClipDrafts,
     setProcessing,
   } = useAIStore();
 
-  const [activeTab, setActiveTab] = useState<'filler' | 'clips'>('filler');
+  const [activeTab, setActiveTab] = useState<'edit' | 'filler' | 'clips'>('edit');
   const [fillerQueueFilter, setFillerQueueFilter] = useState<FillerQueueFilter>('all');
   const [fillerReasonFilter, setFillerReasonFilter] = useState('all');
   const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
@@ -189,6 +195,22 @@ export default function AIPanel() {
     });
   }, [deletedWordMap, fillerDecisions, fillerQueueFilter, fillerReasonFilter, fillerResult]);
 
+  const editPlanReviewedCount = useMemo(() => {
+    if (!editPlanResult) return 0;
+    return editPlanResult.suggestions.filter(
+      (suggestion) => editPlanDecisions[suggestion.id] || isEditSuggestionAlreadyCut(suggestion, deletedWordMap),
+    ).length;
+  }, [deletedWordMap, editPlanDecisions, editPlanResult]);
+
+  const pendingEditSuggestions = useMemo(() => {
+    if (!editPlanResult) return [];
+    return editPlanResult.suggestions.filter(
+      (suggestion) =>
+        editPlanDecisions[suggestion.id] !== 'rejected' &&
+        !isEditSuggestionAlreadyCut(suggestion, deletedWordMap),
+    );
+  }, [deletedWordMap, editPlanDecisions, editPlanResult]);
+
   const acceptVisibleFillerDeletions = useCallback(() => {
     const sorted = visibleFillerWords
       .filter((fw) => fillerDecisions[fw.index] !== 'rejected' && !deletedWordMap.has(fw.index))
@@ -202,6 +224,42 @@ export default function AIPanel() {
       return next;
     });
   }, [deletedWordMap, deleteWordRange, fillerDecisions, setFillerDecisions, visibleFillerWords]);
+
+  const previewEditSuggestion = useCallback(
+    (suggestion: EditPlanSuggestion) => {
+      requestSeek(Math.max(0, suggestion.startTime - 0.35), 'backward', true);
+    },
+    [requestSeek],
+  );
+
+  const acceptEditSuggestion = useCallback(
+    (suggestion: EditPlanSuggestion) => {
+      if (!isEditSuggestionAlreadyCut(suggestion, deletedWordMap)) {
+        deleteWordRange(suggestion.startWordIndex, suggestion.endWordIndex);
+      }
+      setEditPlanDecisions((current) => ({ ...current, [suggestion.id]: 'accepted' }));
+    },
+    [deletedWordMap, deleteWordRange, setEditPlanDecisions],
+  );
+
+  const rejectEditSuggestion = useCallback(
+    (id: string) => {
+      setEditPlanDecisions((current) => ({ ...current, [id]: 'rejected' }));
+    },
+    [setEditPlanDecisions],
+  );
+
+  const applyPendingEditSuggestions = useCallback(() => {
+    const sorted = [...pendingEditSuggestions].sort((a, b) => b.startWordIndex - a.startWordIndex);
+    for (const suggestion of sorted) {
+      deleteWordRange(suggestion.startWordIndex, suggestion.endWordIndex);
+    }
+    setEditPlanDecisions((current) => {
+      const next = { ...current };
+      for (const suggestion of sorted) next[suggestion.id] = 'accepted';
+      return next;
+    });
+  }, [deleteWordRange, pendingEditSuggestions, setEditPlanDecisions]);
 
   const speakerTurnClips = useMemo(() => {
     const turns: ClipSuggestion[] = [];
@@ -290,6 +348,49 @@ export default function AIPanel() {
     },
     [backendUrl, pollAIJob],
   );
+
+  const createEditPlan = useCallback(async () => {
+    const instruction = editPlanInstruction.trim();
+    if (words.length === 0 || !instruction) return;
+    setProcessing(true, 'Planning edits...');
+    try {
+      const config = providers[defaultProvider];
+      const transcript = words.map((w) => w.word).join(' ');
+      const data = await startAIJob<EditPlanResult>(
+        '/jobs/ai/edit-plan',
+        {
+          instruction,
+          transcript,
+          words: words.map((w, i) => ({
+            index: i,
+            word: w.word,
+            start: w.start,
+            end: w.end,
+          })),
+          provider: defaultProvider,
+          model: config.model,
+          api_key: config.apiKey || undefined,
+          base_url: config.baseUrl || undefined,
+        },
+        'Edit planning',
+        { label: 'Edit planning' },
+      );
+      setEditPlanResult(data);
+    } catch (err) {
+      console.error(err);
+      alert(`Edit planning failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setProcessing(false);
+    }
+  }, [
+    defaultProvider,
+    editPlanInstruction,
+    providers,
+    setEditPlanResult,
+    setProcessing,
+    startAIJob,
+    words,
+  ]);
 
   const cancelAIJob = useCallback(async () => {
     if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
@@ -818,6 +919,8 @@ export default function AIPanel() {
       } else if (activeAIJob.kind === 'ai:create-clip') {
         const clipResult = result as { clips?: ClipSuggestion[] };
         setClipSuggestions(clipResult.clips || []);
+      } else if (activeAIJob.kind === 'ai:edit-plan') {
+        setEditPlanResult(result as EditPlanResult);
       } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
         const metadata = result as ClipMetadataResult;
         const patch: Partial<ClipDraft> = {
@@ -840,6 +943,7 @@ export default function AIPanel() {
     backendUrl,
     pollAIJob,
     setClipSuggestions,
+    setEditPlanResult,
     setFillerResult,
     setProcessing,
     updateClipDraft,
@@ -848,6 +952,12 @@ export default function AIPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex border-b border-editor-border shrink-0">
+        <TabButton
+          active={activeTab === 'edit'}
+          onClick={() => setActiveTab('edit')}
+          icon={<Sparkles className="w-3.5 h-3.5" />}
+          label="AI Editor"
+        />
         <TabButton
           active={activeTab === 'filler'}
           onClick={() => setActiveTab('filler')}
@@ -865,6 +975,97 @@ export default function AIPanel() {
       <div className="flex-1 overflow-y-auto p-4">
         {activeAIJob && (
           <AIJobStatusCard job={activeAIJob} onCancel={cancelAIJob} onRetry={retryAIJob} />
+        )}
+
+        {activeTab === 'edit' && (
+          <div className="space-y-4">
+            <p className="text-xs text-editor-text-muted">
+              Ask for transcript edits, review each proposed cut, then apply only the changes you want.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-editor-text-muted font-medium">
+                Edit instruction
+              </label>
+              <textarea
+                value={editPlanInstruction}
+                onChange={(event) => setEditPlanInstruction(event.target.value)}
+                rows={3}
+                placeholder="Make this tighter, remove repeated starts, and cut awkward pauses."
+                className="w-full resize-none rounded border border-editor-border bg-editor-surface px-2.5 py-2 text-xs text-editor-text placeholder:text-editor-text-muted/50 focus:border-editor-accent focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={createEditPlan}
+              disabled={isProcessing || words.length === 0 || !editPlanInstruction.trim()}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {processingMessage}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Plan Edits
+                </>
+              )}
+            </button>
+
+            {editPlanResult && (
+              <div className="space-y-3">
+                <div className="space-y-1 rounded bg-editor-surface px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">
+                      {editPlanReviewedCount}/{editPlanResult.suggestions.length} reviewed
+                    </span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={applyPendingEditSuggestions}
+                        disabled={pendingEditSuggestions.length === 0}
+                        className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-40"
+                      >
+                        <Check className="w-3 h-3" />
+                        Apply Pending
+                      </button>
+                      <button
+                        onClick={() => setEditPlanResult(null)}
+                        className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-panel"
+                      >
+                        <X className="w-3 h-3" />
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                  {editPlanResult.summary && (
+                    <p className="text-[11px] leading-snug text-editor-text-muted">
+                      {editPlanResult.summary}
+                    </p>
+                  )}
+                </div>
+
+                {editPlanResult.suggestions.length > 0 ? (
+                  <div className="space-y-2 max-h-[32rem] overflow-y-auto pr-1">
+                    {editPlanResult.suggestions.map((suggestion) => (
+                      <EditPlanReviewItem
+                        key={suggestion.id}
+                        suggestion={suggestion}
+                        decision={editPlanDecisions[suggestion.id]}
+                        alreadyCut={isEditSuggestionAlreadyCut(suggestion, deletedWordMap)}
+                        onPreview={() => previewEditSuggestion(suggestion)}
+                        onAccept={() => acceptEditSuggestion(suggestion)}
+                        onReject={() => rejectEditSuggestion(suggestion.id)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded bg-editor-surface px-3 py-2 text-xs text-editor-text-muted">
+                    No safe edit suggestions were found for this instruction.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'filler' && (
@@ -1161,6 +1362,86 @@ export default function AIPanel() {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function EditPlanReviewItem({
+  suggestion,
+  decision,
+  alreadyCut,
+  onPreview,
+  onAccept,
+  onReject,
+}: {
+  suggestion: EditPlanSuggestion;
+  decision?: EditPlanReviewDecision;
+  alreadyCut: boolean;
+  onPreview: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const confidence = suggestion.confidence ?? 0;
+  const confidenceLabel = confidence >= 0.85 ? 'Safe' : confidence >= 0.6 ? 'Review' : 'Low';
+  const wordCount = suggestion.endWordIndex - suggestion.startWordIndex + 1;
+
+  return (
+    <div className="space-y-2 rounded bg-editor-surface px-3 py-2 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-1 text-[10px] text-editor-text-muted">
+            <span>{formatClipTime(suggestion.startTime)} - {formatClipTime(suggestion.endTime)}</span>
+            <span>&middot;</span>
+            <span>{wordCount} word{wordCount === 1 ? '' : 's'}</span>
+            <span
+              className={`rounded px-1.5 py-0.5 ${
+                confidence >= 0.85
+                  ? 'bg-editor-success/20 text-editor-success'
+                  : confidence >= 0.6
+                    ? 'bg-editor-accent/15 text-editor-accent'
+                    : 'bg-editor-warning/10 text-editor-warning'
+              }`}
+            >
+              {confidenceLabel} {Math.round(confidence * 100)}%
+            </span>
+          </div>
+          <div className="line-clamp-3 text-editor-text">"{suggestion.text}"</div>
+          <div className="text-[11px] leading-snug text-editor-text-muted">{suggestion.reason}</div>
+        </div>
+        {(decision || alreadyCut) && (
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+              decision === 'accepted' || alreadyCut
+                ? 'bg-editor-success/20 text-editor-success'
+                : 'bg-editor-border text-editor-text-muted'
+            }`}
+          >
+            {alreadyCut ? 'Applied' : decision === 'accepted' ? 'Accepted' : 'Rejected'}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        <button
+          onClick={onPreview}
+          className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1 text-[11px] text-editor-accent hover:bg-editor-accent/30"
+        >
+          <Play className="w-3 h-3" /> Preview
+        </button>
+        <button
+          onClick={onAccept}
+          disabled={decision === 'rejected' || alreadyCut}
+          className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[11px] text-editor-success hover:bg-editor-success/30 disabled:opacity-40"
+        >
+          <Check className="w-3 h-3" /> Accept
+        </button>
+        <button
+          onClick={onReject}
+          disabled={decision === 'accepted' || alreadyCut}
+          className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1 text-[11px] text-editor-text-muted hover:bg-editor-panel disabled:opacity-40"
+        >
+          <X className="w-3 h-3" /> Reject
+        </button>
       </div>
     </div>
   );
@@ -1790,6 +2071,13 @@ function buildClipCaptionWords(words: Word[], startIndex: number, endIndex: numb
     start: Math.max(0, word.start - clipStartTime),
     end: Math.max(0, word.end - clipStartTime),
   }));
+}
+
+function isEditSuggestionAlreadyCut(suggestion: EditPlanSuggestion, deletedWordMap: Map<number, string>) {
+  for (let index = suggestion.startWordIndex; index <= suggestion.endWordIndex; index++) {
+    if (!deletedWordMap.has(index)) return false;
+  }
+  return true;
 }
 
 function formatClipPackage(draft: ClipDraft, words: Word[]) {

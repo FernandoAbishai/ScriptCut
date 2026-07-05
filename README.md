@@ -125,6 +125,7 @@ scriptcut/
 | FFmpeg stream-copy export | Done |
 | FFmpeg re-encode export | Done |
 | Job progress, cancellation, logs, retry | Done |
+| AI edit plans with review/apply queue | Done |
 | AI filler review queue | Done |
 | Editable AI clip drafts | Done |
 | Ollama + OpenAI + Claude + 9router | Done |
@@ -171,6 +172,8 @@ Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `vers
 | POST | `/jobs/ai/create-clip` | Suggest clips as a job |
 | POST | `/ai/clip-metadata` | Suggest title, hook, caption, and hashtags |
 | POST | `/jobs/ai/clip-metadata` | Suggest clip metadata as a job |
+| POST | `/ai/edit-plan` | Create a reviewable AI edit plan from an instruction |
+| POST | `/jobs/ai/edit-plan` | Create an AI edit plan as a job |
 | GET | `/ai/ollama-models` | List local Ollama models |
 | POST | `/ai/9router-models` | List models exposed by 9Router |
 | POST | `/captions` | Generate captions |
