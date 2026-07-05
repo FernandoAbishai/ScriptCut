@@ -22,11 +22,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,7 +36,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm install --package-lock=false --no-audit --no-fund
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend

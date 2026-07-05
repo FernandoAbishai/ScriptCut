@@ -3,7 +3,7 @@
 The recommended GitHub Actions checks for ScriptCut are:
 
 ```bash
-npm ci
+npm install --package-lock=false --no-audit --no-fund
 npm ci --prefix frontend
 python -m pip install fastapi pydantic
 npm run lint
