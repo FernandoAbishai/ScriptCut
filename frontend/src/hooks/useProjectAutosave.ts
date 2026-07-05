@@ -323,6 +323,7 @@ function normalizeClipDrafts(drafts: ClipDraft[]) {
       ...draft,
       status: oneOf(draft.status, ['suggested', 'draft', 'packaged', 'exporting', 'exported', 'failed'], 'draft'),
       platform: oneOf(draft.platform, ['shorts', 'generic'], 'shorts'),
+      exportDirectory: typeof draft.exportDirectory === 'string' ? draft.exportDirectory : undefined,
       exportPath: typeof draft.exportPath === 'string' ? draft.exportPath : undefined,
       exportedAt: typeof draft.exportedAt === 'string' ? draft.exportedAt : undefined,
       lastError: typeof draft.lastError === 'string' ? draft.lastError : undefined,

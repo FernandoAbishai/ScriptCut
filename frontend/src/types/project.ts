@@ -163,6 +163,7 @@ export interface ClipDraft extends ClipSuggestion {
   id: string;
   status?: ClipDraftStatus;
   platform?: ClipPlatform;
+  exportDirectory?: string;
   exportPath?: string;
   exportedAt?: string;
   lastError?: string;

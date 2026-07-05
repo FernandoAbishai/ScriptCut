@@ -155,6 +155,7 @@ export default function AIPanel() {
   const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
+  const [clipExportDirectory, setClipExportDirectory] = useState('');
   const deletedWordMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const range of deletedRanges) {
@@ -177,6 +178,11 @@ export default function AIPanel() {
       canceled = true;
     };
   }, [backendUrl]);
+
+  useEffect(() => {
+    if (!videoPath) return;
+    setClipExportDirectory((current) => current || getPathDirectory(videoPath));
+  }, [videoPath]);
 
   const reviewedCount = useMemo(() => {
     if (!fillerResult) return 0;
@@ -635,6 +641,18 @@ export default function AIPanel() {
     updateClipDraft(id, { status: 'draft', lastError: undefined });
   }, [updateClipDraft]);
 
+  const chooseClipExportDirectory = useCallback(async () => {
+    if (window.electronAPI?.openDirectory) {
+      const directory = await window.electronAPI.openDirectory({
+        title: 'Choose clip export folder',
+        defaultPath: clipExportDirectory || (videoPath ? getPathDirectory(videoPath) : undefined),
+      });
+      if (!directory) return;
+      setClipExportDirectory(directory);
+      setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory })));
+    }
+  }, [clipExportDirectory, setClipDrafts, videoPath]);
+
   const duplicateClipDraft = useCallback(
     (draft: ClipDraft) => {
       setClipDrafts((current) => [
@@ -644,13 +662,14 @@ export default function AIPanel() {
           id: `clip_copy_${Date.now()}_${current.length}`,
           title: `${draft.title} Copy`,
           status: 'draft',
+          exportDirectory: draft.exportDirectory || clipExportDirectory || undefined,
           exportPath: undefined,
           exportedAt: undefined,
           lastError: undefined,
         },
       ]);
     },
-    [setClipDrafts],
+    [clipExportDirectory, setClipDrafts],
   );
 
   const removeClipDraft = useCallback((id: string) => {
@@ -698,7 +717,7 @@ export default function AIPanel() {
   const handleExportClip = useCallback(
     async (
       clip: ClipSuggestion,
-      settings?: Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'id'>,
+      settings?: Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'id' | 'exportDirectory'>,
       silent = false,
     ) => {
       if (!videoPath) return;
@@ -706,10 +725,8 @@ export default function AIPanel() {
         const format = settings?.format ?? 'mp4';
         const aspectRatio = settings?.aspectRatio ?? 'source';
         const captions = settings?.captions ?? 'none';
-        const safeName = clip.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
-        const dirSep = videoPath.lastIndexOf('\\') >= 0 ? '\\' : '/';
-        const dir = videoPath.substring(0, videoPath.lastIndexOf(dirSep));
-        const outputPath = `${dir}${dirSep}${safeName}_clip.${format}`;
+        const outputDirectory = settings?.exportDirectory || clipExportDirectory || getPathDirectory(videoPath);
+        const outputPath = buildClipOutputPath(outputDirectory, clip.title, format, settings?.id);
         const clipWords = buildClipCaptionWords(words, clip.startWordIndex, clip.endWordIndex, clip.startTime);
         const captionHidden = new Set(getCaptionHiddenIndices());
         const deletedSet = new Set<number>();
@@ -788,7 +805,7 @@ export default function AIPanel() {
         setExportingClipIndex(null);
       }
     },
-    [videoPath, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob, updateClipDraft],
+    [videoPath, clipExportDirectory, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob, updateClipDraft],
   );
 
   const cancelDraftExport = useCallback(
@@ -865,10 +882,13 @@ export default function AIPanel() {
     (clip: ClipSuggestion, source: ClipDraft['source'] = 'ai', speaker?: string) => {
       setClipDrafts((current) => [
         ...current,
-        createShortsClipDraft(clip, `clip_${Date.now()}_${current.length}`, 'draft', source, speaker),
+        {
+          ...createShortsClipDraft(clip, `clip_${Date.now()}_${current.length}`, 'draft', source, speaker),
+          exportDirectory: clipExportDirectory || undefined,
+        },
       ]);
     },
-    [setClipDrafts],
+    [clipExportDirectory, setClipDrafts],
   );
 
   const createSpeakerTurnDrafts = useCallback(() => {
@@ -877,10 +897,13 @@ export default function AIPanel() {
       ...current,
       ...speakerTurnClips.map((clip, index) => {
         const speaker = words[clip.startWordIndex]?.speaker || 'Unknown speaker';
-        return createShortsClipDraft(clip, `speaker_clip_${Date.now()}_${current.length}_${index}`, 'draft', 'speaker-turn', speaker);
+        return {
+          ...createShortsClipDraft(clip, `speaker_clip_${Date.now()}_${current.length}_${index}`, 'draft', 'speaker-turn', speaker),
+          exportDirectory: clipExportDirectory || undefined,
+        };
       }),
     ]);
-  }, [setClipDrafts, speakerTurnClips, words]);
+  }, [clipExportDirectory, setClipDrafts, speakerTurnClips, words]);
 
   const copyClipPackage = useCallback(
     async (draft: ClipDraft) => {
@@ -952,10 +975,16 @@ export default function AIPanel() {
       }
       const successCount = results.filter((result) => result.outputPath).length;
       const failedCount = results.filter((result) => result.error).length;
+      const manifestPath = await writeClipBatchManifest({
+        directory: clipExportDirectory || (videoPath ? getPathDirectory(videoPath) : ''),
+        videoPath,
+        results,
+        words,
+      });
       alert(
         stopBatchExportRef.current
-          ? `Stopped batch export after ${results.length} of ${exportableDrafts.length} clips.\n${successCount} exported, ${failedCount} failed.`
-          : `Batch export finished.\n${successCount} exported, ${failedCount} failed.`,
+          ? `Stopped batch export after ${results.length} of ${exportableDrafts.length} clips.\n${successCount} exported, ${failedCount} failed.${manifestPath ? `\nManifest saved to: ${manifestPath}` : ''}`
+          : `Batch export finished.\n${successCount} exported, ${failedCount} failed.${manifestPath ? `\nManifest saved to: ${manifestPath}` : ''}`,
       );
     } catch (err) {
       console.error(err);
@@ -966,7 +995,7 @@ export default function AIPanel() {
       stopBatchExportRef.current = false;
       setBatchExportProgress((current) => ({ ...current, stopping: false }));
     }
-  }, [clipDrafts, handleExportClip, videoPath, words]);
+  }, [clipDrafts, clipExportDirectory, handleExportClip, videoPath, words]);
 
   const stopBatchExport = useCallback(() => {
     stopBatchExportRef.current = true;
@@ -1390,6 +1419,31 @@ export default function AIPanel() {
                 </div>
                 <div className="text-[10px] text-editor-text-muted">
                   {readyDraftCount} ready, {exportableDraftCount} approved/exportable of {clipDrafts.length} drafts
+                </div>
+                <div className="space-y-1 rounded bg-editor-surface p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-editor-text-muted">
+                      Export folder
+                    </span>
+                    {window.electronAPI?.openDirectory && (
+                      <button
+                        onClick={chooseClipExportDirectory}
+                        className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                      >
+                        Choose
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    value={clipExportDirectory}
+                    onChange={(event) => {
+                      const directory = event.target.value;
+                      setClipExportDirectory(directory);
+                      setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory || undefined })));
+                    }}
+                    placeholder={videoPath ? getPathDirectory(videoPath) : 'Default export folder'}
+                    className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                  />
                 </div>
                 {isBatchExporting && (
                   <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
@@ -2369,6 +2423,94 @@ function formatClipPackage(draft: ClipDraft, words: Word[]) {
   ];
 
   return lines.filter(Boolean).join('\n');
+}
+
+function getPathSeparator(path: string) {
+  return path.includes('\\') ? '\\' : '/';
+}
+
+function getPathDirectory(path: string) {
+  const separator = getPathSeparator(path);
+  const index = path.lastIndexOf(separator);
+  return index > 0 ? path.slice(0, index) : '';
+}
+
+function joinPath(directory: string, filename: string) {
+  const separator = getPathSeparator(directory);
+  const trimmed = directory.replace(/[\\/]+$/, '');
+  if (!trimmed) return filename;
+  return `${trimmed}${separator}${filename}`;
+}
+
+function safeFileStem(value: string) {
+  const stem = value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 42);
+  return stem || 'scriptcut_clip';
+}
+
+function buildClipOutputPath(directory: string, title: string, format: ClipDraft['format'], id?: string) {
+  const suffix = id ? `_${safeFileStem(id).slice(-12)}` : `_${Date.now()}`;
+  return joinPath(directory, `${safeFileStem(title)}${suffix}.${format}`);
+}
+
+function timestampForFilename(date = new Date()) {
+  return date.toISOString().replace(/[:.]/g, '-');
+}
+
+async function writeClipBatchManifest({
+  directory,
+  videoPath,
+  results,
+  words,
+}: {
+  directory: string;
+  videoPath: string | null;
+  results: BatchExportResult[];
+  words: Word[];
+}) {
+  if (!directory || !window.electronAPI?.writeFile) return '';
+  const manifestPath = joinPath(directory, `scriptcut_clip_manifest_${timestampForFilename()}.json`);
+  const manifest = {
+    app: 'ScriptCut',
+    schema: 'scriptcut.clipBatchManifest.v1',
+    generatedAt: new Date().toISOString(),
+    videoPath,
+    summary: {
+      total: results.length,
+      exported: results.filter((result) => result.outputPath).length,
+      failed: results.filter((result) => result.error).length,
+    },
+    clips: results.map(({ draft, outputPath, error }) => ({
+      id: draft.id,
+      title: draft.title,
+      status: outputPath ? 'exported' : 'failed',
+      outputPath,
+      error,
+      startTime: draft.startTime,
+      endTime: draft.endTime,
+      duration: draft.endTime - draft.startTime,
+      platform: draft.platform || 'shorts',
+      package: {
+        hook: draft.hook || '',
+        caption: draft.caption || '',
+        description: draft.description || '',
+        hashtags: draft.hashtags || [],
+      },
+      export: {
+        format: draft.format,
+        resolution: draft.resolution,
+        aspectRatio: draft.aspectRatio,
+        captions: draft.captions || 'none',
+        enhanceAudio: !!draft.enhanceAudio,
+      },
+      transcript: getClipTranscript(words, draft),
+    })),
+  };
+  await window.electronAPI.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+  return manifestPath;
 }
 
 function getFillerReasonBucket(word: string, reason: string) {
