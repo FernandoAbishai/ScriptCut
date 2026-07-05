@@ -23,10 +23,11 @@ import {
   Sparkles,
   Download,
   Loader2,
-  FolderSearch,
   FileInput,
   Save,
   AlertTriangle,
+  Upload,
+  FileVideo,
 } from 'lucide-react';
 
 const IS_ELECTRON = !!window.electronAPI;
@@ -82,13 +83,15 @@ export default function App() {
   } = useEditorStore();
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
-  const [manualPath, setManualPath] = useState('');
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
   const [transcriptionModel, setTranscriptionModel] = useState('base');
   const [transcriptionMessage, setTranscriptionMessage] = useState('');
   const [transcriptionError, setTranscriptionError] = useState('');
   const [transcriptionLogs, setTranscriptionLogs] = useState<Array<{ time: string; message: string }>>([]);
   const [lastTranscriptionJobId, setLastTranscriptionJobId] = useState('');
+  const [browserUploadName, setBrowserUploadName] = useState('');
+  const [browserUploadError, setBrowserUploadError] = useState('');
+  const [isBrowserUploading, setIsBrowserUploading] = useState(false);
   const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
   const [recoveryError, setRecoveryError] = useState('');
@@ -165,21 +168,58 @@ export default function App() {
         await transcribeVideo(path);
       }
     } else {
-      // Browser: use the manual path input
-      const path = manualPath.trim();
-      if (path) {
-        loadVideo(path);
-        await transcribeVideo(path);
-      }
+      fileInputRef.current?.click();
     }
   };
 
-  const handleManualSubmit = async (e: React.FormEvent) => {
+  const handleBrowserFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await uploadBrowserFile(file);
+  };
+
+  const handleBrowserDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const path = manualPath.trim();
-    if (!path) return;
-    loadVideo(path);
-    await transcribeVideo(path);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    await uploadBrowserFile(file);
+  };
+
+  const uploadBrowserFile = async (file: File) => {
+    setBrowserUploadName(file.name);
+    setBrowserUploadError('');
+    setTranscriptionError('');
+    setIsBrowserUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${backendUrl}/media/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        let detail = res.statusText;
+        try {
+          const errorData = await res.json();
+          detail = errorData.detail || JSON.stringify(errorData);
+        } catch {
+          // Keep the HTTP status text when the backend response is not JSON.
+        }
+        throw new Error(`Upload failed: ${detail}`);
+      }
+
+      const data = (await res.json()) as { path: string; filename: string; size: number };
+      loadVideo(data.path);
+      await transcribeVideo(data.path);
+    } catch (err) {
+      console.error('Browser upload error:', err);
+      setBrowserUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsBrowserUploading(false);
+    }
   };
 
   const tryRestoreAutosave = async (path: string) => {
@@ -302,6 +342,15 @@ export default function App() {
   if (!videoPath) {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-8 bg-editor-bg px-6">
+        {!IS_ELECTRON && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".mp4,.avi,.mov,.mkv,.webm,.m4a,.mp3,.wav,.flac,video/*,audio/*"
+            className="hidden"
+            onChange={handleBrowserFileChange}
+          />
+        )}
         <div className="flex flex-col items-center gap-3">
           <Film className="w-14 h-14 text-editor-accent opacity-80" />
           <h1 className="text-3xl font-semibold tracking-tight">ScriptCut</h1>
@@ -387,37 +436,45 @@ export default function App() {
             </button>
           </div>
         ) : (
-          /* Browser: manual path input */
-          <div className="w-full max-w-lg space-y-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-editor-warning/10 border border-editor-warning/30 rounded-lg">
-              <span className="text-editor-warning text-xs">
-                Running in browser — paste the full path to your video file below.
-              </span>
-            </div>
-            <form onSubmit={handleManualSubmit} className="flex gap-2">
-              <div className="flex-1 relative">
-                <FolderSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-editor-text-muted pointer-events-none" />
-                <input
-                  ref={fileInputRef}
-                  type="text"
-                  value={manualPath}
-                  onChange={(e) => setManualPath(e.target.value)}
-                  placeholder="/Users/you/Videos/my-video.mp4"
-                  className="w-full pl-9 pr-3 py-2.5 bg-editor-surface border border-editor-border rounded-lg text-sm text-editor-text placeholder:text-editor-text-muted/40 focus:outline-none focus:border-editor-accent"
-                  autoFocus
-                />
+          <div className="w-full max-w-xl space-y-4">
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleBrowserDrop}
+              className="group flex min-h-48 flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-editor-border bg-editor-surface/45 px-6 py-8 text-center transition-colors hover:border-editor-accent/60 hover:bg-editor-surface/70"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-editor-accent/15 text-editor-accent">
+                {isBrowserUploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <FileVideo className="h-6 w-6" />}
+              </div>
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-editor-text">
+                  {isBrowserUploading ? 'Uploading media...' : 'Choose a video or audio file'}
+                </div>
+                <p className="mx-auto max-w-sm text-xs leading-5 text-editor-text-muted">
+                  Pick a file from your folders or drop it here. ScriptCut uploads it to the local backend before transcription.
+                </p>
               </div>
               <button
-                type="submit"
-                disabled={!manualPath.trim()}
-                className="flex items-center gap-2 px-5 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-40 rounded-lg text-sm text-white font-medium transition-colors whitespace-nowrap"
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isBrowserUploading}
+                className="flex items-center gap-2 rounded bg-editor-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-editor-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Film className="w-4 h-4" />
-                Load &amp; Transcribe
+                {isBrowserUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Browse files
               </button>
-            </form>
+              {browserUploadName && (
+                <div className="max-w-full truncate text-[11px] text-editor-text-muted">
+                  {isBrowserUploading ? 'Uploading' : 'Last selected'}: {browserUploadName}
+                </div>
+              )}
+            </div>
+            {browserUploadError && (
+              <div className="rounded border border-editor-danger/30 bg-editor-danger/10 px-3 py-2 text-xs text-editor-danger">
+                {browserUploadError}
+              </div>
+            )}
             <p className="text-[11px] text-editor-text-muted text-center">
-              Supported: MP4, AVI, MOV, MKV, WebM, M4A
+              Supported: MP4, AVI, MOV, MKV, WebM, M4A, MP3, WAV, FLAC
             </p>
           </div>
         )}
@@ -427,6 +484,15 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-editor-bg overflow-hidden">
+      {!IS_ELECTRON && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".mp4,.avi,.mov,.mkv,.webm,.m4a,.mp3,.wav,.flac,video/*,audio/*"
+          className="hidden"
+          onChange={handleBrowserFileChange}
+        />
+      )}
       {/* Top bar */}
       <header className="h-12 flex items-center justify-between px-4 border-b border-editor-border shrink-0">
         <div className="flex items-center gap-3">
@@ -442,7 +508,8 @@ export default function App() {
           <ToolbarButton
             icon={<FolderOpen className="w-4 h-4" />}
             label="Open"
-            onClick={IS_ELECTRON ? handleOpenFile : () => useEditorStore.getState().reset()}
+            onClick={handleOpenFile}
+            disabled={isBrowserUploading}
           />
           <ToolbarButton
             icon={manualSaveStatus === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

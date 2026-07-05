@@ -1,10 +1,12 @@
 import logging
 import os
 import stat
+import tempfile
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Query, Request, HTTPException
+from fastapi import FastAPI, File, Query, Request, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -56,6 +58,39 @@ MIME_MAP = {
     ".mp3": "audio/mpeg",
     ".flac": "audio/flac",
 }
+
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "scriptcut_uploads"
+SUPPORTED_UPLOAD_EXTENSIONS = set(MIME_MAP)
+
+
+@app.post("/media/upload")
+async def upload_media(file: UploadFile = File(...)):
+    """Accept browser-selected media and return a local backend path."""
+    source_name = Path(file.filename or "upload").name
+    suffix = Path(source_name).suffix.lower()
+    if suffix not in SUPPORTED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported media type: {suffix or 'unknown'}")
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    upload_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
+    size = 0
+
+    try:
+        with open(upload_path, "wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                output.write(chunk)
+    except Exception:
+        upload_path.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    return {
+        "path": str(upload_path),
+        "filename": source_name,
+        "size": size,
+    }
 
 
 @app.get("/file")

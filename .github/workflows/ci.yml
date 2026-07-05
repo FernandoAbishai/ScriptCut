@@ -42,7 +42,7 @@ jobs:
         run: npm ci --prefix frontend
 
       - name: Install backend smoke dependencies
-        run: python -m pip install fastapi pydantic requests
+        run: python -m pip install fastapi pydantic python-multipart requests
 
       - name: Lint frontend
         run: npm run lint
