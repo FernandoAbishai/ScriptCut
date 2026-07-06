@@ -10,6 +10,7 @@
     "test:clip-drafts": "node scripts/smoke-clip-drafts.mjs",
     "test:transcript-selection": "node scripts/smoke-transcript-selection.mjs",
     "test:transcript-search": "node scripts/smoke-transcript-search.mjs",
+    "test:speaker-stats": "node scripts/smoke-speaker-stats.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

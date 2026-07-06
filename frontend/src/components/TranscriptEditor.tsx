@@ -7,6 +7,7 @@ import { CaptionsOff, ChevronLeft, ChevronRight, Copy, Film, Pencil, Play, Rotat
 import type { ClipDraft } from '../types/project';
 import { formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
 import { findTranscriptMatches } from '../utils/transcriptSearch';
+import { formatSpeakerDuration, getSpeakerStats } from '../utils/speakerStats';
 
 export default function TranscriptEditor() {
   const words = useEditorStore((s) => s.words);
@@ -22,6 +23,7 @@ export default function TranscriptEditor() {
   const muteSelectedWords = useEditorStore((s) => s.muteSelectedWords);
   const replaceSelectedWordsWithRoomTone = useEditorStore((s) => s.replaceSelectedWordsWithRoomTone);
   const hideSelectedWordsFromCaptions = useEditorStore((s) => s.hideSelectedWordsFromCaptions);
+  const addEditOperation = useEditorStore((s) => s.addEditOperation);
   const deleteSpeakerWords = useEditorStore((s) => s.deleteSpeakerWords);
   const renameSpeaker = useEditorStore((s) => s.renameSpeaker);
   const selectSpeakerWords = useEditorStore((s) => s.selectSpeakerWords);
@@ -63,6 +65,11 @@ export default function TranscriptEditor() {
     () =>
       Array.from(new Set(words.map((word) => word.speaker).filter(Boolean) as string[])).sort(),
     [words],
+  );
+  const speakerStats = useMemo(() => getSpeakerStats(words), [words]);
+  const selectedSpeakerStat = useMemo(
+    () => speakerStats.find((stat) => stat.speaker === speakerFilter) || null,
+    [speakerFilter, speakerStats],
   );
 
   const visibleSegments = useMemo(() => {
@@ -243,6 +250,14 @@ export default function TranscriptEditor() {
     const confirmed = window.confirm(`Delete all words from ${speakerFilter}?`);
     if (confirmed) deleteSpeakerWords(speakerFilter);
   }, [speakerFilter, deleteSpeakerWords]);
+
+  const applySpeakerLayer = useCallback(
+    (kind: 'mute' | 'room-tone' | 'caption-only') => {
+      if (!selectedSpeakerStat) return;
+      addEditOperation(kind, selectedSpeakerStat.wordIndices);
+    },
+    [addEditOperation, selectedSpeakerStat],
+  );
 
   const previewSelection = useCallback(() => {
     if (!selectionSummary) return;
@@ -553,6 +568,40 @@ export default function TranscriptEditor() {
             >
               <X className="w-3 h-3" />
               Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedSpeakerStat && (
+        <div className="border-b border-editor-border bg-editor-bg px-4 py-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="mr-auto min-w-0">
+              <div className="text-xs font-medium text-editor-text">{selectedSpeakerStat.speaker}</div>
+              <div className="text-[11px] text-editor-text-muted">
+                {selectedSpeakerStat.wordCount} words &middot; {formatSpeakerDuration(selectedSpeakerStat.duration)} spoken &middot; {formatTranscriptTime(selectedSpeakerStat.startTime)} - {formatTranscriptTime(selectedSpeakerStat.endTime)}
+              </div>
+            </div>
+            <button
+              onClick={() => applySpeakerLayer('caption-only')}
+              className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-xs text-editor-text-muted hover:bg-editor-surface"
+            >
+              <CaptionsOff className="w-3 h-3" />
+              Hide speaker captions
+            </button>
+            <button
+              onClick={() => applySpeakerLayer('mute')}
+              className="flex items-center gap-1 rounded bg-editor-accent/20 px-2 py-1 text-xs text-editor-accent hover:bg-editor-accent/30"
+            >
+              <VolumeX className="w-3 h-3" />
+              Mute speaker
+            </button>
+            <button
+              onClick={() => applySpeakerLayer('room-tone')}
+              className="flex items-center gap-1 rounded bg-editor-warning/10 px-2 py-1 text-xs text-editor-warning hover:bg-editor-warning/20"
+            >
+              <Waves className="w-3 h-3" />
+              Room tone speaker
             </button>
           </div>
         </div>

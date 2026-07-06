@@ -56,6 +56,9 @@ jobs:
       - name: Test transcript search workflow
         run: npm run test:transcript-search --prefix frontend
 
+      - name: Test speaker stats workflow
+        run: npm run test:speaker-stats --prefix frontend
+
       - name: Build frontend
         run: npm run build --prefix frontend
 
