@@ -188,6 +188,9 @@ export interface ClipDraft extends ClipSuggestion {
   description?: string;
   caption?: string;
   hashtags?: string[];
+  hookFrameTime?: number;
+  hookFrameLabel?: string;
+  thumbnailText?: string;
   source?: 'ai' | 'speaker-turn' | 'transcript-selection' | 'ai-director';
   speaker?: string;
 }

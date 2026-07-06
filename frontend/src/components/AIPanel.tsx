@@ -10,6 +10,12 @@ import {
   validateClipDraftForExport,
 } from '../utils/clipDrafts';
 import { buildSocialPublishingPack, type SocialPlatform } from '../utils/socialPublishing';
+import {
+  buildHookFrameCandidates,
+  formatHookFrameBrief,
+  getSelectedHookFrame,
+  type HookFrameCandidate,
+} from '../utils/hookFrames';
 import CaptionPreview from './CaptionPreview';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
@@ -1002,6 +1008,23 @@ export default function AIPanel() {
     [],
   );
 
+  const copyHookFrameBrief = useCallback(async (draft: ClipDraft, frame?: HookFrameCandidate) => {
+    try {
+      await navigator.clipboard.writeText(formatHookFrameBrief(draft, frame));
+      alert('Hook frame brief copied.');
+    } catch (err) {
+      console.error('Hook frame copy failed:', err);
+      alert(`Could not copy hook frame brief.\n\n${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
+
+  const previewHookFrame = useCallback(
+    (time: number) => {
+      requestSeek(time, 'forward', false);
+    },
+    [requestSeek],
+  );
+
   const handleExportDraft = useCallback(
     async (draft: ClipDraft) => {
       const validation = validateClipDraftForExport(draft, words, videoPath);
@@ -1609,6 +1632,8 @@ export default function AIPanel() {
                       onPackage={() => packageClipDraft(draft)}
                       onCopyPackage={() => copyClipPackage(draft)}
                       onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
+                      onPreviewHookFrame={(time) => previewHookFrame(time)}
+                      onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
                       onDuplicate={() => duplicateClipDraft(draft)}
                       onRemove={() => removeClipDraft(draft.id)}
                       isPackaging={packagingDraftId === draft.id}
@@ -1768,6 +1793,8 @@ function ClipDraftCard({
   onPackage,
   onCopyPackage,
   onCopySocialPackage,
+  onPreviewHookFrame,
+  onCopyHookFrame,
   onDuplicate,
   onRemove,
 }: {
@@ -1791,6 +1818,8 @@ function ClipDraftCard({
   onPackage: () => void;
   onCopyPackage: () => void;
   onCopySocialPackage: (platform?: SocialPlatform) => void;
+  onPreviewHookFrame: (time: number) => void;
+  onCopyHookFrame: (frame?: HookFrameCandidate) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
@@ -1800,6 +1829,8 @@ function ClipDraftCard({
   const isSuggested = status === 'suggested';
   const canExport = exportValidation.ready && !isSuggested;
   const socialPack = buildSocialPublishingPack(draft);
+  const hookFrames = buildHookFrameCandidates(draft);
+  const selectedHookFrame = getSelectedHookFrame(draft);
 
   return (
     <div className={`space-y-2 rounded border p-3 ${isActive ? 'border-editor-accent bg-editor-accent/5' : 'border-transparent bg-editor-surface'}`}>
@@ -2062,6 +2093,69 @@ function ClipDraftCard({
               )}
             </div>
           ))}
+        </div>
+      </div>
+      <div className="space-y-2 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-editor-text">Hook Frames</span>
+          <button
+            onClick={() => onCopyHookFrame(selectedHookFrame)}
+            className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+          >
+            Copy Brief
+          </button>
+        </div>
+        <EditableText
+          label="Thumbnail Text"
+          value={draft.thumbnailText || draft.hook || ''}
+          placeholder="Short overlay text"
+          onChange={(thumbnailText) => onChange({ thumbnailText })}
+        />
+        <div className="grid grid-cols-2 gap-1">
+          {hookFrames.map((frame) => {
+            const selected = Math.abs(frame.time - selectedHookFrame.time) < 0.05;
+            return (
+              <div
+                key={frame.id}
+                className={`rounded border px-2 py-1.5 ${selected ? 'border-editor-accent bg-editor-accent/10' : 'border-editor-border bg-editor-surface'}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-editor-text">{frame.label}</span>
+                  <span>{formatClipTime(frame.time)}</span>
+                </div>
+                <div className="mt-1 truncate text-[10px]">{frame.filename}</div>
+                {frame.warnings.length > 0 && (
+                  <div className="mt-1 text-[10px] text-editor-warning">{frame.warnings[0]}</div>
+                )}
+                <div className="mt-1 grid grid-cols-3 gap-1">
+                  <button
+                    onClick={() => onPreviewHookFrame(frame.time)}
+                    className="rounded bg-editor-accent/20 px-1.5 py-0.5 text-[10px] text-editor-accent hover:bg-editor-accent/30"
+                  >
+                    Cue
+                  </button>
+                  <button
+                    onClick={() =>
+                      onChange({
+                        hookFrameTime: frame.time,
+                        hookFrameLabel: frame.label,
+                        thumbnailText: frame.overlayText || draft.thumbnailText || draft.hook || draft.title,
+                      })
+                    }
+                    className="rounded bg-editor-border px-1.5 py-0.5 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                  >
+                    Set
+                  </button>
+                  <button
+                    onClick={() => onCopyHookFrame(frame)}
+                    className="rounded bg-editor-border px-1.5 py-0.5 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -2679,6 +2773,13 @@ async function writeClipBatchManifest({
         ready: item.ready,
         warnings: item.warnings,
       })),
+      hookFrame: {
+        label: draft.hookFrameLabel || getSelectedHookFrame(draft).label,
+        time: draft.hookFrameTime ?? getSelectedHookFrame(draft).time,
+        thumbnailText: draft.thumbnailText || draft.hook || draft.title,
+        filename: getSelectedHookFrame(draft).filename,
+        brief: formatHookFrameBrief(draft),
+      },
       export: {
         format: draft.format,
         resolution: draft.resolution,

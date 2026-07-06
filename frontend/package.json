@@ -13,6 +13,7 @@
     "test:speaker-stats": "node scripts/smoke-speaker-stats.mjs",
     "test:caption-designer": "node scripts/smoke-caption-designer.mjs",
     "test:social-publishing": "node scripts/smoke-social-publishing.mjs",
+    "test:hook-frames": "node scripts/smoke-hook-frames.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
