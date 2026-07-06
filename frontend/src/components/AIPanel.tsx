@@ -427,6 +427,67 @@ export default function AIPanel() {
     words,
   ]);
 
+  const createDirectorPlan = useCallback(async () => {
+    const instruction = editPlanInstruction.trim() || 'Create a fast, high-retention 60 second Short from the strongest moment.';
+    if (words.length === 0) return;
+    setProcessing(true, 'Directing short-form edit...');
+    try {
+      const config = providers[defaultProvider];
+      const transcript = words.map((w) => w.word).join(' ');
+      const data = await startAIJob<EditPlanResult>(
+        '/jobs/ai/edit-plan',
+        {
+          instruction,
+          transcript,
+          words: words.map((w, i) => ({
+            index: i,
+            word: w.word,
+            start: w.start,
+            end: w.end,
+          })),
+          mode: 'director',
+          platform: 'shorts',
+          target_duration: 60,
+          provider: defaultProvider,
+          model: config.model,
+          api_key: config.apiKey || undefined,
+          base_url: config.baseUrl || undefined,
+        },
+        'AI Director',
+        { label: 'AI Director' },
+      );
+      setEditPlanResult(data);
+      if (data.directorClip) {
+        setClipDrafts((current) => [
+          ...current,
+          {
+            ...createShortsClipDraft(data.directorClip!, `director_clip_${Date.now()}_${current.length}`, 'draft'),
+            hook: data.directorPackage?.hook || '',
+            title: data.directorPackage?.title || data.directorClip!.title,
+            description: data.directorPackage?.description || '',
+            caption: data.directorPackage?.caption || '',
+            hashtags: data.directorPackage?.hashtags || [],
+            source: 'ai-director',
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(`AI Director failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setProcessing(false);
+    }
+  }, [
+    defaultProvider,
+    editPlanInstruction,
+    providers,
+    setClipDrafts,
+    setEditPlanResult,
+    setProcessing,
+    startAIJob,
+    words,
+  ]);
+
   const cancelAIJob = useCallback(async () => {
     if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
     const res = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/cancel`, { method: 'POST' });
@@ -1142,23 +1203,37 @@ export default function AIPanel() {
                 className="w-full resize-none rounded border border-editor-border bg-editor-surface px-2.5 py-2 text-xs text-editor-text placeholder:text-editor-text-muted/50 focus:border-editor-accent focus:outline-none"
               />
             </div>
-            <button
-              onClick={createEditPlan}
-              disabled={isProcessing || words.length === 0 || !editPlanInstruction.trim()}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-            >
-              {isProcessing ? (
-                <>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={createEditPlan}
+                disabled={isProcessing || words.length === 0 || !editPlanInstruction.trim()}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {processingMessage}
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Plan Edits
+                  </>
+                )}
+              </button>
+              <button
+                onClick={createDirectorPlan}
+                disabled={isProcessing || words.length === 0}
+                className="flex items-center justify-center gap-2 rounded-lg bg-editor-success/20 px-4 py-2.5 text-sm font-medium text-editor-success transition-colors hover:bg-editor-success/30 disabled:opacity-50"
+              >
+                {isProcessing ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  {processingMessage}
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Plan Edits
-                </>
-              )}
-            </button>
+                ) : (
+                  <Film className="w-4 h-4" />
+                )}
+                AI Director
+              </button>
+            </div>
 
             {editPlanResult && (
               <div className="space-y-3">
@@ -1189,6 +1264,27 @@ export default function AIPanel() {
                     <p className="text-[11px] leading-snug text-editor-text-muted">
                       {editPlanResult.summary}
                     </p>
+                  )}
+                  {editPlanResult.directorClip && (
+                    <div className="rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text-muted">
+                      <div className="font-medium text-editor-text">
+                        Director clip: {editPlanResult.directorPackage?.title || editPlanResult.directorClip.title}
+                      </div>
+                      <div>
+                        {formatClipTime(editPlanResult.directorClip.startTime)} - {formatClipTime(editPlanResult.directorClip.endTime)}
+                        {' '}({Math.round(editPlanResult.directorClip.endTime - editPlanResult.directorClip.startTime)}s)
+                      </div>
+                      {editPlanResult.directorPackage?.hook && (
+                        <div>Hook: {editPlanResult.directorPackage.hook}</div>
+                      )}
+                    </div>
+                  )}
+                  {editPlanResult.directorNotes && editPlanResult.directorNotes.length > 0 && (
+                    <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-editor-text-muted">
+                      {editPlanResult.directorNotes.map((note) => (
+                        <li key={note}>{note}</li>
+                      ))}
+                    </ul>
                   )}
                 </div>
 
@@ -1723,6 +1819,8 @@ function ClipDraftCard({
                 ? 'Speaker turn'
                 : draft.source === 'transcript-selection'
                   ? 'Transcript clip'
+                  : draft.source === 'ai-director'
+                    ? 'AI Director'
                   : 'AI clip'}
             </span>
           )}

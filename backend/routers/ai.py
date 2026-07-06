@@ -59,6 +59,9 @@ class EditPlanRequest(BaseModel):
     model: Optional[str] = None
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    mode: Optional[str] = None
+    platform: Optional[str] = None
+    target_duration: Optional[int] = None
 
 
 class ModelListRequest(BaseModel):
@@ -166,6 +169,9 @@ def run_edit_plan(req: EditPlanRequest, progress_callback=None):
         model=req.model,
         api_key=req.api_key,
         base_url=req.base_url,
+        mode=req.mode,
+        platform=req.platform,
+        target_duration=req.target_duration,
     )
     _progress(progress_callback, 100, "Edit plan ready")
     return result

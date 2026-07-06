@@ -284,6 +284,57 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIn("30-90 seconds", captured["prompt"])
         self.assertIn("favor surprising hooks", captured["prompt"])
 
+    def test_director_edit_plan_returns_clip_package(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_complete(**kwargs):
+            captured["prompt"] = kwargs["prompt"]
+            return """
+            {
+              "summary": "Make a short from the strongest hook.",
+              "suggestions": [
+                {"action": "delete", "startWordIndex": 0, "endWordIndex": 0, "reason": "Slow start", "confidence": 0.9}
+              ],
+              "directorClip": {
+                "title": "Best moment",
+                "startWordIndex": 1,
+                "endWordIndex": 2,
+                "reason": "Strong payoff"
+              },
+              "directorPackage": {
+                "hook": "This changed everything",
+                "title": "Best moment",
+                "caption": "Watch the shift",
+                "description": "A concise social package",
+                "hashtags": ["shorts", "#podcast"]
+              },
+              "directorNotes": ["Use creator captions"]
+            }
+            """
+
+        request = ai_router.EditPlanRequest(
+            instruction="make a 60 second short",
+            transcript="well this changed everything",
+            words=[
+                ai_router.WordInfo(index=0, word="well", start=0, end=0.2),
+                ai_router.WordInfo(index=1, word="this", start=0.2, end=0.5),
+                ai_router.WordInfo(index=2, word="changed", start=0.5, end=1.0),
+            ],
+            mode="director",
+            platform="shorts",
+            target_duration=60,
+        )
+
+        with patch.object(ai_provider.AIProvider, "complete", side_effect=fake_complete):
+            result = ai_router.run_edit_plan(request)
+
+        self.assertIn("Target platform: shorts", captured["prompt"])
+        self.assertIn("directorClip", captured["prompt"])
+        self.assertEqual(result["directorClip"]["startTime"], 0.2)
+        self.assertEqual(result["directorClip"]["endTime"], 1.0)
+        self.assertEqual(result["directorPackage"]["hashtags"], ["shorts", "podcast"])
+        self.assertEqual(result["directorNotes"], ["Use creator captions"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

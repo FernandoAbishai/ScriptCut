@@ -515,6 +515,9 @@ def create_edit_plan(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    mode: Optional[str] = None,
+    platform: Optional[str] = None,
+    target_duration: Optional[int] = None,
 ) -> dict:
     """Generate structured transcript edit suggestions from a natural-language instruction."""
     word_list = "\n".join(
@@ -522,7 +525,26 @@ def create_edit_plan(
         for w in words
     )
 
-    prompt = f"""Create a conservative edit plan for this transcript.
+    director_mode = str(mode or "").lower() == "director"
+    platform_name = platform or "shorts"
+    duration_line = f"\nTarget platform: {platform_name}. Target duration: {target_duration or 60} seconds." if director_mode else ""
+    director_shape = """,
+  "directorClip": {
+    "title": "short catchy clip title",
+    "startWordIndex": integer,
+    "endWordIndex": integer,
+    "reason": "why this clip should work"
+  },
+  "directorPackage": {
+    "hook": "opening hook under 12 words",
+    "title": "social title",
+    "caption": "platform caption",
+    "description": "short description",
+    "hashtags": ["shorts", "topic"]
+  },
+  "directorNotes": ["brief production note"]""" if director_mode else ""
+
+    prompt = f"""Create a conservative edit plan for this transcript.{duration_line}
 
 User instruction:
 {instruction}
@@ -544,7 +566,7 @@ Return ONLY a valid JSON object with this exact shape:
       "reason": "brief reason",
       "confidence": number from 0 to 1
     }}
-  ]
+  ]{director_shape}
 }}
 
 Rules:
@@ -553,6 +575,7 @@ Rules:
 - Preserve meaning; do not remove important claims, names, numbers, or context.
 - Use confidence >= 0.85 only for obvious filler, duplicate starts, or dead air.
 - Return at most 12 suggestions.
+- In director mode, also choose one self-contained vertical social clip with a strong spoken hook.
 - If the instruction cannot be safely translated into cuts, return an empty suggestions array."""
 
     system = "You are a careful transcript video editor. Return only valid JSON, no explanation."
@@ -637,7 +660,64 @@ def _normalize_edit_plan_result(parsed: object, words: List[dict]) -> dict:
     if not summary:
         summary = f"{len(suggestions)} edit suggestion{'s' if len(suggestions) != 1 else ''} ready for review."
 
-    return {
+    result = {
         "summary": summary[:240],
         "suggestions": suggestions,
     }
+
+    director_clip = _normalize_director_clip(parsed.get("directorClip"), word_by_index)
+    if director_clip:
+        result["directorClip"] = director_clip
+
+    director_package = _normalize_director_package(parsed.get("directorPackage"))
+    if director_package:
+        result["directorPackage"] = director_package
+
+    director_notes = parsed.get("directorNotes")
+    if isinstance(director_notes, list):
+        result["directorNotes"] = [str(note).strip()[:180] for note in director_notes if str(note).strip()][:5]
+
+    return result
+
+
+def _normalize_director_clip(item: object, word_by_index: dict) -> Optional[dict]:
+    if not isinstance(item, dict):
+        return None
+    try:
+        start_index = int(item.get("startWordIndex"))
+        end_index = int(item.get("endWordIndex"))
+    except (TypeError, ValueError):
+        return None
+    if end_index < start_index:
+        start_index, end_index = end_index, start_index
+    if start_index not in word_by_index or end_index not in word_by_index:
+        return None
+
+    start_word = word_by_index[start_index]
+    end_word = word_by_index[end_index]
+    title = str(item.get("title") or "Director clip").strip()[:80]
+    reason = str(item.get("reason") or "Recommended by AI Director").strip()[:240]
+    return {
+        "title": title or "Director clip",
+        "startWordIndex": start_index,
+        "endWordIndex": end_index,
+        "startTime": float(start_word.get("start") or 0),
+        "endTime": float(end_word.get("end") or start_word.get("end") or 0),
+        "reason": reason or "Recommended by AI Director",
+    }
+
+
+def _normalize_director_package(item: object) -> Optional[dict]:
+    if not isinstance(item, dict):
+        return None
+    hashtags = item.get("hashtags")
+    if not isinstance(hashtags, list):
+        hashtags = []
+    result = {
+        "hook": str(item.get("hook") or "").strip()[:100],
+        "title": str(item.get("title") or "").strip()[:100],
+        "caption": str(item.get("caption") or "").strip()[:240],
+        "description": str(item.get("description") or "").strip()[:600],
+        "hashtags": [str(tag).strip().replace("#", "")[:40] for tag in hashtags if str(tag).strip()][:12],
+    }
+    return result if any(value for value in result.values()) else None

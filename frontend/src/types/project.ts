@@ -143,6 +143,15 @@ export interface EditPlanSuggestion {
 export interface EditPlanResult {
   summary: string;
   suggestions: EditPlanSuggestion[];
+  directorClip?: ClipSuggestion;
+  directorPackage?: {
+    hook?: string;
+    title?: string;
+    caption?: string;
+    description?: string;
+    hashtags?: string[];
+  };
+  directorNotes?: string[];
 }
 
 export type EditPlanReviewDecision = 'accepted' | 'rejected';
@@ -179,6 +188,6 @@ export interface ClipDraft extends ClipSuggestion {
   description?: string;
   caption?: string;
   hashtags?: string[];
-  source?: 'ai' | 'speaker-turn' | 'transcript-selection';
+  source?: 'ai' | 'speaker-turn' | 'transcript-selection' | 'ai-director';
   speaker?: string;
 }
