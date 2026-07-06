@@ -59,6 +59,9 @@ jobs:
       - name: Test speaker stats workflow
         run: npm run test:speaker-stats --prefix frontend
 
+      - name: Test caption designer workflow
+        run: npm run test:caption-designer --prefix frontend
+
       - name: Build frontend
         run: npm run build --prefix frontend
 

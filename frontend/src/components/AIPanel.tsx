@@ -9,6 +9,7 @@ import {
   normalizeClipDraftRange,
   validateClipDraftForExport,
 } from '../utils/clipDrafts';
+import CaptionPreview from './CaptionPreview';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
 
@@ -2221,6 +2222,8 @@ function ClipCaptionStyleControls({
 
   return (
     <div className="space-y-2 rounded border border-editor-border bg-editor-bg p-2">
+      <CaptionPreview style={value} />
+
       <div className="grid grid-cols-2 gap-2">
         <MiniSelect
           label="Position"

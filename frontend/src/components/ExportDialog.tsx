@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image } from 'lucide-react';
 import type { CaptionStyle, ExportOptions } from '../types/project';
+import CaptionPreview from './CaptionPreview';
 
 type ExportPreset = ExportOptions['preset'];
 type CaptionPreset = NonNullable<CaptionStyle['preset']>;
@@ -687,6 +688,8 @@ function CaptionStyleControls({
           </button>
         ))}
       </div>
+
+      <CaptionPreview style={value} />
 
       <div className="grid grid-cols-2 gap-2">
         <SelectField
