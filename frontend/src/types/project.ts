@@ -179,6 +179,6 @@ export interface ClipDraft extends ClipSuggestion {
   description?: string;
   caption?: string;
   hashtags?: string[];
-  source?: 'ai' | 'speaker-turn';
+  source?: 'ai' | 'speaker-turn' | 'transcript-selection';
   speaker?: string;
 }

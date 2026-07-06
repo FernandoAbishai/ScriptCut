@@ -50,6 +50,9 @@ jobs:
       - name: Test clip draft workflow
         run: npm run test:clip-drafts --prefix frontend
 
+      - name: Test transcript selection workflow
+        run: npm run test:transcript-selection --prefix frontend
+
       - name: Build frontend
         run: npm run build --prefix frontend
 

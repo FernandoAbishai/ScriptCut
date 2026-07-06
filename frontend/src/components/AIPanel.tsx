@@ -1719,7 +1719,11 @@ function ClipDraftCard({
         <div className="flex flex-wrap items-center gap-1 text-[10px]">
           {draft.source && (
             <span className="rounded bg-editor-accent/10 px-1.5 py-0.5 text-editor-accent">
-              {draft.source === 'speaker-turn' ? 'Speaker turn' : 'AI clip'}
+              {draft.source === 'speaker-turn'
+                ? 'Speaker turn'
+                : draft.source === 'transcript-selection'
+                  ? 'Transcript clip'
+                  : 'AI clip'}
             </span>
           )}
           {draft.speaker && (

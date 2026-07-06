@@ -1,8 +1,11 @@
 import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { useAIStore } from '../store/aiStore';
 import { Virtuoso } from 'react-virtuoso';
 import type { VirtuosoHandle } from 'react-virtuoso';
-import { CaptionsOff, Pencil, RotateCcw, Trash2, UserRoundCheck, VolumeX, Waves } from 'lucide-react';
+import { CaptionsOff, Copy, Film, Pencil, Play, RotateCcw, Trash2, UserRoundCheck, VolumeX, Waves, X } from 'lucide-react';
+import type { ClipDraft } from '../types/project';
+import { formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
 
 export default function TranscriptEditor() {
   const words = useEditorStore((s) => s.words);
@@ -24,6 +27,7 @@ export default function TranscriptEditor() {
   const restoreRange = useEditorStore((s) => s.restoreRange);
   const restoreEditOperation = useEditorStore((s) => s.restoreEditOperation);
   const requestSeek = useEditorStore((s) => s.requestSeek);
+  const setClipDrafts = useAIStore((s) => s.setClipDrafts);
 
   const selectionStart = useRef<number | null>(null);
   const wasDragging = useRef(false);
@@ -72,6 +76,10 @@ export default function TranscriptEditor() {
   const nonDeleteLayerCount = useMemo(
     () => editOperations.filter((operation) => operation.kind !== 'delete').length,
     [editOperations],
+  );
+  const selectionSummary = useMemo(
+    () => summarizeWordSelection(selectedWordIndices, words),
+    [selectedWordIndices, words],
   );
 
   // Auto-scroll to active segment via Virtuoso
@@ -202,6 +210,56 @@ export default function TranscriptEditor() {
     const confirmed = window.confirm(`Delete all words from ${speakerFilter}?`);
     if (confirmed) deleteSpeakerWords(speakerFilter);
   }, [speakerFilter, deleteSpeakerWords]);
+
+  const previewSelection = useCallback(() => {
+    if (!selectionSummary) return;
+    requestSeek(selectionSummary.startTime, 'forward', true);
+  }, [requestSeek, selectionSummary]);
+
+  const copySelectionText = useCallback(async () => {
+    if (!selectionSummary) return;
+    await navigator.clipboard?.writeText(selectionSummary.text);
+  }, [selectionSummary]);
+
+  const draftClipFromSelection = useCallback(() => {
+    if (!selectionSummary) return;
+    const title = selectionSummary.text.split(/\s+/).slice(0, 8).join(' ') || 'Transcript clip';
+    const draft: ClipDraft = {
+      id: `transcript_clip_${Date.now()}`,
+      title,
+      reason: 'Created from transcript selection',
+      startWordIndex: selectionSummary.startIndex,
+      endWordIndex: selectionSummary.endIndex,
+      startTime: selectionSummary.startTime,
+      endTime: selectionSummary.endTime,
+      status: 'draft',
+      platform: 'shorts',
+      format: 'mp4',
+      resolution: '1080p',
+      aspectRatio: 'vertical',
+      reframe: { x: 50, y: 50 },
+      enhanceAudio: false,
+      captions: 'burn-in',
+      captionStyle: {
+        preset: 'creator',
+        fontName: 'Arial',
+        fontSize: 58,
+        fontColor: '#ffffff',
+        backgroundColor: '#111827',
+        position: 'bottom',
+        bold: true,
+        highlightColor: '#facc15',
+        wordsPerLine: 5,
+      },
+      backgroundRemoval: { enabled: false, replacement: 'blur', color: '#111827' },
+      hook: '',
+      description: '',
+      caption: '',
+      hashtags: [],
+      source: 'transcript-selection',
+    };
+    setClipDrafts((current) => [...current, draft]);
+  }, [selectionSummary, setClipDrafts]);
 
   const renderSegment = useCallback(
     (index: number) => {
@@ -365,6 +423,55 @@ export default function TranscriptEditor() {
         )}
       </div>
 
+      {selectionSummary && (
+        <div className="border-b border-editor-border bg-editor-surface/80 px-4 py-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-editor-text-muted">
+                <span className="font-medium text-editor-text">
+                  {selectionSummary.indices.length} words selected
+                </span>
+                <span>{formatSelectionDuration(selectionSummary.duration)}</span>
+                <span>
+                  {formatTranscriptTime(selectionSummary.startTime)} - {formatTranscriptTime(selectionSummary.endTime)}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-xs text-editor-text" title={selectionSummary.text}>
+                {selectionSummary.text}
+              </p>
+            </div>
+            <button
+              onClick={previewSelection}
+              className="flex items-center gap-1 rounded bg-editor-accent/20 px-2 py-1 text-xs text-editor-accent hover:bg-editor-accent/30"
+            >
+              <Play className="w-3 h-3" />
+              Preview
+            </button>
+            <button
+              onClick={copySelectionText}
+              className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-xs text-editor-text-muted hover:bg-editor-bg"
+            >
+              <Copy className="w-3 h-3" />
+              Copy text
+            </button>
+            <button
+              onClick={draftClipFromSelection}
+              className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-xs text-editor-success hover:bg-editor-success/30"
+            >
+              <Film className="w-3 h-3" />
+              Draft clip
+            </button>
+            <button
+              onClick={() => setSelectedWordIndices([])}
+              className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-xs text-editor-text-muted hover:bg-editor-bg"
+            >
+              <X className="w-3 h-3" />
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <div
         className="flex-1 min-h-0 select-none"
         onMouseUp={handleMouseUp}
@@ -384,4 +491,11 @@ export default function TranscriptEditor() {
       </div>
     </div>
   );
+}
+
+function formatTranscriptTime(seconds: number) {
+  const safeSeconds = Math.max(0, seconds);
+  const mins = Math.floor(safeSeconds / 60);
+  const secs = Math.floor(safeSeconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }

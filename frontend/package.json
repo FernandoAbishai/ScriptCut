@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:clip-drafts": "node scripts/smoke-clip-drafts.mjs",
+    "test:transcript-selection": "node scripts/smoke-transcript-selection.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
