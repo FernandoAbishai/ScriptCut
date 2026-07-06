@@ -3,9 +3,10 @@ import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Virtuoso } from 'react-virtuoso';
 import type { VirtuosoHandle } from 'react-virtuoso';
-import { CaptionsOff, Copy, Film, Pencil, Play, RotateCcw, Trash2, UserRoundCheck, VolumeX, Waves, X } from 'lucide-react';
+import { CaptionsOff, ChevronLeft, ChevronRight, Copy, Film, Pencil, Play, RotateCcw, Search, Trash2, UserRoundCheck, VolumeX, Waves, X } from 'lucide-react';
 import type { ClipDraft } from '../types/project';
 import { formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
+import { findTranscriptMatches } from '../utils/transcriptSearch';
 
 export default function TranscriptEditor() {
   const words = useEditorStore((s) => s.words);
@@ -55,6 +56,8 @@ export default function TranscriptEditor() {
   }, [editOperations]);
 
   const [speakerFilter, setSpeakerFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
 
   const speakers = useMemo(
     () =>
@@ -80,6 +83,36 @@ export default function TranscriptEditor() {
   const selectionSummary = useMemo(
     () => summarizeWordSelection(selectedWordIndices, words),
     [selectedWordIndices, words],
+  );
+  const searchMatches = useMemo(
+    () => findTranscriptMatches(words, searchQuery),
+    [searchQuery, words],
+  );
+  const searchMatchWordMap = useMemo(() => {
+    const map = new Map<number, number>();
+    searchMatches.forEach((match, matchIndex) => {
+      for (let index = match.startIndex; index <= match.endIndex; index++) {
+        map.set(index, matchIndex);
+      }
+    });
+    return map;
+  }, [searchMatches]);
+
+  useEffect(() => {
+    setActiveSearchIndex(0);
+  }, [searchQuery]);
+
+  const activateSearchResult = useCallback(
+    (resultIndex: number) => {
+      if (searchMatches.length === 0) return;
+      const nextIndex = ((resultIndex % searchMatches.length) + searchMatches.length) % searchMatches.length;
+      const match = searchMatches[nextIndex];
+      setActiveSearchIndex(nextIndex);
+      const indices = Array.from({ length: match.endIndex - match.startIndex + 1 }, (_, offset) => match.startIndex + offset);
+      setSelectedWordIndices(indices);
+      requestSeek(words[match.startIndex]?.start ?? 0, 'forward', false);
+    },
+    [requestSeek, searchMatches, setSelectedWordIndices, words],
   );
 
   // Auto-scroll to active segment via Virtuoso
@@ -285,6 +318,9 @@ export default function TranscriptEditor() {
               const isMuted = operation?.kind === 'mute';
               const isRoomTone = operation?.kind === 'room-tone';
               const isCaptionHidden = operation?.kind === 'caption-only';
+              const searchMatchIndex = searchMatchWordMap.get(globalIndex);
+              const isSearchMatch = searchMatchIndex !== undefined;
+              const isActiveSearchMatch = isSearchMatch && searchMatchIndex === activeSearchIndex;
 
               return (
                 <span
@@ -302,6 +338,8 @@ export default function TranscriptEditor() {
                     ${isCaptionHidden && !isDeleted && !isMuted && !isRoomTone ? 'bg-editor-border/70 text-editor-text-muted' : ''}
                     ${isSelected && !isDeleted ? 'bg-editor-word-selected text-white' : ''}
                     ${isActive && !isDeleted && !isSelected ? 'bg-editor-accent/20 text-editor-accent' : ''}
+                    ${isActiveSearchMatch && !isDeleted && !isSelected ? 'bg-editor-success/30 text-editor-success' : ''}
+                    ${isSearchMatch && !isActiveSearchMatch && !isDeleted && !isSelected && !isActive ? 'bg-editor-warning/10 text-editor-warning' : ''}
                     ${isHovered && !isDeleted && !isSelected && !isActive && !isMuted && !isRoomTone && !isCaptionHidden ? 'bg-editor-word-hover' : ''}
                   `}
                 >
@@ -336,7 +374,7 @@ export default function TranscriptEditor() {
         </div>
       );
     },
-    [visibleSegments, speakerFilter, deletedSet, selectedSet, operationMap, activeWordIndex, hoveredWordIndex, handleWordMouseDown, handleWordMouseEnter, setHoveredWordIndex, getRangeForWord, restoreRange, restoreEditOperation],
+    [visibleSegments, speakerFilter, deletedSet, selectedSet, operationMap, searchMatchWordMap, activeSearchIndex, activeWordIndex, hoveredWordIndex, handleWordMouseDown, handleWordMouseEnter, setHoveredWordIndex, getRangeForWord, restoreRange, restoreEditOperation],
   );
 
   return (
@@ -345,6 +383,54 @@ export default function TranscriptEditor() {
         <span className="text-xs text-editor-text-muted mr-auto">
           {visibleWordCount} words &middot; {deletedRanges.length} cuts &middot; {nonDeleteLayerCount} layers
         </span>
+        <div className="flex min-w-[16rem] items-center gap-1 rounded border border-editor-border bg-editor-surface px-2 py-1">
+          <Search className="h-3.5 w-3.5 text-editor-text-muted" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                activateSearchResult(event.shiftKey ? activeSearchIndex - 1 : activeSearchIndex);
+              }
+            }}
+            placeholder="Search transcript"
+            className="min-w-0 flex-1 bg-transparent text-xs text-editor-text placeholder:text-editor-text-muted/50 focus:outline-none"
+          />
+          {searchQuery && (
+            <>
+              <span className="text-[10px] text-editor-text-muted">
+                {searchMatches.length === 0 ? '0' : `${activeSearchIndex + 1}/${searchMatches.length}`}
+              </span>
+              <button
+                onClick={() => activateSearchResult(activeSearchIndex - 1)}
+                disabled={searchMatches.length === 0}
+                className="rounded p-0.5 text-editor-text-muted hover:bg-editor-bg disabled:opacity-40"
+                title="Previous result"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => activateSearchResult(activeSearchIndex + 1)}
+                disabled={searchMatches.length === 0}
+                className="rounded p-0.5 text-editor-text-muted hover:bg-editor-bg disabled:opacity-40"
+                title="Next result"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setActiveSearchIndex(0);
+                }}
+                className="rounded p-0.5 text-editor-text-muted hover:bg-editor-bg"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </div>
         {speakers.length > 0 && (
           <>
             <select
