@@ -12,6 +12,7 @@
     "test:transcript-search": "node scripts/smoke-transcript-search.mjs",
     "test:speaker-stats": "node scripts/smoke-speaker-stats.mjs",
     "test:caption-designer": "node scripts/smoke-caption-designer.mjs",
+    "test:social-publishing": "node scripts/smoke-social-publishing.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

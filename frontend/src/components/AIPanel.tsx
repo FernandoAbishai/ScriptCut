@@ -9,6 +9,7 @@ import {
   normalizeClipDraftRange,
   validateClipDraftForExport,
 } from '../utils/clipDrafts';
+import { buildSocialPublishingPack, type SocialPlatform } from '../utils/socialPublishing';
 import CaptionPreview from './CaptionPreview';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
@@ -984,6 +985,23 @@ export default function AIPanel() {
     [words],
   );
 
+  const copySocialPackage = useCallback(
+    async (draft: ClipDraft, platform?: SocialPlatform) => {
+      const pack = buildSocialPublishingPack(draft);
+      const packageText = platform
+        ? pack.find((item) => item.platform === platform)?.text || ''
+        : pack.map((item) => item.text).join('\n\n');
+      try {
+        await navigator.clipboard.writeText(packageText);
+        alert(platform ? 'Social post copied.' : 'Social publishing pack copied.');
+      } catch (err) {
+        console.error('Social publishing copy failed:', err);
+        alert(`Could not copy social package.\n\n${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [],
+  );
+
   const handleExportDraft = useCallback(
     async (draft: ClipDraft) => {
       const validation = validateClipDraftForExport(draft, words, videoPath);
@@ -1590,6 +1608,7 @@ export default function AIPanel() {
                       onRetryExport={() => retryDraftExport(draft)}
                       onPackage={() => packageClipDraft(draft)}
                       onCopyPackage={() => copyClipPackage(draft)}
+                      onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
                       onDuplicate={() => duplicateClipDraft(draft)}
                       onRemove={() => removeClipDraft(draft.id)}
                       isPackaging={packagingDraftId === draft.id}
@@ -1748,6 +1767,7 @@ function ClipDraftCard({
   onRetryExport,
   onPackage,
   onCopyPackage,
+  onCopySocialPackage,
   onDuplicate,
   onRemove,
 }: {
@@ -1770,6 +1790,7 @@ function ClipDraftCard({
   onRetryExport: () => void;
   onPackage: () => void;
   onCopyPackage: () => void;
+  onCopySocialPackage: (platform?: SocialPlatform) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
@@ -1778,6 +1799,7 @@ function ClipDraftCard({
   const status = draft.status || 'draft';
   const isSuggested = status === 'suggested';
   const canExport = exportValidation.ready && !isSuggested;
+  const socialPack = buildSocialPublishingPack(draft);
 
   return (
     <div className={`space-y-2 rounded border p-3 ${isActive ? 'border-editor-accent bg-editor-accent/5' : 'border-transparent bg-editor-surface'}`}>
@@ -1996,6 +2018,51 @@ function ClipDraftCard({
               })
             }
           />
+      </div>
+      <div className="space-y-2 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-editor-text">Social Pack</span>
+          <button
+            onClick={() => onCopySocialPackage()}
+            className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+          >
+            Copy All
+          </button>
+        </div>
+        <div className="space-y-1">
+          {socialPack.map((item) => (
+            <div
+              key={item.platform}
+              className="rounded border border-editor-border bg-editor-surface px-2 py-1.5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-editor-text">{item.label}</span>
+                <div className="flex items-center gap-1">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${item.ready ? 'bg-editor-success/20 text-editor-success' : 'bg-editor-warning/10 text-editor-warning'}`}>
+                    {item.ready ? 'Ready' : 'Needs work'}
+                  </span>
+                  <button
+                    onClick={() => onCopySocialPackage(item.platform)}
+                    className="rounded bg-editor-border px-2 py-0.5 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div className="mt-1 line-clamp-2">{item.caption || 'No caption yet.'}</div>
+              <div className="mt-1 truncate text-[10px]">
+                {item.hashtags.map((tag) => `#${tag}`).join(' ')}
+              </div>
+              {item.warnings.length > 0 && (
+                <div className="mt-1 space-y-0.5 text-[10px] text-editor-warning">
+                  {item.warnings.map((warning) => (
+                    <div key={warning}>{warning}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
         {isSuggested ? (
@@ -2604,6 +2671,14 @@ async function writeClipBatchManifest({
         description: draft.description || '',
         hashtags: draft.hashtags || [],
       },
+      socialPublishing: buildSocialPublishingPack(draft).map((item) => ({
+        platform: item.platform,
+        title: item.title,
+        caption: item.caption,
+        hashtags: item.hashtags,
+        ready: item.ready,
+        warnings: item.warnings,
+      })),
       export: {
         format: draft.format,
         resolution: draft.resolution,

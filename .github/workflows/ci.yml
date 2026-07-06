@@ -62,6 +62,9 @@ jobs:
       - name: Test caption designer workflow
         run: npm run test:caption-designer --prefix frontend
 
+      - name: Test social publishing workflow
+        run: npm run test:social-publishing --prefix frontend
+
       - name: Build frontend
         run: npm run build --prefix frontend
 
