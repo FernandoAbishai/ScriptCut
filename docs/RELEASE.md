@@ -26,6 +26,18 @@ npm run smoke:backend
 python -m compileall -q backend
 ```
 
+For a fuller desktop gate, run:
+
+```bash
+npm run qa:desktop
+```
+
+When packaging changes are included, run:
+
+```bash
+npm run qa:desktop:package
+```
+
 Then verify the creator workflow manually:
 
 - Open the Electron desktop app with `npm run dev`.
@@ -36,6 +48,8 @@ Then verify the creator workflow manually:
 - Export a vertical shorts MP4 with captions.
 - Create at least one clip draft and export it.
 - Save a `.scriptcut` project and reopen it.
+
+Use the detailed checklist in [Desktop QA](./DESKTOP_QA.md) for release candidates.
 
 ## macOS DMG Build
 

@@ -8,6 +8,7 @@ npm run doctor
 npm run dev
 npm run lint
 npm run smoke:backend
+npm run qa:desktop
 npm run build
 python -m compileall -q backend
 ```
@@ -23,7 +24,7 @@ python -m compileall -q backend
 
 1. Run `npm run doctor` before making changes.
 2. Keep changes scoped to one feature or fix.
-3. Run `npm run lint`, `npm run build`, `npm run smoke:backend`, and `python -m compileall -q backend`.
+3. Run `npm run qa:desktop` before shipping desktop workflow changes.
 4. Update docs when commands, setup, or user-visible behavior changes.
 
 ## Backend Notes
