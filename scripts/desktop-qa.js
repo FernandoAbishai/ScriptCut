@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
 const { spawnSync } = require('child_process');
 const path = require('path');
 const { resolvePythonRuntime } = require('../electron/python-runtime');
@@ -7,12 +8,12 @@ const { resolvePythonRuntime } = require('../electron/python-runtime');
 const root = path.join(__dirname, '..');
 const includePackageBuild = process.argv.includes('--package');
 
-function runStep(name, command, args) {
+function runStep(name, command, args, options = {}) {
   console.log(`\n==> ${name}`);
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: 'inherit',
-    env: process.env,
+    env: options.env || process.env,
   });
 
   if (result.error) {
@@ -56,7 +57,18 @@ const compile = pythonArgs(['-m', 'compileall', '-q', 'backend']);
 runStep('Backend Python compile', compile.command, compile.args);
 
 if (includePackageBuild) {
-  runStep('Electron unpacked app build', 'npm', ['run', 'dist:dir']);
+  const cacheRoot = path.join(root, '.cache');
+  const electronCache = path.join(cacheRoot, 'electron');
+  const electronBuilderCache = path.join(cacheRoot, 'electron-builder');
+  fs.mkdirSync(electronCache, { recursive: true });
+  fs.mkdirSync(electronBuilderCache, { recursive: true });
+  runStep('Electron unpacked app build', 'npm', ['run', 'dist:dir'], {
+    env: {
+      ...process.env,
+      ELECTRON_CACHE: electronCache,
+      ELECTRON_BUILDER_CACHE: electronBuilderCache,
+    },
+  });
 }
 
 console.log('\nDesktop QA checks passed.');
