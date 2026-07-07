@@ -8,7 +8,6 @@ from fastapi import APIRouter
 
 from services.audio_cleaner import is_deepfilter_available
 from services.background_removal import capabilities as background_capabilities
-from services.transcription import get_transcription_engine_status
 
 router = APIRouter()
 
@@ -34,9 +33,23 @@ def _ffmpeg_status() -> dict:
     }
 
 
+def _transcription_status() -> dict:
+    try:
+        from services.transcription import get_transcription_engine_status
+
+        return get_transcription_engine_status()
+    except ModuleNotFoundError as e:
+        return {
+            "default_engine": None,
+            "default_model": "",
+            "engines": {},
+            "error": f"Missing transcription dependency: {e.name}",
+        }
+
+
 @router.get("/system/checks")
 async def system_checks():
-    transcription = get_transcription_engine_status()
+    transcription = _transcription_status()
     default_engine = transcription.get("default_engine")
     background = background_capabilities()
     return {
@@ -56,7 +69,7 @@ async def system_checks():
             "transcription": {
                 "ok": bool(default_engine),
                 "label": "Transcription",
-                "detail": f"{default_engine or 'No engine'} selected by default",
+                "detail": transcription.get("error") or f"{default_engine or 'No engine'} selected by default",
                 "engines": transcription.get("engines", {}),
             },
             "audio": {
