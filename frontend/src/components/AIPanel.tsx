@@ -1616,6 +1616,7 @@ export default function AIPanel() {
                       draft={draft}
                       isExporting={exportingDraftId === draft.id}
                       exportJob={clipExportJobs[draft.id]}
+                      backendUrl={backendUrl}
                       backgroundCapabilities={backgroundCapabilities}
                       transcriptSnippet={getClipTranscript(words, draft)}
                       clipWords={words.slice(draft.startWordIndex, draft.endWordIndex + 1)}
@@ -1777,6 +1778,7 @@ function ClipDraftCard({
   isExporting,
   isPackaging,
   exportJob,
+  backendUrl,
   backgroundCapabilities,
   transcriptSnippet,
   clipWords,
@@ -1802,6 +1804,7 @@ function ClipDraftCard({
   isExporting: boolean;
   isPackaging: boolean;
   exportJob?: ExportJob;
+  backendUrl: string;
   backgroundCapabilities: BackgroundCapabilities | null;
   transcriptSnippet: string;
   clipWords: Word[];
@@ -1849,8 +1852,17 @@ function ClipDraftCard({
         <span>{Math.round(draft.endTime - draft.startTime)}s</span>
       </div>
       {draft.exportPath && (
-        <div className="truncate rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-success" title={draft.exportPath}>
-          Exported: {draft.exportPath}
+        <div className="space-y-1 rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-success" title={draft.exportPath}>
+          <div className="truncate">Exported: {draft.exportPath}</div>
+          {!window.electronAPI && (
+            <a
+              href={getBackendFileUrl(backendUrl, draft.exportPath)}
+              download={getFileNameFromPath(draft.exportPath, `${draft.title || 'scriptcut_clip'}.${draft.format}`)}
+              className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
+            >
+              Download clip
+            </a>
+          )}
         </div>
       )}
       {draft.lastError && (
@@ -2644,6 +2656,15 @@ function formatClipTime(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function getBackendFileUrl(backendUrl: string, path?: string) {
+  return path ? `${backendUrl}/file?path=${encodeURIComponent(path)}` : '';
+}
+
+function getFileNameFromPath(path: string, fallback: string) {
+  const normalized = path.replace(/\\/g, '/');
+  return normalized.split('/').filter(Boolean).pop() || fallback;
 }
 
 function isPreviewAspectRatio(value: unknown): value is ClipDraft['aspectRatio'] {

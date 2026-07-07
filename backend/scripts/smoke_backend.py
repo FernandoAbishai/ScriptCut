@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import unittest
+import subprocess
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -15,6 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from routers import export as export_router
 from routers import ai as ai_router
+from services import video_editor
 from services import ai_provider
 from services.caption_generator import generate_srt
 from services.job_manager import JobManager
@@ -58,6 +60,59 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIn("one two", captured["content"])
         self.assertIn("three", captured["content"])
         self.assertEqual(captured["content"].count("-->"), 2)
+
+    def test_export_without_output_path_uses_backend_temp_file(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
+            captured["output_path"] = output_path
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input clip.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+                format="mp4",
+            )
+
+            with patch.object(export_router, "export_stream_copy", fake_stream_copy):
+                result = export_router.run_export(request)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["output_path"], captured["output_path"])
+        self.assertTrue(result["output_path"].endswith(".mp4"))
+        self.assertIn("scriptcut_exports", result["output_path"])
+
+    def test_reencode_video_only_does_not_map_audio(self) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def fake_run_ffmpeg(cmd, progress_callback=None):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with TemporaryDirectory() as tmp:
+            input_path = str(Path(tmp) / "input.mp4")
+            output_path = str(Path(tmp) / "output.mp4")
+            Path(input_path).write_text("placeholder", encoding="utf-8")
+
+            with (
+                patch.object(video_editor, "_find_ffmpeg", return_value="ffmpeg"),
+                patch.object(video_editor, "_has_audio_stream", return_value=False),
+                patch.object(video_editor, "_run_ffmpeg", fake_run_ffmpeg),
+            ):
+                result = video_editor.export_reencode(
+                    input_path,
+                    output_path,
+                    [{"start": 0, "end": 2}],
+                )
+
+        self.assertEqual(Path(result).resolve(), Path(output_path).resolve())
+        command_text = " ".join(captured["cmd"])
+        self.assertNotIn("[outa]", command_text)
+        self.assertIn("concat=n=1:v=1:a=0[outv]", command_text)
 
     def test_captions_hide_deleted_words(self) -> None:
         srt = generate_srt(

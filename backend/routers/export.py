@@ -68,7 +68,7 @@ class ReframeModel(BaseModel):
 
 class ExportRequest(BaseModel):
     input_path: str
-    output_path: str
+    output_path: Optional[str] = None
     keep_segments: List[SegmentModel]
     muted_ranges: List[AudioEditRangeModel] = Field(default_factory=list)
     mode: str = "fast"
@@ -82,6 +82,22 @@ class ExportRequest(BaseModel):
     backgroundRemoval: Optional[BackgroundRemovalModel] = None
     words: Optional[List[ExportWordModel]] = None
     deleted_indices: Optional[List[int]] = None
+
+
+def _default_export_path(input_path: str, format_hint: str) -> str:
+    suffix = f".{format_hint if format_hint in {'mp4', 'mov', 'webm'} else 'mp4'}"
+    temp_dir = os.path.join(tempfile.gettempdir(), "scriptcut_exports")
+    os.makedirs(temp_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(input_path))[0] or "scriptcut_export"
+    safe_stem = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in stem).strip("_")
+    output = tempfile.NamedTemporaryFile(
+        prefix=f"{safe_stem or 'scriptcut_export'}_",
+        suffix=suffix,
+        dir=temp_dir,
+        delete=False,
+    )
+    output.close()
+    return output.name
 
 
 def _mux_audio(video_path: str, audio_path: str, output_path: str) -> str:
@@ -110,6 +126,8 @@ def run_export(req: ExportRequest, progress_callback=None):
 
     try:
         progress(5, "Preparing export")
+        if not req.output_path:
+            req.output_path = _default_export_path(req.input_path, req.format)
         segments = [{"start": s.start, "end": s.end} for s in req.keep_segments]
         warnings = []
 

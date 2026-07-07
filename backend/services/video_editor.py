@@ -7,6 +7,7 @@ import logging
 import subprocess
 import tempfile
 import os
+import json
 from pathlib import Path
 from typing import List
 
@@ -22,6 +23,39 @@ def _find_ffmpeg() -> str:
         except (FileNotFoundError, subprocess.CalledProcessError):
             continue
     raise RuntimeError("FFmpeg not found. Install it or add it to PATH.")
+
+
+def _find_ffprobe() -> str:
+    ffmpeg = _find_ffmpeg()
+    candidates = [ffmpeg.replace("ffmpeg", "ffprobe"), "ffprobe", "ffprobe.exe"]
+    for cmd in candidates:
+        try:
+            subprocess.run([cmd, "-version"], capture_output=True, check=True)
+            return cmd
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue
+    raise RuntimeError("FFprobe not found. Install FFmpeg with ffprobe or add it to PATH.")
+
+
+def _has_audio_stream(input_path: str) -> bool:
+    cmd = [
+        _find_ffprobe(),
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams",
+        str(input_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout or "{}")
+    except Exception as e:
+        logger.warning(f"Could not inspect audio streams for {input_path}: {e}")
+        return True
+    return any(stream.get("codec_type") == "audio" for stream in data.get("streams", []))
+
+
+def _container_args(format_hint: str) -> list[str]:
+    return ["-movflags", "+faststart"] if format_hint in {"mp4", "mov"} else []
 
 
 def export_stream_copy(
@@ -78,7 +112,7 @@ def export_stream_copy(
             ffmpeg, "-y",
             "-i", f"concat:{concat_str}",
             "-c", "copy",
-            "-movflags", "+faststart",
+            *_container_args(Path(output_path).suffix.lower().lstrip(".")),
             output_path,
         ]
         logger.info(f"Concatenating {len(segment_files)} segments -> {output_path}")
@@ -124,17 +158,22 @@ def export_reencode(
         raise ValueError("No segments to export")
 
     muted_ranges = muted_ranges or []
+    has_audio = _has_audio_stream(input_path)
     filter_parts = []
     for i, seg in enumerate(keep_segments):
-        audio_label = _build_audio_trim_filter(i, seg, muted_ranges)
+        audio_label = _build_audio_trim_filter(i, seg, muted_ranges) if has_audio else ""
         filter_parts.append(
             f"[0:v]trim=start={seg['start']}:end={seg['end']},setpts=PTS-STARTPTS[v{i}];"
             f"{audio_label}"
         )
 
     n = len(keep_segments)
-    concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n))
-    filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=1[outv][outa]")
+    if has_audio:
+        concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=1[outv][outa]")
+    else:
+        concat_inputs = "".join(f"[v{i}]" for i in range(n))
+        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[outv]")
 
     filter_complex = "".join(filter_parts)
 
@@ -154,11 +193,21 @@ def export_reencode(
         "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", video_map,
-        "-map", "[outa]",
         *codec_args,
-        "-movflags", "+faststart",
+        *_container_args(format_hint),
         output_path,
     ]
+    if has_audio:
+        cmd = [
+            ffmpeg, "-y",
+            "-i", input_path,
+            "-filter_complex", filter_complex,
+            "-map", video_map,
+            "-map", "[outa]",
+            *codec_args,
+            *_container_args(format_hint),
+            output_path,
+        ]
 
     logger.info(f"Re-encoding {n} segments -> {output_path} ({resolution}, {aspect_ratio})")
     result = _run_ffmpeg(cmd, progress_callback)
@@ -193,17 +242,22 @@ def export_reencode_with_subs(
         raise ValueError("No segments to export")
 
     muted_ranges = muted_ranges or []
+    has_audio = _has_audio_stream(input_path)
     filter_parts = []
     for i, seg in enumerate(keep_segments):
-        audio_label = _build_audio_trim_filter(i, seg, muted_ranges)
+        audio_label = _build_audio_trim_filter(i, seg, muted_ranges) if has_audio else ""
         filter_parts.append(
             f"[0:v]trim=start={seg['start']}:end={seg['end']},setpts=PTS-STARTPTS[v{i}];"
             f"{audio_label}"
         )
 
     n = len(keep_segments)
-    concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n))
-    filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=1[outv][outa]")
+    if has_audio:
+        concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=1[outv][outa]")
+    else:
+        concat_inputs = "".join(f"[v{i}]" for i in range(n))
+        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[outv]")
 
     filter_complex = "".join(filter_parts)
 
@@ -226,11 +280,21 @@ def export_reencode_with_subs(
         "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", video_map,
-        "-map", "[outa]",
         *codec_args,
-        "-movflags", "+faststart",
+        *_container_args(format_hint),
         output_path,
     ]
+    if has_audio:
+        cmd = [
+            ffmpeg, "-y",
+            "-i", input_path,
+            "-filter_complex", filter_complex,
+            "-map", video_map,
+            "-map", "[outa]",
+            *codec_args,
+            *_container_args(format_hint),
+            output_path,
+        ]
 
     logger.info(f"Re-encoding {n} segments with subtitles -> {output_path} ({resolution}, {aspect_ratio})")
     result = _run_ffmpeg(cmd, progress_callback)
@@ -355,8 +419,7 @@ def _run_ffmpeg(cmd: list[str], progress_callback=None) -> subprocess.CompletedP
 
 def get_video_info(input_path: str) -> dict:
     """Get basic video metadata using ffprobe."""
-    ffmpeg = _find_ffmpeg()
-    ffprobe = ffmpeg.replace("ffmpeg", "ffprobe")
+    ffprobe = _find_ffprobe()
 
     cmd = [
         ffprobe, "-v", "quiet",
@@ -367,7 +430,6 @@ def get_video_info(input_path: str) -> dict:
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        import json
         data = json.loads(result.stdout)
         fmt = data.get("format", {})
         video_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})

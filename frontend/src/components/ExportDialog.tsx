@@ -11,6 +11,8 @@ interface ExportResult {
   outputPath: string;
   srtPath?: string;
   warnings: string[];
+  downloadUrl?: string;
+  srtDownloadUrl?: string;
 }
 
 interface ExportJob {
@@ -69,6 +71,19 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
     wordsPerLine: 3,
   },
 };
+
+function getExportDownloadUrl(backendUrl: string, path?: string) {
+  return path ? `${backendUrl}/file?path=${encodeURIComponent(path)}` : '';
+}
+
+function getDefaultExportPath(videoPath: string, format: ExportOptions['format']) {
+  return videoPath.replace(/\.[^.\\/]+$/, `_edited.${format}`);
+}
+
+function getDownloadFilename(path: string, fallback: string) {
+  const normalized = path.replace(/\\/g, '/');
+  return normalized.split('/').filter(Boolean).pop() || fallback;
+}
 
 export default function ExportDialog() {
   const {
@@ -141,10 +156,14 @@ export default function ExportDialog() {
         setExporting(job.status === 'queued' || job.status === 'running' || job.status === 'canceling', job.progress);
 
         if (job.status === 'succeeded') {
+          const outputPath = job.result?.output_path || '';
+          const srtPath = job.result?.srt_path;
           setExportResult({
-            outputPath: job.result?.output_path || '',
-            srtPath: job.result?.srt_path,
+            outputPath,
+            srtPath,
             warnings: job.result?.warnings || [],
+            downloadUrl: getExportDownloadUrl(backendUrl, outputPath),
+            srtDownloadUrl: getExportDownloadUrl(backendUrl, srtPath),
           });
           setExportJobId('');
           setLastExportJobId(jobId);
@@ -164,15 +183,17 @@ export default function ExportDialog() {
   const handleExport = useCallback(async () => {
     if (!videoPath) return;
 
-    const outputPath = await window.electronAPI?.saveFile({
-      defaultPath: videoPath.replace(/\.[^.]+$/, '_edited.mp4'),
-      filters: [
-        { name: 'MP4', extensions: ['mp4'] },
-        { name: 'MOV', extensions: ['mov'] },
-        { name: 'WebM', extensions: ['webm'] },
-      ],
-    });
-    if (!outputPath) return;
+    const outputPath = window.electronAPI
+      ? await window.electronAPI.saveFile({
+        defaultPath: getDefaultExportPath(videoPath, options.format),
+        filters: [
+          { name: 'MP4', extensions: ['mp4'] },
+          { name: 'MOV', extensions: ['mov'] },
+          { name: 'WebM', extensions: ['webm'] },
+        ],
+      })
+      : undefined;
+    if (window.electronAPI && !outputPath) return;
 
     setExportError('');
     setExportResult(null);
@@ -196,7 +217,7 @@ export default function ExportDialog() {
         body: JSON.stringify({
           ...options,
           input_path: videoPath,
-          output_path: outputPath,
+          output_path: outputPath || undefined,
           keep_segments: keepSegments,
           muted_ranges: getMutedRanges(),
           words: options.captions !== 'none' ? words : undefined,
@@ -450,6 +471,24 @@ export default function ExportDialog() {
         <div className="space-y-1 rounded bg-editor-success/10 border border-editor-success/30 p-2 text-[11px] text-editor-success">
           <div>Exported to {exportResult.outputPath}</div>
           {exportResult.srtPath && <div>Captions saved to {exportResult.srtPath}</div>}
+          {exportResult.downloadUrl && !window.electronAPI && (
+            <a
+              href={exportResult.downloadUrl}
+              download={getDownloadFilename(exportResult.outputPath, `scriptcut_export.${options.format}`)}
+              className="inline-flex rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30"
+            >
+              Download video
+            </a>
+          )}
+          {exportResult.srtDownloadUrl && !window.electronAPI && (
+            <a
+              href={exportResult.srtDownloadUrl}
+              download={getDownloadFilename(exportResult.srtPath || '', 'scriptcut_export.srt')}
+              className="ml-2 inline-flex rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30"
+            >
+              Download captions
+            </a>
+          )}
           {exportResult.warnings.map((warning) => (
             <div key={warning} className="text-editor-warning">
               {warning}
