@@ -27,6 +27,10 @@
     "setup:backend": "node scripts/setup.js --backend-only",
     "doctor": "node scripts/doctor.js",
     "build": "cd frontend && npm run build && electron-builder",
+    "build:frontend": "cd frontend && npm run build",
+    "dist": "npm run build",
+    "dist:mac": "npm run build:frontend && electron-builder --mac dmg",
+    "dist:dir": "npm run build:frontend && electron-builder --dir",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python scripts/smoke_backend.py || ../.venv/bin/python scripts/smoke_backend.py || python scripts/smoke_backend.py)"
   },

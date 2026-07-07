@@ -21,7 +21,7 @@ Use the **desktop app** for real editing work. It gives ScriptCut direct access 
 
 Use the **browser version** only for development or quick testing. Browser mode can upload media to the local backend and download exports, but the desktop app is the intended user experience.
 
-Current status: ScriptCut is not packaged as a one-click public installer yet. For now, the official way to run it is from this repository with the setup steps below.
+Current status: ScriptCut is not packaged as a one-click public installer yet. For now, the official way to run it is from this repository with the setup steps below. Release packaging notes live in [docs/RELEASE.md](docs/RELEASE.md).
 
 ## What You Can Do
 
@@ -84,6 +84,16 @@ npm run dev
 ```
 
 That starts the local backend, the frontend, and the Electron desktop app together. This is the recommended way to use ScriptCut today.
+
+### Build a Desktop App
+
+For local desktop packaging:
+
+```bash
+npm run dist:mac
+```
+
+That creates a macOS DMG under `dist/`. See [docs/RELEASE.md](docs/RELEASE.md) for the full release checklist.
 
 If you want to verify the backend separately:
 
