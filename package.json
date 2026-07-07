@@ -3,6 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "ScriptCut — Open-source AI-powered text-based video editor",
+  "keywords": [
+    "video-editor",
+    "text-based-video-editing",
+    "descript-alternative",
+    "transcript-editor",
+    "youtube-shorts",
+    "tiktok",
+    "reels",
+    "creator-tools",
+    "captions",
+    "ffmpeg",
+    "local-first",
+    "electron"
+  ],
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"wait-on http://localhost:5173 && npm run dev:electron\"",

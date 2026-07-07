@@ -1,17 +1,37 @@
 # ScriptCut
 
-ScriptCut is a maintained fork of CutScript focused on Apple Silicon reliability, 9Router support, and local-first creator workflows.
+ScriptCut is an open-source, local-first video editor for creators. It lets you edit a video by editing the transcript, then package clips for Shorts, TikTok, Reels, podcasts, and social posts.
 
-Edit videos by editing the transcript:
+Think of it as a creator-owned, Descript-style workflow:
 
-- delete words -> cut video
-- remove filler words -> clean edit
-- generate captions -> export clip
-- choose Parakeet TDT v3, WhisperX, or Whisper transcription
+- delete words in the transcript to cut the video
+- remove filler words and awkward pauses
+- search, trim, and review clips from the transcript
+- design captions and export vertical shorts
+- package each clip with titles, captions, descriptions, hashtags, and hook-frame notes
+- use AI helpers when you want them, but still edit and export without AI
 
-Built with Electron, React, FastAPI, WhisperX/Whisper, FFmpeg, and local/cloud LLM integrations.
+ScriptCut runs best as the desktop app. The browser page at `localhost:5173` is the development frontend; it is useful for testing, but it does not have the same native file access as the desktop app.
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
+
+## Which Version Should I Use?
+
+Use the **desktop app** for real editing work. It gives ScriptCut direct access to local files, native open/save dialogs, project autosave, and the bundled local backend.
+
+Use the **browser version** only for development or quick testing. Browser mode can upload media to the local backend and download exports, but the desktop app is the intended user experience.
+
+Current status: ScriptCut is not packaged as a one-click public installer yet. For now, the official way to run it is from this repository with the setup steps below.
+
+## What You Can Do
+
+- Open a video or audio file and get a word-level transcript.
+- Edit the video by deleting, restoring, muting, or caption-hiding transcript words.
+- Preview edited playback before exporting.
+- Generate AI edit plans, filler-word suggestions, and short clip drafts.
+- Review clip drafts, package social metadata, choose hook frames, and batch export.
+- Export source, square, or vertical videos with optional burned-in captions.
+- Work locally first, with optional providers like Ollama, OpenAI, Claude, and 9Router.
 
 ## Relationship to CutScript
 
@@ -24,30 +44,6 @@ This version focuses on:
 - 9Router support
 - improved backend startup
 - creator-oriented local-first workflows
-
-## Architecture
-
-- **Electron + React** desktop app with Tailwind CSS
-- **FastAPI** Python backend
-- **Parakeet TDT v3 / WhisperX / Whisper** transcription pipeline with backend capability reporting and engine selection
-- **FFmpeg** for video and audio processing
-- **Ollama / OpenAI / Claude / 9router** for AI features
-
-## Apple Silicon Status
-
-This version has been verified on Apple Silicon macOS for:
-
-- backend startup via `npm run dev:backend`
-- frontend production build
-- health checks on `http://127.0.0.1:8642/health`
-- transcription requests on both CPU and MPS paths
-
-Important runtime notes:
-
-- Use Python `3.10` to `3.12`
-- Python `3.11` is the recommended Apple Silicon setup
-- Python `3.13` is not a supported runtime for the current transcription dependency stack
-- The backend launcher now auto-selects a compatible local virtualenv or interpreter
 
 ## Quick Start
 
@@ -87,7 +83,7 @@ npm run doctor
 npm run dev
 ```
 
-That starts backend, frontend, and Electron together.
+That starts the local backend, the frontend, and the Electron desktop app together. This is the recommended way to use ScriptCut today.
 
 If you want to verify the backend separately:
 
@@ -101,6 +97,23 @@ Expected response:
 ```json
 {"status":"ok"}
 ```
+
+## Browser Mode
+
+If you open `http://localhost:5173` directly, you are using the development browser frontend. Browser mode can select files, transcribe, and export through the local backend, but exported files are saved in a backend temp folder and then offered as downloads.
+
+For the normal creator workflow, use the Electron desktop window opened by `npm run dev`.
+
+## Apple Silicon Notes
+
+This version has been verified on Apple Silicon macOS for backend startup, frontend builds, health checks, exports, and transcription requests on CPU/MPS paths.
+
+Important runtime notes:
+
+- Use Python `3.10` to `3.12`.
+- Python `3.11` is the recommended Apple Silicon setup.
+- Python `3.13` is not a supported runtime for the current transcription dependency stack.
+- The backend launcher auto-selects a compatible local virtualenv or interpreter.
 
 ## Project Structure
 
@@ -140,6 +153,14 @@ scriptcut/
 | AI background removal | Done |
 
 Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `version: 1`. Manual saves and autosaves use the same serializer so recovery files are deterministic and migration-ready.
+
+## How It Works
+
+- **Desktop app:** Electron + React.
+- **Local backend:** FastAPI.
+- **Transcription:** Parakeet TDT v3, WhisperX, or Whisper.
+- **Export engine:** FFmpeg.
+- **Optional AI:** Ollama, OpenAI, Claude, or 9Router.
 
 ## Keyboard Shortcuts
 
