@@ -30,6 +30,7 @@ import {
   FileVideo,
   CheckCircle,
   RefreshCw,
+  Copy,
 } from 'lucide-react';
 
 const IS_ELECTRON = !!window.electronAPI;
@@ -791,14 +792,21 @@ function FirstRunChecklist({
   const requiredReady = rows
     .filter((row) => row.label !== 'Background removal')
     .every((row) => row.ok);
+  const [copiedCommand, setCopiedCommand] = useState('');
+
+  const copyCommand = async (command: string) => {
+    await navigator.clipboard?.writeText(command);
+    setCopiedCommand(command);
+    window.setTimeout(() => setCopiedCommand(''), 1500);
+  };
 
   return (
     <div className="w-full max-w-2xl rounded-lg border border-editor-border bg-editor-surface p-4 text-left shadow-lg">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-editor-text">First-run setup</div>
+          <div className="text-sm font-semibold text-editor-text">Setup assistant</div>
           <p className="mt-1 text-xs leading-5 text-editor-text-muted">
-            Confirm the desktop app, local backend, transcription, and export tools are ready before opening media.
+            ScriptCut checks the local tools needed for editing and export. Fix warning items first; optional tools can wait.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -823,27 +831,89 @@ function FirstRunChecklist({
         </div>
       )}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        {rows.map((row) => (
-          <div key={row.label} className="flex items-start gap-2 rounded border border-editor-border bg-editor-bg px-2 py-2">
-            {row.ok ? (
-              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-editor-success" />
-            ) : (
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" />
-            )}
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-editor-text">{row.label}</div>
-              <div className="mt-0.5 text-[11px] leading-4 text-editor-text-muted">{row.detail}</div>
+        {rows.map((row) => {
+          const guidance = getSetupGuidance(row);
+          return (
+            <div key={row.label} className="flex items-start gap-2 rounded border border-editor-border bg-editor-bg px-2 py-2">
+              {row.ok ? (
+                <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-editor-success" />
+              ) : (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-editor-text">{row.label}</div>
+                <div className="mt-0.5 text-[11px] leading-4 text-editor-text-muted">{row.detail}</div>
+                {!row.ok && guidance && (
+                  <div className="mt-2 space-y-1 rounded bg-editor-surface px-2 py-1.5 text-[11px] leading-4 text-editor-text-muted">
+                    <div>{guidance.message}</div>
+                    {guidance.command && (
+                      <button
+                        onClick={() => copyCommand(guidance.command || '')}
+                        className="inline-flex max-w-full items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                        title={guidance.command}
+                      >
+                        <Copy className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          {copiedCommand === guidance.command ? 'Copied' : guidance.command}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className={`mt-3 rounded px-2 py-1 text-[11px] ${requiredReady ? 'bg-editor-success/10 text-editor-success' : 'bg-editor-warning/10 text-editor-warning'}`}>
         {requiredReady
-          ? 'Core editing and export tools are ready.'
-          : 'Resolve the warning items before serious editing. Background removal is optional.'}
+          ? 'Core editing and export tools are ready. You can open media now.'
+          : 'Resolve required warnings before serious editing. Background removal is optional.'}
       </div>
     </div>
   );
+}
+
+function getSetupGuidance(row: SystemCheck) {
+  if (row.ok) return null;
+
+  if (row.label === 'Desktop app') {
+    return {
+      message: 'Use the installed ScriptCut desktop app for the full creator workflow.',
+    };
+  }
+
+  if (row.label === 'Python') {
+    return {
+      message: 'Install Python 3.11, then restart ScriptCut.',
+      command: 'brew install python@3.11',
+    };
+  }
+
+  if (row.label === 'FFmpeg') {
+    return {
+      message: 'Install FFmpeg so ScriptCut can export edited videos.',
+      command: 'brew install ffmpeg',
+    };
+  }
+
+  if (row.label === 'Transcription') {
+    return {
+      message: 'Choose Auto or Whisper fallback, or install Parakeet dependencies for the fastest multilingual engine.',
+      command: "pip install -U nemo_toolkit['asr']",
+    };
+  }
+
+  if (row.label === 'Background removal') {
+    return {
+      message: 'Optional. Install MediaPipe and OpenCV only if you need background removal.',
+      command: 'pip install mediapipe opencv-python',
+    };
+  }
+
+  return {
+    message: 'Restart ScriptCut after fixing this item, then run setup checks again.',
+  };
 }
 
 function AutosaveStatus({ autosave }: { autosave: ReturnType<typeof useProjectAutosave> }) {
