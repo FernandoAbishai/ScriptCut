@@ -10,6 +10,7 @@ interface ElectronAPI {
   decryptString: (encrypted: string) => Promise<string>;
   readFile: (path: string) => Promise<string>;
   writeFile: (path: string, content: string) => Promise<boolean>;
+  revealPath: (path: string) => Promise<boolean>;
 }
 
 interface Window {

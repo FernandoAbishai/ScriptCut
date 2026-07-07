@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image } from 'lucide-react';
+import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink } from 'lucide-react';
 import type { CaptionStyle, ExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
 
@@ -27,6 +27,14 @@ interface ExportJob {
     warnings?: string[];
   };
   error?: string;
+}
+
+interface ExportHistoryItem {
+  outputPath: string;
+  srtPath?: string;
+  exportedAt: string;
+  preset: ExportPreset;
+  format: ExportOptions['format'];
 }
 
 interface BackgroundCapabilities {
@@ -72,6 +80,9 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
   },
 };
 
+const EXPORT_DIRECTORY_KEY = 'scriptcut.export.directory';
+const EXPORT_HISTORY_KEY = 'scriptcut.export.history.v1';
+
 function getExportDownloadUrl(backendUrl: string, path?: string) {
   return path ? `${backendUrl}/file?path=${encodeURIComponent(path)}` : '';
 }
@@ -80,9 +91,48 @@ function getDefaultExportPath(videoPath: string, format: ExportOptions['format']
   return videoPath.replace(/\.[^.\\/]+$/, `_edited.${format}`);
 }
 
+function getPathSeparator(path: string) {
+  return path.includes('\\') ? '\\' : '/';
+}
+
+function getPathDirectory(path: string) {
+  const separator = getPathSeparator(path);
+  const index = path.lastIndexOf(separator);
+  return index > 0 ? path.slice(0, index) : '';
+}
+
+function joinPath(directory: string, filename: string) {
+  const separator = getPathSeparator(directory);
+  const trimmed = directory.replace(/[\\/]+$/, '');
+  return trimmed ? `${trimmed}${separator}${filename}` : filename;
+}
+
+function safeFileStem(value: string) {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 56) || 'scriptcut_export';
+}
+
+function getDefaultExportFilename(videoPath: string, preset: ExportPreset, format: ExportOptions['format']) {
+  const sourceName = getDownloadFilename(videoPath, 'scriptcut_export').replace(/\.[^.]+$/, '');
+  const presetSuffix = preset === 'source' ? 'edited' : preset.replace(/-/g, '_');
+  return `${safeFileStem(sourceName)}_${presetSuffix}.${format}`;
+}
+
 function getDownloadFilename(path: string, fallback: string) {
   const normalized = path.replace(/\\/g, '/');
   return normalized.split('/').filter(Boolean).pop() || fallback;
+}
+
+function loadExportHistory(): ExportHistoryItem[] {
+  try {
+    const raw = window.localStorage.getItem(EXPORT_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function ExportDialog() {
@@ -110,6 +160,8 @@ export default function ExportDialog() {
   const [lastExportJobId, setLastExportJobId] = useState('');
   const [exportLogs, setExportLogs] = useState<Array<{ time: string; message: string }>>([]);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
+  const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
+  const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
 
   useEffect(() => {
     let canceled = false;
@@ -143,6 +195,31 @@ export default function ExportDialog() {
     });
   }, [setExportOptions, setPreviewAspectRatio]);
 
+  const chooseExportDirectory = useCallback(async () => {
+    const directory = await window.electronAPI?.openDirectory({
+      title: 'Choose export folder',
+      defaultPath: exportDirectory || (videoPath ? getPathDirectory(videoPath) : undefined),
+    });
+    if (!directory) return;
+    setExportDirectory(directory);
+    window.localStorage.setItem(EXPORT_DIRECTORY_KEY, directory);
+  }, [exportDirectory, videoPath]);
+
+  const rememberExport = useCallback((item: ExportHistoryItem) => {
+    setExportHistory((current) => {
+      const next = [
+        item,
+        ...current.filter((existing) => existing.outputPath !== item.outputPath),
+      ].slice(0, 6);
+      window.localStorage.setItem(EXPORT_HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const revealPath = useCallback(async (path: string) => {
+    await window.electronAPI?.revealPath(path);
+  }, []);
+
   const pollExportJob = useCallback(
     async (jobId: string) => {
       for (;;) {
@@ -165,6 +242,15 @@ export default function ExportDialog() {
             downloadUrl: getExportDownloadUrl(backendUrl, outputPath),
             srtDownloadUrl: getExportDownloadUrl(backendUrl, srtPath),
           });
+          if (outputPath) {
+            rememberExport({
+              outputPath,
+              srtPath,
+              exportedAt: new Date().toISOString(),
+              preset: options.preset,
+              format: options.format,
+            });
+          }
           setExportJobId('');
           setLastExportJobId(jobId);
           setExporting(false, 100);
@@ -177,21 +263,23 @@ export default function ExportDialog() {
         }
       }
     },
-    [backendUrl, setExporting],
+    [backendUrl, options.format, options.preset, rememberExport, setExporting],
   );
 
   const handleExport = useCallback(async () => {
     if (!videoPath) return;
 
     const outputPath = window.electronAPI
-      ? await window.electronAPI.saveFile({
-        defaultPath: getDefaultExportPath(videoPath, options.format),
-        filters: [
-          { name: 'MP4', extensions: ['mp4'] },
-          { name: 'MOV', extensions: ['mov'] },
-          { name: 'WebM', extensions: ['webm'] },
-        ],
-      })
+      ? exportDirectory
+        ? joinPath(exportDirectory, getDefaultExportFilename(videoPath, options.preset, options.format))
+        : await window.electronAPI.saveFile({
+          defaultPath: getDefaultExportPath(videoPath, options.format),
+          filters: [
+            { name: 'MP4', extensions: ['mp4'] },
+            { name: 'MOV', extensions: ['mov'] },
+            { name: 'WebM', extensions: ['webm'] },
+          ],
+        })
       : undefined;
     if (window.electronAPI && !outputPath) return;
 
@@ -244,7 +332,7 @@ export default function ExportDialog() {
       setExportError(err instanceof Error ? err.message : String(err));
       setExporting(false, 0);
     }
-  }, [videoPath, options, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, words, pollExportJob]);
+  }, [videoPath, options, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, words, pollExportJob, exportDirectory]);
 
   const cancelExport = useCallback(async () => {
     if (!exportJobId) return;
@@ -373,6 +461,46 @@ export default function ExportDialog() {
         ]}
       />
 
+      {window.electronAPI && (
+        <fieldset className="space-y-2">
+          <legend className="text-xs text-editor-text-muted font-medium">Destination</legend>
+          <div className="space-y-2 rounded border border-editor-border bg-editor-surface p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-[11px] text-editor-text">
+                  {exportDirectory || 'Ask where to save each export'}
+                </div>
+                <div className="text-[10px] text-editor-text-muted">
+                  {exportDirectory
+                    ? getDefaultExportFilename(videoPath || 'scriptcut_export', options.preset, options.format)
+                    : 'Uses native Save dialog'}
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                {exportDirectory && (
+                  <button
+                    onClick={() => {
+                      setExportDirectory('');
+                      window.localStorage.removeItem(EXPORT_DIRECTORY_KEY);
+                    }}
+                    className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                  >
+                    Reset
+                  </button>
+                )}
+                <button
+                  onClick={chooseExportDirectory}
+                  className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  Choose
+                </button>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+      )}
+
       {/* Audio enhancement */}
       <label className="flex items-center gap-2 cursor-pointer">
         <input
@@ -471,6 +599,15 @@ export default function ExportDialog() {
         <div className="space-y-1 rounded bg-editor-success/10 border border-editor-success/30 p-2 text-[11px] text-editor-success">
           <div>Exported to {exportResult.outputPath}</div>
           {exportResult.srtPath && <div>Captions saved to {exportResult.srtPath}</div>}
+          {window.electronAPI && (
+            <button
+              onClick={() => revealPath(exportResult.outputPath)}
+              className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Reveal in Finder
+            </button>
+          )}
           {exportResult.downloadUrl && !window.electronAPI && (
             <a
               href={exportResult.downloadUrl}
@@ -495,6 +632,28 @@ export default function ExportDialog() {
             </div>
           ))}
         </div>
+      )}
+
+      {exportHistory.length > 0 && window.electronAPI && (
+        <details className="rounded border border-editor-border bg-editor-surface p-2 text-[10px] text-editor-text-muted">
+          <summary className="cursor-pointer text-editor-text">Export history</summary>
+          <div className="mt-2 space-y-1">
+            {exportHistory.map((item) => (
+              <div key={`${item.outputPath}-${item.exportedAt}`} className="flex items-center justify-between gap-2 rounded bg-editor-bg px-2 py-1">
+                <div className="min-w-0">
+                  <div className="truncate text-editor-text">{getDownloadFilename(item.outputPath, 'Export')}</div>
+                  <div>{new Date(item.exportedAt).toLocaleString()} · {item.preset} · {item.format.toUpperCase()}</div>
+                </div>
+                <button
+                  onClick={() => revealPath(item.outputPath)}
+                  className="shrink-0 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+                >
+                  Reveal
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {exportLogs.length > 0 && (

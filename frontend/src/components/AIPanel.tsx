@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
-import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard } from 'lucide-react';
+import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard, ExternalLink } from 'lucide-react';
 import type { CaptionStyle, ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
   getClipTranscript,
@@ -116,6 +116,7 @@ const SHORTS_DRAFT_DEFAULTS = {
 } satisfies Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'platform'>;
 
 const EXPORTABLE_DRAFT_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged', 'failed']);
+const CLIP_EXPORT_DIRECTORY_KEY = 'scriptcut.clipExport.directory';
 
 export default function AIPanel() {
   const {
@@ -163,7 +164,7 @@ export default function AIPanel() {
   const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
-  const [clipExportDirectory, setClipExportDirectory] = useState('');
+  const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
   const deletedWordMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const range of deletedRanges) {
@@ -718,6 +719,7 @@ export default function AIPanel() {
       });
       if (!directory) return;
       setClipExportDirectory(directory);
+      window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
       setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory })));
     }
   }, [clipExportDirectory, setClipDrafts, videoPath]);
@@ -1577,6 +1579,11 @@ export default function AIPanel() {
                     onChange={(event) => {
                       const directory = event.target.value;
                       setClipExportDirectory(directory);
+                      if (directory) {
+                        window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
+                      } else {
+                        window.localStorage.removeItem(CLIP_EXPORT_DIRECTORY_KEY);
+                      }
                       setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory || undefined })));
                     }}
                     placeholder={videoPath ? getPathDirectory(videoPath) : 'Default export folder'}
@@ -1854,7 +1861,15 @@ function ClipDraftCard({
       {draft.exportPath && (
         <div className="space-y-1 rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-success" title={draft.exportPath}>
           <div className="truncate">Exported: {draft.exportPath}</div>
-          {!window.electronAPI && (
+          {window.electronAPI ? (
+            <button
+              onClick={() => window.electronAPI?.revealPath(draft.exportPath || '')}
+              className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Reveal in Finder
+            </button>
+          ) : (
             <a
               href={getBackendFileUrl(backendUrl, draft.exportPath)}
               download={getFileNameFromPath(draft.exportPath, `${draft.title || 'scriptcut_clip'}.${draft.format}`)}

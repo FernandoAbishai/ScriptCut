@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('electron');
 const path = require('path');
 const { PythonBackend } = require('./python-bridge');
 
@@ -135,5 +135,10 @@ ipcMain.handle('fs:readFile', async (_event, filePath) => {
 ipcMain.handle('fs:writeFile', async (_event, filePath, content) => {
   const fs = require('fs');
   fs.writeFileSync(filePath, content, 'utf-8');
+  return true;
+});
+
+ipcMain.handle('shell:revealPath', async (_event, filePath) => {
+  shell.showItemInFolder(filePath);
   return true;
 });
