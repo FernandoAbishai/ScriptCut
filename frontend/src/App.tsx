@@ -731,8 +731,11 @@ export default function App() {
                   )}
                 </div>
               ) : (
-                <div className="flex-1 flex items-center justify-center text-editor-text-muted text-sm">
-                  No transcript yet
+                <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
+                  <div className="text-sm font-medium text-editor-text">Transcript will appear here</div>
+                  <p className="max-w-sm text-xs leading-5 text-editor-text-muted">
+                    Open media to transcribe it. After transcription, edit words directly to cut video and use the timeline for review.
+                  </p>
                 </div>
               )}
             </div>

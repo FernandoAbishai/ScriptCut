@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink } from 'lucide-react';
-import type { CaptionStyle, ExportOptions } from '../types/project';
+import type { CaptionStyle, ExportOptions, ProjectExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
 
 type ExportPreset = ExportOptions['preset'];
@@ -135,6 +135,39 @@ function loadExportHistory(): ExportHistoryItem[] {
   }
 }
 
+function getExportPresetLabel(preset: ExportPreset) {
+  switch (preset) {
+    case 'youtube-shorts':
+      return 'YouTube Shorts';
+    case 'tiktok-reels':
+      return 'TikTok/Reels';
+    case 'podcast-square':
+      return 'Podcast square';
+    default:
+      return 'Source frame';
+  }
+}
+
+function getExportReadiness(options: ProjectExportOptions, hasCuts: boolean, wordCount: number, isElectron: boolean) {
+  const details = [
+    getExportPresetLabel(options.preset),
+    options.aspectRatio === 'vertical' ? '9:16 vertical' : options.aspectRatio === 'square' ? '1:1 square' : 'original frame',
+    options.mode === 'fast' && !hasCuts ? 'fast stream copy' : 'frame-accurate encode',
+    options.captions === 'burn-in' ? 'burned captions' : options.captions === 'sidecar' ? 'SRT sidecar' : 'no captions',
+  ];
+
+  if (options.enhanceAudio) details.push('audio enhancement');
+  if (options.backgroundRemoval?.enabled) details.push('background removal');
+
+  return {
+    title: wordCount > 0 ? 'Ready to export' : 'Waiting for transcript',
+    details,
+    note: isElectron
+      ? 'Desktop exports can save directly to a chosen folder and reveal files in Finder.'
+      : 'Browser exports are saved by the backend first, then downloaded from this panel.',
+  };
+}
+
 export default function ExportDialog() {
   const {
     videoPath,
@@ -162,6 +195,7 @@ export default function ExportDialog() {
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
+  const readiness = getExportReadiness(options, hasCuts, words.length, !!window.electronAPI);
 
   useEffect(() => {
     let canceled = false;
@@ -368,6 +402,23 @@ export default function ExportDialog() {
   return (
     <div className="p-4 space-y-5">
       <h3 className="text-sm font-semibold">Export Video</h3>
+
+      <div className="space-y-2 rounded border border-editor-border bg-editor-surface p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-editor-text">{readiness.title}</span>
+          <span className="rounded bg-editor-accent/10 px-2 py-0.5 text-[10px] text-editor-accent">
+            {Math.max(0, words.length)} words
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {readiness.details.map((detail) => (
+            <span key={detail} className="rounded bg-editor-bg px-1.5 py-0.5 text-[10px] text-editor-text-muted">
+              {detail}
+            </span>
+          ))}
+        </div>
+        <p className="text-[11px] leading-4 text-editor-text-muted">{readiness.note}</p>
+      </div>
 
       {/* Preset */}
       <fieldset className="space-y-2">

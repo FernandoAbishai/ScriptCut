@@ -118,6 +118,16 @@ const SHORTS_DRAFT_DEFAULTS = {
 const EXPORTABLE_DRAFT_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged', 'failed']);
 const CLIP_EXPORT_DIRECTORY_KEY = 'scriptcut.clipExport.directory';
 
+function getClipQueueSummary(drafts: ClipDraft[]) {
+  return {
+    suggested: drafts.filter((draft) => (draft.status || 'draft') === 'suggested').length,
+    approved: drafts.filter((draft) => ['draft', 'packaged', 'failed'].includes(draft.status || 'draft')).length,
+    packaged: drafts.filter((draft) => (draft.status || 'draft') === 'packaged').length,
+    exported: drafts.filter((draft) => (draft.status || 'draft') === 'exported').length,
+    failed: drafts.filter((draft) => (draft.status || 'draft') === 'failed').length,
+  };
+}
+
 export default function AIPanel() {
   const {
     words,
@@ -679,10 +689,7 @@ export default function AIPanel() {
   const [batchExportProgress, setBatchExportProgress] = useState({ completed: 0, total: 0, stopping: false });
   const stopBatchExportRef = useRef(false);
   const [packagingDraftId, setPackagingDraftId] = useState<string | null>(null);
-  const exportableDraftCount = useMemo(
-    () => clipDrafts.filter((draft) => EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft')).length,
-    [clipDrafts],
-  );
+  const clipQueueSummary = useMemo(() => getClipQueueSummary(clipDrafts), [clipDrafts]);
   const readyDraftCount = useMemo(
     () =>
       clipDrafts.filter(
@@ -1498,8 +1505,7 @@ export default function AIPanel() {
         {activeTab === 'clips' && (
           <div className="space-y-4">
             <p className="text-xs text-editor-text-muted">
-              AI analyzes your transcript and suggests the most engaging segments for a
-              YouTube Short or social media clip.
+              Build a shorts queue from the transcript, review each draft, package metadata, then export approved clips in batches.
             </p>
             <button
               onClick={createClips}
@@ -1532,7 +1538,7 @@ export default function AIPanel() {
             {clipDrafts.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Clip Drafts</span>
+                  <span className="text-xs font-medium">Shorts Queue</span>
                   <div className="flex items-center gap-1">
                     {isBatchExporting && (
                       <button
@@ -1557,8 +1563,15 @@ export default function AIPanel() {
                     </button>
                   </div>
                 </div>
-                <div className="text-[10px] text-editor-text-muted">
-                  {readyDraftCount} ready, {exportableDraftCount} approved/exportable of {clipDrafts.length} drafts
+                <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
+                  <QueueStat label="Suggested" value={clipQueueSummary.suggested} />
+                  <QueueStat label="Approved" value={clipQueueSummary.approved} />
+                  <QueueStat label="Packaged" value={clipQueueSummary.packaged} />
+                  <QueueStat label="Ready" value={readyDraftCount} />
+                  <QueueStat label="Failed" value={clipQueueSummary.failed} warning={clipQueueSummary.failed > 0} />
+                </div>
+                <div className="rounded bg-editor-surface px-2 py-1.5 text-[10px] leading-4 text-editor-text-muted">
+                  Batch export uses approved drafts by default. Failed drafts stay in the queue so they can be fixed and retried.
                 </div>
                 <div className="space-y-1 rounded bg-editor-surface p-2">
                   <div className="flex items-center justify-between gap-2">
@@ -1653,7 +1666,10 @@ export default function AIPanel() {
 
             {clipSuggestions.length > 0 && (
               <div className="space-y-3">
-                <span className="text-xs font-medium">Suggestions</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium">AI Suggestions</span>
+                  <span className="text-[10px] text-editor-text-muted">Draft first, export after review</span>
+                </div>
                 {clipSuggestions.map((clip, i) => (
                   <div key={i} className="p-3 bg-editor-surface rounded-lg space-y-2">
                     <div className="flex items-center justify-between">
@@ -2494,6 +2510,15 @@ function ClipStatusBadge({ status }: { status: ClipDraftStatus }) {
     <span className={`shrink-0 rounded px-1.5 py-1 text-[10px] font-medium ${classes[status]}`}>
       {labels[status]}
     </span>
+  );
+}
+
+function QueueStat({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {
+  return (
+    <div className={`rounded bg-editor-surface px-1.5 py-1 ${warning ? 'text-editor-warning' : 'text-editor-text-muted'}`}>
+      <div className="text-xs font-semibold text-editor-text">{value}</div>
+      <div>{label}</div>
+    </div>
   );
 }
 
