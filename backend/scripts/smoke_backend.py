@@ -16,6 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from routers import export as export_router
 from routers import ai as ai_router
+from routers import system as system_router
 from services import video_editor
 from services import ai_provider
 from services.caption_generator import generate_srt
@@ -182,6 +183,16 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIn("parakeet", status["engines"])
         self.assertTrue(status["engines"]["parakeet"]["first_class"])
         self.assertEqual(status["engines"]["parakeet"]["default_model"], transcription.PARAKEET_DEFAULT_MODEL)
+
+    def test_system_checks_payload_covers_onboarding_requirements(self) -> None:
+        import asyncio
+
+        result = asyncio.run(system_router.system_checks())
+        self.assertEqual(result["status"], "ok")
+        for key in ("backend", "python", "ffmpeg", "transcription", "audio", "background"):
+            self.assertIn(key, result["checks"])
+            self.assertIn("ok", result["checks"][key])
+            self.assertIn("detail", result["checks"][key])
 
     def _load_transcription_service_or_skip(self):
         try:

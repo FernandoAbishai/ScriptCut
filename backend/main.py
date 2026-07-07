@@ -10,7 +10,7 @@ from fastapi import FastAPI, File, Query, Request, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from routers import transcribe, export, ai, captions, audio, jobs, background
+from routers import transcribe, export, ai, captions, audio, jobs, background, system
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ app.include_router(captions.router)
 app.include_router(audio.router)
 app.include_router(jobs.router)
 app.include_router(background.router)
+app.include_router(system.router)
 
 
 MIME_MAP = {

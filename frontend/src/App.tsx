@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useEditorStore } from './store/editorStore';
 import { useAIStore } from './store/aiStore';
 import VideoPlayer from './components/VideoPlayer';
@@ -28,9 +28,12 @@ import {
   AlertTriangle,
   Upload,
   FileVideo,
+  CheckCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 const IS_ELECTRON = !!window.electronAPI;
+const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
 
 type Panel = 'ai' | 'settings' | 'export' | null;
 type TranscriptionEngine = 'auto' | 'whisperx' | 'whisper' | 'parakeet';
@@ -45,6 +48,15 @@ type TranscriptionEngineStatus = {
     languages?: number;
     install_hint?: string;
   }>;
+};
+type SystemCheck = {
+  ok: boolean;
+  label: string;
+  detail: string;
+};
+type SystemChecksResponse = {
+  status: string;
+  checks: Record<string, SystemCheck>;
 };
 
 const TRANSCRIPTION_MODELS: Record<TranscriptionEngine, Array<{ value: string; label: string }>> = {
@@ -109,6 +121,12 @@ export default function App() {
   const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
   const [recoveryError, setRecoveryError] = useState('');
+  const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
+  const [systemChecksError, setSystemChecksError] = useState('');
+  const [isCheckingSystem, setIsCheckingSystem] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => window.localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true',
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useKeyboardShortcuts();
@@ -139,6 +157,36 @@ export default function App() {
       canceled = true;
     };
   }, [backendUrl]);
+
+  const refreshSystemChecks = useCallback(async () => {
+    setIsCheckingSystem(true);
+    setSystemChecksError('');
+    try {
+      const res = await fetch(`${backendUrl}/system/checks`);
+      if (!res.ok) throw new Error(`Setup checks failed: ${res.statusText}`);
+      const data = (await res.json()) as SystemChecksResponse;
+      setSystemChecks(data);
+    } catch (err) {
+      setSystemChecksError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsCheckingSystem(false);
+    }
+  }, [backendUrl]);
+
+  useEffect(() => {
+    void refreshSystemChecks();
+  }, [refreshSystemChecks]);
+
+  const dismissOnboarding = () => {
+    window.localStorage.setItem(ONBOARDING_DISMISSED_KEY, 'true');
+    setOnboardingDismissed(true);
+  };
+
+  const showOnboarding = () => {
+    window.localStorage.removeItem(ONBOARDING_DISMISSED_KEY);
+    setOnboardingDismissed(false);
+    void refreshSystemChecks();
+  };
 
   useEffect(() => {
     if (!IS_ELECTRON || videoPath) return;
@@ -393,6 +441,17 @@ export default function App() {
           </p>
         </div>
 
+        {!onboardingDismissed && (
+          <FirstRunChecklist
+            checks={systemChecks?.checks}
+            error={systemChecksError}
+            loading={isCheckingSystem}
+            isElectron={IS_ELECTRON}
+            onRefresh={refreshSystemChecks}
+            onDismiss={dismissOnboarding}
+          />
+        )}
+
         <div className="flex flex-wrap items-center justify-center gap-3">
           <label className="text-xs text-editor-text-muted whitespace-nowrap">Transcription engine:</label>
           <select
@@ -595,6 +654,12 @@ export default function App() {
             active={activePanel === 'settings'}
             onClick={() => togglePanel('settings')}
           />
+          <ToolbarButton
+            icon={<CheckCircle className="w-4 h-4" />}
+            label="Setup"
+            active={!onboardingDismissed}
+            onClick={showOnboarding}
+          />
         </div>
       </header>
 
@@ -687,6 +752,92 @@ export default function App() {
             {activePanel === 'settings' && <SettingsPanel />}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FirstRunChecklist({
+  checks,
+  error,
+  loading,
+  isElectron,
+  onRefresh,
+  onDismiss,
+}: {
+  checks?: Record<string, SystemCheck>;
+  error: string;
+  loading: boolean;
+  isElectron: boolean;
+  onRefresh: () => void;
+  onDismiss: () => void;
+}) {
+  const rows = [
+    checks?.backend,
+    {
+      ok: isElectron,
+      label: 'Desktop app',
+      detail: isElectron ? 'Native file access ready' : 'Browser mode is for development and testing',
+    },
+    checks?.python,
+    checks?.ffmpeg,
+    checks?.transcription,
+    checks?.audio,
+    checks?.background,
+  ].filter(Boolean) as SystemCheck[];
+  const requiredReady = rows
+    .filter((row) => row.label !== 'Background removal')
+    .every((row) => row.ok);
+
+  return (
+    <div className="w-full max-w-2xl rounded-lg border border-editor-border bg-editor-surface p-4 text-left shadow-lg">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-editor-text">First-run setup</div>
+          <p className="mt-1 text-xs leading-5 text-editor-text-muted">
+            Confirm the desktop app, local backend, transcription, and export tools are ready before opening media.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          </button>
+          <button
+            onClick={onDismiss}
+            className="rounded bg-editor-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-editor-accent-hover"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div className="mt-3 rounded border border-editor-danger/30 bg-editor-danger/10 px-2 py-1 text-[11px] text-editor-danger">
+          {error}
+        </div>
+      )}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-start gap-2 rounded border border-editor-border bg-editor-bg px-2 py-2">
+            {row.ok ? (
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-editor-success" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" />
+            )}
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-editor-text">{row.label}</div>
+              <div className="mt-0.5 text-[11px] leading-4 text-editor-text-muted">{row.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className={`mt-3 rounded px-2 py-1 text-[11px] ${requiredReady ? 'bg-editor-success/10 text-editor-success' : 'bg-editor-warning/10 text-editor-warning'}`}>
+        {requiredReady
+          ? 'Core editing and export tools are ready.'
+          : 'Resolve the warning items before serious editing. Background removal is optional.'}
       </div>
     </div>
   );
