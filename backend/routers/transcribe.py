@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.transcription import transcribe_audio
+from services.transcription import get_transcription_engine_status, transcribe_audio
 from services.diarization import diarize_and_label
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,11 @@ class TranscribeRequest(BaseModel):
     diarize: bool = False
     hf_token: Optional[str] = None
     num_speakers: Optional[int] = None
+
+
+@router.get("/transcription/engines")
+async def transcription_engines():
+    return get_transcription_engine_status()
 
 
 def run_transcription(req: TranscribeRequest, progress_callback=None):

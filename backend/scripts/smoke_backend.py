@@ -101,6 +101,33 @@ class BackendSmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Unknown transcription engine"):
             transcription._resolve_engine("not-real")
 
+    def test_parakeet_auto_resolution_and_model_normalization(self) -> None:
+        transcription = self._load_transcription_service_or_skip()
+        original_nemo = transcription.NEMO_AVAILABLE
+        original_whisperx = transcription.WHISPERX_AVAILABLE
+        try:
+            transcription.NEMO_AVAILABLE = True
+            transcription.WHISPERX_AVAILABLE = True
+            self.assertEqual(transcription._resolve_engine("auto"), "parakeet")
+            self.assertEqual(
+                transcription._normalize_model_for_engine("base", "parakeet"),
+                transcription.PARAKEET_DEFAULT_MODEL,
+            )
+            self.assertEqual(
+                transcription._normalize_model_for_engine(transcription.PARAKEET_DEFAULT_MODEL, "parakeet"),
+                transcription.PARAKEET_DEFAULT_MODEL,
+            )
+        finally:
+            transcription.NEMO_AVAILABLE = original_nemo
+            transcription.WHISPERX_AVAILABLE = original_whisperx
+
+    def test_transcription_engine_status_includes_parakeet(self) -> None:
+        transcription = self._load_transcription_service_or_skip()
+        status = transcription.get_transcription_engine_status()
+        self.assertIn("parakeet", status["engines"])
+        self.assertTrue(status["engines"]["parakeet"]["first_class"])
+        self.assertEqual(status["engines"]["parakeet"]["default_model"], transcription.PARAKEET_DEFAULT_MODEL)
+
     def _load_transcription_service_or_skip(self):
         try:
             from services import transcription

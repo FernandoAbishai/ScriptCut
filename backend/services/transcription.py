@@ -1,9 +1,4 @@
-"""
-Transcription service with normalized word-level output.
-WhisperX remains the default aligned backend. Parakeet TDT is available as an
-experimental backend when optional NVIDIA NeMo or Transformers dependencies are
-installed locally.
-"""
+"""Transcription service with normalized word-level output."""
 
 import logging
 from pathlib import Path
@@ -19,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _model_cache: dict = {}
 TranscriptionEngine = Literal["whisperx", "whisper", "parakeet", "auto"]
+PARAKEET_DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
+WHISPER_MODEL_NAMES = {"tiny", "base", "small", "medium", "large"}
 
 try:
     import whisperx
@@ -85,26 +82,72 @@ def _resolve_engine(engine: TranscriptionEngine) -> TranscriptionEngine:
     if engine != "auto":
         if engine not in {"whisperx", "whisper", "parakeet"}:
             raise RuntimeError(f"Unknown transcription engine: {engine}")
+        if engine == "parakeet" and not NEMO_AVAILABLE:
+            raise RuntimeError(
+                "Parakeet TDT v3 is not available. Install NVIDIA NeMo ASR dependencies or choose WhisperX/Whisper."
+            )
         if engine == "whisperx" and not WHISPERX_AVAILABLE:
             raise RuntimeError("WhisperX is not installed. Install whisperx or choose another transcription engine.")
         if engine == "whisper" and not WHISPER_AVAILABLE:
             raise RuntimeError("OpenAI Whisper is not installed. Install openai-whisper or choose another transcription engine.")
         return engine
+    if NEMO_AVAILABLE:
+        return "parakeet"
     if WHISPERX_AVAILABLE:
         return "whisperx"
     if WHISPER_AVAILABLE:
         return "whisper"
-    raise RuntimeError("No transcription backend is installed. Install whisperx or openai-whisper.")
+    raise RuntimeError("No transcription backend is installed. Install NVIDIA NeMo ASR, whisperx, or openai-whisper.")
 
 
 def _load_parakeet_model(model_name: str, device: torch.device):
     if NEMO_AVAILABLE:
-        return ("nemo", nemo_asr.models.ASRModel.from_pretrained(model_name=model_name))
+        model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+        if hasattr(model, "to"):
+            model = model.to(device)
+        if hasattr(model, "eval"):
+            model.eval()
+        return ("nemo", model)
 
     raise RuntimeError(
-        "Parakeet TDT v3 requires optional NVIDIA NeMo dependencies for ScriptCut timestamp output. "
+        "Parakeet TDT v3 is selected but NVIDIA NeMo ASR is not installed. "
         "Install them with `pip install -U nemo_toolkit['asr']`."
     )
+
+
+def get_transcription_engine_status() -> dict:
+    return {
+        "default_engine": "parakeet" if NEMO_AVAILABLE else "whisperx" if WHISPERX_AVAILABLE else "whisper" if WHISPER_AVAILABLE else None,
+        "default_model": PARAKEET_DEFAULT_MODEL if NEMO_AVAILABLE else "base",
+        "engines": {
+            "parakeet": {
+                "available": NEMO_AVAILABLE,
+                "default_model": PARAKEET_DEFAULT_MODEL,
+                "label": "Parakeet TDT v3 multilingual",
+                "first_class": True,
+                "languages": 25,
+                "install_hint": "pip install -U nemo_toolkit['asr']",
+            },
+            "whisperx": {
+                "available": WHISPERX_AVAILABLE,
+                "default_model": "base",
+                "label": "WhisperX aligned",
+                "first_class": True,
+            },
+            "whisper": {
+                "available": WHISPER_AVAILABLE,
+                "default_model": "base",
+                "label": "Whisper fallback",
+                "first_class": True,
+            },
+        },
+    }
+
+
+def _normalize_model_for_engine(model_name: str, engine: TranscriptionEngine) -> str:
+    if engine == "parakeet" and model_name in WHISPER_MODEL_NAMES:
+        return PARAKEET_DEFAULT_MODEL
+    return model_name
 
 
 def transcribe_audio(
@@ -126,6 +169,7 @@ def transcribe_audio(
         raise FileNotFoundError(str(file_path))
 
     resolved_engine = _resolve_engine(engine)
+    model_name = _normalize_model_for_engine(model_name, resolved_engine)
     cache_operation = f"transcribe_{resolved_engine}"
 
     if use_cache:
@@ -166,8 +210,12 @@ def _transcribe_parakeet(model_bundle, audio_path: str) -> dict:
     if backend == "nemo":
         asr_model = model_bundle[1]
         output = asr_model.transcribe([audio_path], timestamps=True)[0]
-        text = getattr(output, "text", "") or ""
-        timestamp = getattr(output, "timestamp", {}) or {}
+        if isinstance(output, dict):
+            text = output.get("text", "") or ""
+            timestamp = output.get("timestamp", {}) or {}
+        else:
+            text = getattr(output, "text", "") or ""
+            timestamp = getattr(output, "timestamp", {}) or {}
         word_stamps = timestamp.get("word") or []
         segment_stamps = timestamp.get("segment") or []
     words = [_normalize_parakeet_word(stamp) for stamp in word_stamps]

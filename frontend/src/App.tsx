@@ -34,10 +34,23 @@ const IS_ELECTRON = !!window.electronAPI;
 
 type Panel = 'ai' | 'settings' | 'export' | null;
 type TranscriptionEngine = 'auto' | 'whisperx' | 'whisper' | 'parakeet';
+type TranscriptionEngineStatus = {
+  default_engine?: TranscriptionEngine | null;
+  default_model?: string;
+  engines?: Record<string, {
+    available: boolean;
+    default_model?: string;
+    label?: string;
+    first_class?: boolean;
+    languages?: number;
+    install_hint?: string;
+  }>;
+};
 
 const TRANSCRIPTION_MODELS: Record<TranscriptionEngine, Array<{ value: string; label: string }>> = {
   auto: [
-    { value: 'base', label: 'base (~140 MB, balanced)' },
+    { value: 'nvidia/parakeet-tdt-0.6b-v3', label: 'Auto best available' },
+    { value: 'base', label: 'base (~140 MB, Whisper fallback)' },
     { value: 'small', label: 'small (~460 MB, better)' },
     { value: 'medium', label: 'medium (~1.5 GB, high accuracy)' },
   ],
@@ -83,8 +96,9 @@ export default function App() {
   } = useEditorStore();
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
-  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
-  const [transcriptionModel, setTranscriptionModel] = useState('base');
+  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('parakeet');
+  const [transcriptionModel, setTranscriptionModel] = useState('nvidia/parakeet-tdt-0.6b-v3');
+  const [transcriptionEngineStatus, setTranscriptionEngineStatus] = useState<TranscriptionEngineStatus | null>(null);
   const [transcriptionMessage, setTranscriptionMessage] = useState('');
   const [transcriptionError, setTranscriptionError] = useState('');
   const [transcriptionLogs, setTranscriptionLogs] = useState<Array<{ time: string; message: string }>>([]);
@@ -105,6 +119,26 @@ export default function App() {
       window.electronAPI!.getBackendUrl().then(setBackendUrl);
     }
   }, [setBackendUrl]);
+
+  useEffect(() => {
+    let canceled = false;
+    fetch(`${backendUrl}/transcription/engines`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((status: TranscriptionEngineStatus | null) => {
+        if (canceled || !status) return;
+        setTranscriptionEngineStatus(status);
+        if (status.default_engine && status.default_model) {
+          setTranscriptionEngine(status.default_engine);
+          setTranscriptionModel(status.default_model);
+        }
+      })
+      .catch(() => {
+        if (!canceled) setTranscriptionEngineStatus(null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [backendUrl]);
 
   useEffect(() => {
     if (!IS_ELECTRON || videoPath) return;
@@ -370,10 +404,10 @@ export default function App() {
             }}
             className="px-3 py-1.5 bg-editor-surface border border-editor-border rounded-lg text-xs text-editor-text focus:outline-none focus:border-editor-accent"
           >
-            <option value="auto">Auto (prefer WhisperX)</option>
+            <option value="auto">Auto best available</option>
+            <option value="parakeet">Parakeet TDT v3 multilingual</option>
             <option value="whisperx">WhisperX aligned</option>
             <option value="whisper">Whisper fallback</option>
-            <option value="parakeet">Parakeet TDT v3 experimental</option>
           </select>
           <select
             value={transcriptionModel}
@@ -386,6 +420,24 @@ export default function App() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="max-w-xl rounded border border-editor-border bg-editor-surface px-3 py-2 text-center text-[11px] text-editor-text-muted">
+          {transcriptionEngine === 'parakeet' ? (
+            transcriptionEngineStatus?.engines?.parakeet?.available ? (
+              <span>Parakeet TDT v3 ready - fast multilingual transcription with word timestamps.</span>
+            ) : (
+              <span>
+                Parakeet TDT v3 selected. Install locally with{' '}
+                <code className="rounded bg-editor-bg px-1">pip install -U nemo_toolkit['asr']</code>, or choose Auto/Whisper.
+              </span>
+            )
+          ) : transcriptionEngine === 'auto' ? (
+            <span>
+              Auto uses Parakeet when available, then falls back to WhisperX or Whisper.
+            </span>
+          ) : (
+            <span>{TRANSCRIPTION_MODELS[transcriptionEngine][0]?.label || 'Transcription engine selected'}.</span>
+          )}
         </div>
 
         {IS_ELECTRON ? (
