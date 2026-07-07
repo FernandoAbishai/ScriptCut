@@ -53,6 +53,14 @@ Use the detailed checklist in [Desktop QA](./DESKTOP_QA.md) for release candidat
 
 ## macOS DMG Build
 
+Prepare a local alpha release package:
+
+```bash
+npm run release:alpha
+```
+
+That command runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
+
 Build a local macOS DMG:
 
 ```bash
@@ -97,8 +105,10 @@ This is an alpha build. Keep original media and project backups.
 Attach:
 
 - macOS `.dmg`
-- checksums, if generated
+- `dist/release-alpha/SHA256SUMS.txt`
 - short demo video or screenshot, when available
+
+After `npm run release:alpha`, the script prints a `gh release create ... --draft` command. Review the generated release notes before publishing.
 
 ## Notes
 
