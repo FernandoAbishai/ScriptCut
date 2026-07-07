@@ -38,6 +38,18 @@ When packaging changes are included, run:
 npm run qa:desktop:package
 ```
 
+Check app identity, icon, signing, and notarization readiness:
+
+```bash
+npm run release:trust
+```
+
+Use strict mode on the machine that will publish the final public release:
+
+```bash
+npm run release:trust -- --strict
+```
+
 Then verify the creator workflow manually:
 
 - Open the Electron desktop app with `npm run dev`.
@@ -60,6 +72,8 @@ npm run release:alpha
 ```
 
 That command runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
+
+The command also runs `npm run release:trust`. Missing signing or notarization credentials are warnings for local alpha drafts, but should be resolved before publishing broadly.
 
 Build a local macOS DMG:
 
@@ -110,9 +124,43 @@ Attach:
 
 After `npm run release:alpha`, the script prints a `gh release create ... --draft` command. Review the generated release notes before publishing.
 
+## Signing And Notarization
+
+The alpha release flow can prepare a draft DMG without Apple credentials, but public macOS distribution should be signed and notarized.
+
+Run:
+
+```bash
+npm run release:trust
+```
+
+Expected alpha-draft results:
+
+- App icon and package metadata should be `OK`.
+- Developer ID, signing certificate, and notarization entries may be `WARN` on machines without Apple Developer credentials.
+
+Expected public-release results:
+
+```bash
+npm run release:trust -- --strict
+```
+
+Strict mode should pass on the release machine before publishing broadly.
+
+Supported signing inputs:
+
+- `CSC_LINK` and `CSC_KEY_PASSWORD` for a certificate file.
+- `CSC_NAME` when the certificate is already installed in the signing keychain.
+
+Supported notarization inputs:
+
+- `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
+- Or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
+
 ## Notes
 
 - Python 3.11 is the recommended runtime for local development.
 - FFmpeg must be available for exports.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.
 - Browser mode at `localhost:5173` is for development. The desktop app is the intended user version.
+- Public macOS releases should be signed and notarized with Apple Developer credentials.

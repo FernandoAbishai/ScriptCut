@@ -2,6 +2,7 @@
   "name": "scriptcut",
   "version": "0.1.0",
   "private": true,
+  "author": "Fernando Abishai",
   "description": "ScriptCut — Open-source AI-powered text-based video editor",
   "keywords": [
     "video-editor",
@@ -31,9 +32,11 @@
     "dist": "npm run build",
     "dist:mac": "npm run build:frontend && electron-builder --mac dmg",
     "dist:dir": "npm run build:frontend && electron-builder --dir",
+    "release:icons": "node scripts/generate-icons.js",
     "qa:desktop": "node scripts/desktop-qa.js",
     "qa:desktop:package": "node scripts/desktop-qa.js --package",
     "release:alpha": "node scripts/release-alpha.js",
+    "release:trust": "node scripts/check-release-trust.js",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python scripts/smoke_backend.py || ../.venv/bin/python scripts/smoke_backend.py || python scripts/smoke_backend.py)"
   },
@@ -65,7 +68,8 @@
       "target": "nsis"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "build/icon.icns"
     },
     "linux": {
       "target": "AppImage"

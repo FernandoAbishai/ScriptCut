@@ -115,6 +115,7 @@ function main() {
   const pkg = readPackage();
   ensureReleaseDirs();
 
+  runStep('Release trust readiness', 'node', ['scripts/check-release-trust.js']);
   runStep('Desktop package QA', 'npm', ['run', 'qa:desktop:package'], { env: releaseEnv() });
   runStep('Build macOS DMG', 'npm', ['run', 'dist:mac'], { env: releaseEnv() });
 

@@ -32,7 +32,9 @@ Thumbs.db
 
 # Electron build output
 dist/
-build/
+build/*.iconset/
+build/icon-*.png
+build/icon.tiff
 *.asar
 
 # TypeScript incremental build cache
