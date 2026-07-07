@@ -15,13 +15,27 @@ ScriptCut runs best as the desktop app. The browser page at `localhost:5173` is 
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
 
+## Download ScriptCut
+
+The intended user version is the **ScriptCut desktop app**.
+
+For the public alpha:
+
+1. Open the [latest GitHub Release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
+2. Download the macOS `.dmg`.
+3. Open the DMG and launch ScriptCut.
+4. Let the first-run setup assistant check your local tools.
+5. Open a video and start editing from the transcript.
+
+If no release asset is available yet, ScriptCut can still be run from source using the contributor setup below. The release flow is documented in [docs/RELEASE.md](docs/RELEASE.md).
+
 ## Which Version Should I Use?
 
 Use the **desktop app** for real editing work. It gives ScriptCut direct access to local files, native open/save dialogs, project autosave, and the bundled local backend.
 
 Use the **browser version** only for development or quick testing. Browser mode can upload media to the local backend and download exports, but the desktop app is the intended user experience.
 
-Current status: ScriptCut is not packaged as a one-click public installer yet. For now, the official way to run it is from this repository with the setup steps below. Release packaging notes live in [docs/RELEASE.md](docs/RELEASE.md).
+Use the **source/dev setup** only if you are contributing, testing unreleased changes, or building a release candidate.
 
 ## What You Can Do
 
@@ -45,7 +59,20 @@ This version focuses on:
 - improved backend startup
 - creator-oriented local-first workflows
 
-## Quick Start
+## First Edit
+
+1. Open a local video or audio file.
+2. Choose the transcription engine. Auto/Parakeet is recommended when available.
+3. Wait for the word-level transcript.
+4. Delete transcript words to cut the video, or mute/hide words when needed.
+5. Preview the edited playback.
+6. Export a source-frame video or a vertical Short.
+
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a creator-focused walkthrough.
+
+## Contributor Quick Start
+
+These steps are for running ScriptCut from the repository.
 
 ### Prerequisites
 
@@ -70,20 +97,20 @@ export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 
 `CUTSCRIPT_PYTHON_PATH` is still supported for legacy setups, but `SCRIPTCUT_PYTHON_PATH` is preferred.
 
-### Install
+### Install Dependencies
 
 ```bash
 npm run setup
 npm run doctor
 ```
 
-### Run
+### Run the Desktop App
 
 ```bash
 npm run dev
 ```
 
-That starts the local backend, the frontend, and the Electron desktop app together. This is the recommended way to use ScriptCut today.
+That starts the local backend, the frontend, and the Electron desktop app together.
 
 ### Build a Desktop App
 
