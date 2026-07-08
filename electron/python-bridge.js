@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
 const { resolvePythonRuntime } = require('./python-runtime');
+const { bundledToolEnv } = require('./bundled-tools');
 
 class PythonBackend {
   constructor(port, isDev) {
@@ -35,7 +36,7 @@ class PythonBackend {
     ], {
       cwd: backendDir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      env: { ...process.env, ...bundledToolEnv(this.isDev), PYTHONUNBUFFERED: '1' },
     });
 
     this.process.stdout.on('data', (data) => {

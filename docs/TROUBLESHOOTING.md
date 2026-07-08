@@ -24,10 +24,18 @@ export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 
 ## FFmpeg Missing
 
-Install FFmpeg and ensure it is available in `PATH`.
+If you installed ScriptCut from a desktop release, use the first-run checks or update to the latest release. Release builds are prepared with bundled FFmpeg for export.
+
+If you run ScriptCut from source, install FFmpeg and ensure it is available in `PATH`:
 
 ```bash
 ffmpeg -version
+```
+
+Release maintainers can also prepare the local bundle before packaging:
+
+```bash
+npm run release:ffmpeg
 ```
 
 ## Backend Will Not Start

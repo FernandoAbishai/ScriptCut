@@ -116,6 +116,7 @@ function main() {
   ensureReleaseDirs();
 
   runStep('Release trust readiness', 'node', ['scripts/check-release-trust.js']);
+  runStep('Prepare bundled FFmpeg', 'npm', ['run', 'release:ffmpeg']);
   runStep('Desktop package QA', 'npm', ['run', 'qa:desktop:package'], { env: releaseEnv() });
   runStep('Build macOS DMG', 'npm', ['run', 'dist:mac'], { env: releaseEnv() });
 

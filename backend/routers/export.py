@@ -12,6 +12,7 @@ from services.video_editor import export_stream_copy, export_reencode, export_re
 from services.audio_cleaner import clean_audio
 from services.caption_generator import generate_srt, generate_ass, save_captions
 from services.background_removal import remove_background_on_export
+from utils.ffmpeg import find_ffmpeg
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -104,7 +105,7 @@ def _mux_audio(video_path: str, audio_path: str, output_path: str) -> str:
     """Replace video's audio track with cleaned audio using FFmpeg."""
     import subprocess
     cmd = [
-        "ffmpeg", "-y",
+        find_ffmpeg(), "-y",
         "-i", video_path,
         "-i", audio_path,
         "-c:v", "copy",

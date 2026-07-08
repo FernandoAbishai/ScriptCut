@@ -32,6 +32,8 @@ Thumbs.db
 
 # Electron build output
 dist/
+build/bin/*
+!build/bin/.gitkeep
 build/*.iconset/
 build/icon-*.png
 build/icon.tiff

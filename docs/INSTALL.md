@@ -59,6 +59,8 @@ export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 
 ## FFmpeg
 
+ScriptCut desktop releases are intended to include FFmpeg so non-technical users can export without installing command-line tools. If you run from source, install FFmpeg or prepare the local bundle before packaging.
+
 macOS:
 
 ```bash
@@ -72,3 +74,9 @@ sudo apt install ffmpeg
 ```
 
 Windows users should install FFmpeg and ensure `ffmpeg.exe` is available in `PATH`.
+
+Release maintainers can copy the current machine's `ffmpeg` and `ffprobe` into `build/bin/<platform>-<arch>/` with:
+
+```bash
+npm run release:ffmpeg
+```

@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from utils.ffmpeg import find_ffmpeg
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -63,7 +65,7 @@ def _clean_with_deepfilter(input_path: str, output_path: str) -> str:
 def _clean_with_ffmpeg(input_path: str, output_path: str) -> str:
     """Fallback: basic noise reduction using FFmpeg's anlmdn filter."""
     cmd = [
-        "ffmpeg", "-y",
+        find_ffmpeg(), "-y",
         "-i", input_path,
         "-af", "anlmdn=s=7:p=0.002:r=0.002:m=15",
         output_path,

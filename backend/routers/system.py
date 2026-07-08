@@ -1,6 +1,6 @@
 """System readiness checks for first-run onboarding."""
 
-import shutil
+import os
 import subprocess
 import sys
 
@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from services.audio_cleaner import is_deepfilter_available
 from services.background_removal import capabilities as background_capabilities
+from utils.ffmpeg import find_ffmpeg
 
 router = APIRouter()
 
@@ -17,19 +18,21 @@ def _first_line(value: str) -> str:
 
 
 def _ffmpeg_status() -> dict:
-    path = shutil.which("ffmpeg")
-    if not path:
+    try:
+        path = find_ffmpeg()
+    except RuntimeError:
         return {
             "ok": False,
             "label": "FFmpeg",
-            "detail": "Install FFmpeg and make sure it is available in PATH.",
+            "detail": "Use a ScriptCut desktop release with bundled FFmpeg, or install FFmpeg and make sure it is available in PATH.",
         }
 
     result = subprocess.run([path, "-version"], capture_output=True, text=True, check=False)
+    source = "Bundled" if os.environ.get("SCRIPTCUT_FFMPEG_PATH") else "System"
     return {
         "ok": result.returncode == 0,
         "label": "FFmpeg",
-        "detail": _first_line(result.stdout or result.stderr) or path,
+        "detail": f"{source}: {_first_line(result.stdout or result.stderr) or path}",
     }
 
 

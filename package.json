@@ -33,6 +33,7 @@
     "dist:mac": "npm run build:frontend && electron-builder --mac dmg",
     "dist:dir": "npm run build:frontend && electron-builder --dir",
     "release:icons": "node scripts/generate-icons.js",
+    "release:ffmpeg": "node scripts/prepare-ffmpeg-bundle.js",
     "qa:desktop": "node scripts/desktop-qa.js",
     "qa:desktop:package": "node scripts/desktop-qa.js --package",
     "release:alpha": "node scripts/release-alpha.js",
@@ -62,6 +63,13 @@
       {
         "from": "backend",
         "to": "backend"
+      },
+      {
+        "from": "build/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

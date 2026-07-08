@@ -11,30 +11,10 @@ import json
 from pathlib import Path
 from typing import List
 
+from utils.ffmpeg import find_ffmpeg as _find_ffmpeg
+from utils.ffmpeg import find_ffprobe as _find_ffprobe
+
 logger = logging.getLogger(__name__)
-
-
-def _find_ffmpeg() -> str:
-    """Locate ffmpeg binary."""
-    for cmd in ["ffmpeg", "ffmpeg.exe"]:
-        try:
-            subprocess.run([cmd, "-version"], capture_output=True, check=True)
-            return cmd
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            continue
-    raise RuntimeError("FFmpeg not found. Install it or add it to PATH.")
-
-
-def _find_ffprobe() -> str:
-    ffmpeg = _find_ffmpeg()
-    candidates = [ffmpeg.replace("ffmpeg", "ffprobe"), "ffprobe", "ffprobe.exe"]
-    for cmd in candidates:
-        try:
-            subprocess.run([cmd, "-version"], capture_output=True, check=True)
-            return cmd
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            continue
-    raise RuntimeError("FFprobe not found. Install FFmpeg with ffprobe or add it to PATH.")
 
 
 def _has_audio_stream(input_path: str) -> bool:

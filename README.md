@@ -78,7 +78,7 @@ These steps are for running ScriptCut from the repository.
 
 - Node.js 18+
 - Python 3.10 to 3.12
-- FFmpeg in `PATH`
+- FFmpeg in `PATH` for source development. Desktop release builds include a bundled FFmpeg when prepared with `npm run release:ffmpeg`.
 - Optional: Ollama for local AI features
 
 ### macOS Setup
@@ -102,6 +102,12 @@ export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 ```bash
 npm run setup
 npm run doctor
+```
+
+Release maintainers can prepare local FFmpeg binaries for packaging with:
+
+```bash
+npm run release:ffmpeg
 ```
 
 ### Run the Desktop App

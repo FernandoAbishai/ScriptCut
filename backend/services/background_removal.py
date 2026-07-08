@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from utils.ffmpeg import find_ffmpeg
+
 logger = logging.getLogger(__name__)
 
 MEDIAPIPE_AVAILABLE = False
@@ -195,7 +197,7 @@ def _check_canceled(progress_callback=None) -> None:
 
 def _mux_original_audio(video_path: str, source_audio_path: str, output_path: str) -> None:
     cmd = [
-        "ffmpeg", "-y",
+        find_ffmpeg(), "-y",
         "-i", video_path,
         "-i", source_audio_path,
         "-map", "0:v:0",

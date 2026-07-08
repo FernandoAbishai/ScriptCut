@@ -4,7 +4,7 @@ This guide is for preparing a desktop release from the repository.
 
 ## Current Release Status
 
-ScriptCut is currently distributed from source. The supported user path is:
+ScriptCut has a draft alpha desktop release path. Source development is still supported with:
 
 ```bash
 npm run setup
@@ -20,6 +20,7 @@ Run these checks before creating a release:
 
 ```bash
 npm run doctor
+npm run release:ffmpeg
 npm run lint
 npm run build:frontend
 npm run smoke:backend
@@ -71,7 +72,7 @@ Prepare a local alpha release package:
 npm run release:alpha
 ```
 
-That command runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
+That command runs release trust checks, prepares bundled FFmpeg/FFprobe from the current machine, runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
 
 The command also runs `npm run release:trust`. Missing signing or notarization credentials are warnings for local alpha drafts, but should be resolved before publishing broadly.
 

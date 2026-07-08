@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { resolvePythonRuntime } = require('../electron/python-runtime');
+const { findBundledTool, platformArchName } = require('../electron/bundled-tools');
 
 const root = path.join(__dirname, '..');
 
@@ -66,11 +67,15 @@ const checks = [
       detail: result.status === 0 ? 'FastAPI runtime imports ok' : 'run npm run setup:backend',
     };
   }),
-  check('FFmpeg in PATH', () => {
-    const result = run('ffmpeg', ['-version']);
+  check('FFmpeg', () => {
+    const bundled = findBundledTool('ffmpeg', true);
+    const command = bundled || 'ffmpeg';
+    const result = run(command, ['-version']);
     return {
       ok: result.status === 0,
-      detail: result.status === 0 ? firstLine(result.stdout) : 'install ffmpeg and ensure it is in PATH',
+      detail: result.status === 0
+        ? `${bundled ? `bundled ${platformArchName()}` : 'system'}: ${firstLine(result.stdout)}`
+        : 'use a desktop release with bundled FFmpeg, run npm run release:ffmpeg, or install FFmpeg in PATH',
     };
   }),
   check('Backend smoke tests', () => {
