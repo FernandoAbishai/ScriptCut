@@ -61,14 +61,30 @@ This version focuses on:
 
 ## First Edit
 
-1. Open a local video or audio file.
-2. Choose the transcription engine. Auto/Parakeet is recommended when available.
-3. Wait for the word-level transcript.
-4. Delete transcript words to cut the video, or mute/hide words when needed.
-5. Preview the edited playback.
-6. Export a source-frame video or a vertical Short.
+Goal: get from a local video to a finished export in a few minutes.
+
+1. Download and open the desktop app from the latest release.
+2. Open a local video or audio file.
+3. Choose the transcription engine. Auto/Parakeet is recommended when available.
+4. Wait for the word-level transcript.
+5. Delete transcript words to cut the video, or mute/hide words when needed.
+6. Preview the edited playback.
+7. Choose a creator export template such as Shorts Batch or Podcast Clip.
+8. Export a source-frame video or a vertical Short.
 
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a creator-focused walkthrough.
+
+## Shorts Workflow
+
+Use the Clips tab when you want ScriptCut to work like a shorts production queue:
+
+1. Click **Find Best Clips**.
+2. Approve the suggestions worth reviewing.
+3. Trim in/out points and preview each draft.
+4. Package hook, title, caption, description, hashtags, and hook-frame notes.
+5. Export approved drafts as a batch.
+
+Each draft keeps its status, export path, and retry state so one failed clip does not block the rest of the batch.
 
 ## Contributor Quick Start
 
@@ -185,6 +201,8 @@ scriptcut/
 | AI edit plans with review/apply queue | Done |
 | AI filler review queue | Done |
 | Editable AI clip drafts | Done |
+| Clip readiness scoring | Done |
+| Creator export templates | Done |
 | Ollama + OpenAI + Claude + 9router | Done |
 | Word-level captions | Done |
 | Caption designer and burn-in export | Done |

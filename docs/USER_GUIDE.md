@@ -36,9 +36,9 @@ Green checks mean the core workflow is ready. Background removal is optional.
 5. Press Delete to cut selected words from the edit.
 6. Press Space to preview playback.
 7. Open **Export**.
-8. Choose **Source** for the original frame or **Shorts** for a vertical clip.
+8. Choose a creator template such as **Shorts Batch**, **Caption Review**, or **Podcast Clip**.
 9. Click **Export**.
-10. Use **Reveal in Finder** to find the finished file.
+10. Use **Reveal in Finder** or **Open** to find the finished file.
 
 ## Make Shorts
 
@@ -48,7 +48,8 @@ Green checks mean the core workflow is ready. Background removal is optional.
 4. Draft the suggestions you want to review.
 5. Adjust the in/out times.
 6. Package metadata for hook, title, caption, description, hashtags, and hook frames.
-7. Export one draft or use **Export Approved** for a batch.
+7. Use the readiness score to fix missing captions, metadata, or export settings.
+8. Export one draft or use **Export Approved** for a batch.
 
 AI helps find and package clips, but exporting still uses the local media and local backend.
 
@@ -64,7 +65,7 @@ The browser page at `localhost:5173` is for development and quick testing. Use t
 
 ## Common Fixes
 
-If export is unavailable, install FFmpeg and restart ScriptCut.
+If export is unavailable in a desktop release, update to the latest release and run the first-launch checks again. If you run from source, install FFmpeg or run `npm run release:ffmpeg` before packaging.
 
 If transcription is unavailable, choose Auto or Whisper fallback, or install the optional Parakeet dependencies shown by the first-run setup assistant.
 
