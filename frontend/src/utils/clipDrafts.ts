@@ -5,6 +5,12 @@ export type ClipDraftExportValidation = {
   reasons: string[];
 };
 
+export type ClipDraftReadinessScore = {
+  score: number;
+  label: string;
+  reasons: string[];
+};
+
 export function findWordIndexAtOrAfter(words: Word[], time: number) {
   if (words.length === 0) return -1;
   const target = Math.max(0, time);
@@ -84,5 +90,57 @@ export function validateClipDraftForExport(
   return {
     ready: reasons.length === 0,
     reasons,
+  };
+}
+
+export function getClipDraftReadinessScore(
+  draft: ClipDraft,
+  words: Word[],
+  videoPath: string | null,
+): ClipDraftReadinessScore {
+  const reasons: string[] = [];
+  let score = 0;
+  const duration = draft.endTime - draft.startTime;
+  const validation = validateClipDraftForExport(draft, words, videoPath);
+
+  if (validation.ready) {
+    score += 30;
+  } else {
+    reasons.push(...validation.reasons);
+  }
+
+  if (duration >= 12 && duration <= 60) {
+    score += 15;
+  } else {
+    reasons.push(duration < 12 ? 'Shorts usually need at least 12 seconds.' : 'Trim closer to 60 seconds for shorts.');
+  }
+
+  if (draft.aspectRatio === 'vertical' && draft.resolution === '1080p' && draft.format === 'mp4') {
+    score += 15;
+  } else {
+    reasons.push('Use vertical 1080p MP4 for Shorts/Reels/TikTok.');
+  }
+
+  if ((draft.captions || 'none') === 'burn-in') {
+    score += 10;
+  } else {
+    reasons.push('Enable creator captions for social viewing.');
+  }
+
+  if ((draft.hook || '').trim() && (draft.caption || '').trim() && (draft.hashtags || []).length > 0) {
+    score += 20;
+  } else {
+    reasons.push('Package hook, caption, and hashtags before export.');
+  }
+
+  if ((draft.status || 'draft') === 'packaged' || (draft.status || 'draft') === 'exported') {
+    score += 10;
+  }
+
+  const boundedScore = Math.max(0, Math.min(100, score));
+  return {
+    score: boundedScore,
+    label: boundedScore >= 85 ? 'Ready' : boundedScore >= 65 ? 'Review' : 'Needs work',
+    reasons: [...new Set(reasons)].slice(0, 4),
   };
 }

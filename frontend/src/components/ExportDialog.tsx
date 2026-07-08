@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink } from 'lucide-react';
+import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw } from 'lucide-react';
 import type { CaptionStyle, ExportOptions, ProjectExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
 
@@ -82,6 +82,17 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
 
 const EXPORT_DIRECTORY_KEY = 'scriptcut.export.directory';
 const EXPORT_HISTORY_KEY = 'scriptcut.export.history.v1';
+type CreatorTemplateId = 'shorts-batch' | 'caption-review' | 'podcast-square';
+
+const CREATOR_TEMPLATES: Array<{
+  id: CreatorTemplateId;
+  title: string;
+  desc: string;
+}> = [
+  { id: 'shorts-batch', title: 'Shorts Batch', desc: '9:16 MP4, captions, 1080p' },
+  { id: 'caption-review', title: 'Caption Review', desc: 'Source frame with SRT sidecar' },
+  { id: 'podcast-square', title: 'Podcast Clip', desc: '1:1 MP4, creator captions' },
+];
 
 function getExportDownloadUrl(backendUrl: string, path?: string) {
   return path ? `${backendUrl}/file?path=${encodeURIComponent(path)}` : '';
@@ -229,6 +240,54 @@ export default function ExportDialog() {
     });
   }, [setExportOptions, setPreviewAspectRatio]);
 
+  const applyCreatorTemplate = useCallback((templateId: CreatorTemplateId) => {
+    setExportOptions((current) => {
+      if (templateId === 'caption-review') {
+        setPreviewAspectRatio('source');
+        return {
+          ...current,
+          preset: 'source',
+          mode: 'reencode',
+          aspectRatio: 'source',
+          resolution: '1080p',
+          format: 'mp4',
+          captions: 'sidecar',
+          enhanceAudio: false,
+          backgroundRemoval: { ...(current.backgroundRemoval || { enabled: false, replacement: 'blur', color: '#111827' }), enabled: false },
+        };
+      }
+
+      if (templateId === 'podcast-square') {
+        setPreviewAspectRatio('square');
+        return {
+          ...current,
+          preset: 'podcast-square',
+          mode: 'reencode',
+          aspectRatio: 'square',
+          resolution: '1080p',
+          format: 'mp4',
+          captions: 'burn-in',
+          captionStyle: CAPTION_PRESETS.creator,
+          enhanceAudio: false,
+        };
+      }
+
+      setPreviewAspectRatio('vertical');
+      return {
+        ...current,
+        preset: 'youtube-shorts',
+        mode: 'reencode',
+        aspectRatio: 'vertical',
+        resolution: '1080p',
+        format: 'mp4',
+        captions: 'burn-in',
+        captionStyle: CAPTION_PRESETS.creator,
+        enhanceAudio: false,
+        reframe: current.reframe || { x: 50, y: 50 },
+      };
+    });
+  }, [setExportOptions, setPreviewAspectRatio]);
+
   const chooseExportDirectory = useCallback(async () => {
     const directory = await window.electronAPI?.openDirectory({
       title: 'Choose export folder',
@@ -252,6 +311,21 @@ export default function ExportDialog() {
 
   const revealPath = useCallback(async (path: string) => {
     await window.electronAPI?.revealPath(path);
+  }, []);
+
+  const revealExportDirectory = useCallback(async () => {
+    if (exportDirectory) {
+      await revealPath(exportDirectory);
+      return;
+    }
+    if (exportHistory[0]?.outputPath) {
+      await revealPath(exportHistory[0].outputPath);
+    }
+  }, [exportDirectory, exportHistory, revealPath]);
+
+  const clearExportHistory = useCallback(() => {
+    setExportHistory([]);
+    window.localStorage.removeItem(EXPORT_HISTORY_KEY);
   }, []);
 
   const pollExportJob = useCallback(
@@ -420,6 +494,25 @@ export default function ExportDialog() {
         <p className="text-[11px] leading-4 text-editor-text-muted">{readiness.note}</p>
       </div>
 
+      <fieldset className="space-y-2">
+        <legend className="text-xs text-editor-text-muted font-medium">Creator Template</legend>
+        <div className="grid grid-cols-1 gap-2">
+          {CREATOR_TEMPLATES.map((template) => (
+            <button
+              key={template.id}
+              onClick={() => applyCreatorTemplate(template.id)}
+              className="flex items-center justify-between gap-3 rounded border border-editor-border bg-editor-surface px-3 py-2 text-left hover:border-editor-accent/60"
+            >
+              <span className="min-w-0">
+                <span className="block text-xs font-medium text-editor-text">{template.title}</span>
+                <span className="block truncate text-[10px] text-editor-text-muted">{template.desc}</span>
+              </span>
+              <RotateCcw className="h-3.5 w-3.5 shrink-0 text-editor-text-muted" />
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
       {/* Preset */}
       <fieldset className="space-y-2">
         <legend className="text-xs text-editor-text-muted font-medium">Preset</legend>
@@ -537,6 +630,14 @@ export default function ExportDialog() {
                     className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
                   >
                     Reset
+                  </button>
+                )}
+                {(exportDirectory || exportHistory.length > 0) && (
+                  <button
+                    onClick={revealExportDirectory}
+                    className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                  >
+                    Open
                   </button>
                 )}
                 <button
@@ -688,6 +789,15 @@ export default function ExportDialog() {
       {exportHistory.length > 0 && window.electronAPI && (
         <details className="rounded border border-editor-border bg-editor-surface p-2 text-[10px] text-editor-text-muted">
           <summary className="cursor-pointer text-editor-text">Export history</summary>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span>{exportHistory.length} recent export{exportHistory.length === 1 ? '' : 's'}</span>
+            <button
+              onClick={clearExportHistory}
+              className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+            >
+              Clear
+            </button>
+          </div>
           <div className="mt-2 space-y-1">
             {exportHistory.map((item) => (
               <div key={`${item.outputPath}-${item.exportedAt}`} className="flex items-center justify-between gap-2 rounded bg-editor-bg px-2 py-1">

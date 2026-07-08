@@ -21,6 +21,7 @@ run(module.exports, module, require);
 
 const {
   getClipTranscript,
+  getClipDraftReadinessScore,
   getWordIndicesForClip,
   normalizeClipDraftRange,
   validateClipDraftForExport,
@@ -57,3 +58,21 @@ assert.deepEqual(getWordIndicesForClip(words, { startWordIndex: -4, endWordIndex
 assert.equal(validateClipDraftForExport({ ...draft, title: '' }, words, '/tmp/video.mp4').ready, false);
 assert.equal(validateClipDraftForExport({ ...draft, status: 'suggested' }, words, '/tmp/video.mp4').ready, false);
 assert.equal(validateClipDraftForExport(draft, words, '/tmp/video.mp4').ready, true);
+
+const weakScore = getClipDraftReadinessScore(draft, words, '/tmp/video.mp4');
+assert.equal(weakScore.label, 'Needs work');
+const strongScore = getClipDraftReadinessScore(
+  {
+    ...draft,
+    endTime: 30,
+    endWordIndex: 3,
+    status: 'packaged',
+    captions: 'burn-in',
+    hook: 'The opening hook',
+    caption: 'A social caption',
+    hashtags: ['shorts'],
+  },
+  words,
+  '/tmp/video.mp4',
+);
+assert.equal(strongScore.label, 'Ready');

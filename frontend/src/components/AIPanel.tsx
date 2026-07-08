@@ -4,6 +4,7 @@ import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Plus, Users, Filter, Image, Clipboard, ExternalLink } from 'lucide-react';
 import type { CaptionStyle, ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
+  getClipDraftReadinessScore,
   getClipTranscript,
   getWordIndicesForClip,
   normalizeClipDraftRange,
@@ -1643,6 +1644,7 @@ export default function AIPanel() {
                       activeWordIndex={activeWordIndex}
                       isActive={activeClipDraftId === draft.id}
                       exportValidation={validateClipDraftForExport(draft, words, videoPath)}
+                      readinessScore={getClipDraftReadinessScore(draft, words, videoPath)}
                       onChange={(patch) => updateClipDraft(draft.id, patch)}
                       onTrim={(patch) => trimClipDraft(draft, patch)}
                       onApprove={() => approveClipDraft(draft.id)}
@@ -1808,6 +1810,7 @@ function ClipDraftCard({
   activeWordIndex,
   isActive,
   exportValidation,
+  readinessScore,
   onChange,
   onTrim,
   onApprove,
@@ -1834,6 +1837,7 @@ function ClipDraftCard({
   activeWordIndex: number;
   isActive: boolean;
   exportValidation: ReturnType<typeof validateClipDraftForExport>;
+  readinessScore: ReturnType<typeof getClipDraftReadinessScore>;
   onChange: (patch: Partial<ClipDraft>) => void;
   onTrim: (patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => void;
   onApprove: () => void;
@@ -1873,6 +1877,23 @@ function ClipDraftCard({
           {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)}
         </span>
         <span>{Math.round(draft.endTime - draft.startTime)}s</span>
+      </div>
+      <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
+        <div className="flex items-center justify-between gap-2">
+          <span>Readiness</span>
+          <span className={readinessScore.score >= 85 ? 'text-editor-success' : readinessScore.score >= 65 ? 'text-editor-accent' : 'text-editor-warning'}>
+            {readinessScore.label} · {readinessScore.score}%
+          </span>
+        </div>
+        <div className="h-1 overflow-hidden rounded bg-editor-border">
+          <div
+            className={`h-full ${readinessScore.score >= 85 ? 'bg-editor-success' : readinessScore.score >= 65 ? 'bg-editor-accent' : 'bg-editor-warning'}`}
+            style={{ width: `${Math.max(4, readinessScore.score)}%` }}
+          />
+        </div>
+        {readinessScore.reasons.length > 0 && (
+          <div className="truncate text-editor-text-muted">{readinessScore.reasons[0]}</div>
+        )}
       </div>
       {draft.exportPath && (
         <div className="space-y-1 rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-success" title={draft.exportPath}>
