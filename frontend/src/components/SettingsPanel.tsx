@@ -2,7 +2,8 @@ import { useAIStore } from '../store/aiStore';
 import { useState, useEffect, useCallback } from 'react';
 import type { AIProvider } from '../types/project';
 import { useEditorStore } from '../store/editorStore';
-import { Bot, Cloud, Brain, RefreshCw, Route, ShieldCheck, Copy, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Bot, Cloud, Brain, RefreshCw, Route, ShieldCheck, Copy, CheckCircle2, AlertCircle, Download, ExternalLink, MonitorCheck } from 'lucide-react';
+import { RELEASE_LINKS, SCRIPTCUT_VERSION } from '../utils/releaseInfo';
 
 const AI_PROVIDERS: AIProvider[] = ['ollama', 'openai', 'claude', '9router'];
 
@@ -143,6 +144,29 @@ export default function SettingsPanel() {
   return (
     <div className="p-4 space-y-6">
       <h3 className="text-sm font-semibold">AI Settings</h3>
+
+      <div className="space-y-3 rounded-lg border border-editor-border bg-editor-surface p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <MonitorCheck className="w-4 h-4 text-editor-accent" />
+              ScriptCut desktop
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-editor-text-muted">
+              Version {SCRIPTCUT_VERSION}. Desktop releases are the recommended user path because they provide native file access, autosave, and bundled export tools.
+            </p>
+          </div>
+          <span className="rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-text-muted">
+            {window.electronAPI ? 'Desktop' : 'Browser'}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <ReleaseLink href={RELEASE_LINKS.latestRelease} icon={<Download className="h-3.5 w-3.5" />} label="Latest release" />
+          <ReleaseLink href={RELEASE_LINKS.installGuide} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Install guide" />
+          <ReleaseLink href={RELEASE_LINKS.troubleshooting} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Fix setup" />
+          <ReleaseLink href={RELEASE_LINKS.issues} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Report issue" />
+        </div>
+      </div>
 
       <div className="space-y-2 rounded-lg border border-editor-border bg-editor-surface p-3">
         <div className="flex items-center gap-2 text-xs font-medium">
@@ -359,6 +383,20 @@ export default function SettingsPanel() {
         </div>
       </ProviderSection>
     </div>
+  );
+}
+
+function ReleaseLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex min-w-0 items-center justify-center gap-1.5 rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text-muted hover:text-editor-text"
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </a>
   );
 }
 

@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Copy,
 } from 'lucide-react';
+import { RELEASE_LINKS } from './utils/releaseInfo';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
@@ -858,6 +859,16 @@ function FirstRunChecklist({
                         </span>
                       </button>
                     )}
+                    {guidance.link && (
+                      <a
+                        href={guidance.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex max-w-full items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                      >
+                        <span className="truncate">{guidance.linkLabel || 'Open guide'}</span>
+                      </a>
+                    )}
                   </div>
                 )}
               </div>
@@ -879,7 +890,9 @@ function getSetupGuidance(row: SystemCheck) {
 
   if (row.label === 'Desktop app') {
     return {
-      message: 'Use the installed ScriptCut desktop app for the full creator workflow.',
+      message: 'Use the installed ScriptCut desktop app for native file access, autosave, and direct exports.',
+      link: RELEASE_LINKS.latestRelease,
+      linkLabel: 'Download desktop release',
     };
   }
 
@@ -892,8 +905,10 @@ function getSetupGuidance(row: SystemCheck) {
 
   if (row.label === 'FFmpeg') {
     return {
-      message: 'Install FFmpeg so ScriptCut can export edited videos.',
+      message: 'Desktop releases include FFmpeg for export. Source builds can install FFmpeg manually.',
       command: 'brew install ffmpeg',
+      link: RELEASE_LINKS.latestRelease,
+      linkLabel: 'Get desktop release',
     };
   }
 
