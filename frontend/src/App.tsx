@@ -10,11 +10,17 @@ import SettingsPanel from './components/SettingsPanel';
 import { saveProject, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import {
   getAutosaveCandidatePaths,
+  getAutosaveSnapshotPaths,
+  createProjectSnapshot,
   listAutosaveCandidates,
+  listRecentProjects,
   parseProjectFile,
   removeAutosaveCandidate,
+  removeRecentProject,
+  rememberRecentProject,
   useProjectAutosave,
   type AutosaveCandidate,
+  type RecentProject,
 } from './hooks/useProjectAutosave';
 import {
   Film,
@@ -125,6 +131,7 @@ export default function App() {
   const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
   const [recoveryError, setRecoveryError] = useState('');
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
   const [systemChecksError, setSystemChecksError] = useState('');
   const [backendStartupError, setBackendStartupError] = useState('');
@@ -202,8 +209,21 @@ export default function App() {
     if (!IS_ELECTRON || videoPath) return;
     const latest = listAutosaveCandidates()[0] || null;
     setRecoveryCandidate(latest);
+    setRecentProjects(listRecentProjects());
     setRecoveryError('');
   }, [videoPath]);
+
+  const refreshRecentProjects = () => setRecentProjects(listRecentProjects());
+
+  const rememberProject = (path: string, data: ReturnType<typeof parseProjectFile>, source: RecentProject['source']) => {
+    rememberRecentProject({
+      path,
+      videoPath: data.videoPath,
+      modifiedAt: data.modifiedAt,
+      source,
+    });
+    refreshRecentProjects();
+  };
 
   const handleLoadProject = async () => {
     if (!IS_ELECTRON) return;
@@ -213,23 +233,28 @@ export default function App() {
       const content = await window.electronAPI!.readProjectFile(projectPath);
       const data = parseProjectFile(content);
       loadProjectState(data);
+      rememberProject(projectPath, data, 'project');
     } catch (err) {
       console.error('Failed to load project:', err);
       alert(`Failed to load project: ${err}`);
     }
   };
 
-  const recoverAutosave = async (candidate: AutosaveCandidate) => {
+  const recoverAutosave = async (candidate: AutosaveCandidate, snapshotIndex = 0) => {
     if (!IS_ELECTRON) return;
     setRecoveryError('');
     try {
-      const content = await window.electronAPI!.readProjectFile(candidate.path);
+      const path = getAutosaveSnapshotPaths(candidate.videoPath)[snapshotIndex] || candidate.path;
+      const content = await window.electronAPI!.readProjectFile(path);
       const data = parseProjectFile(content);
       loadProjectState(data);
+      rememberProject(path, data, 'autosave');
     } catch (err) {
       console.error('Failed to recover autosave:', err);
-      removeAutosaveCandidate(candidate.path);
-      setRecoveryCandidate(listAutosaveCandidates()[0] || null);
+      if (snapshotIndex === 0) {
+        removeAutosaveCandidate(candidate.path);
+        setRecoveryCandidate(listAutosaveCandidates()[0] || null);
+      }
       setRecoveryError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -240,12 +265,28 @@ export default function App() {
       const savedPath = await saveProject();
       setManualSaveStatus(savedPath ? 'saved' : 'idle');
       if (savedPath) {
+        const snapshot = createProjectSnapshot();
+        if (snapshot) rememberProject(savedPath, snapshot, 'project');
         window.setTimeout(() => setManualSaveStatus('idle'), 1800);
       }
     } catch (err) {
       console.error('Failed to save project:', err);
       setManualSaveStatus('error');
       window.setTimeout(() => setManualSaveStatus('idle'), 3000);
+    }
+  };
+
+  const openRecentProject = async (project: RecentProject) => {
+    if (!IS_ELECTRON) return;
+    try {
+      const content = await window.electronAPI!.readProjectFile(project.path);
+      const data = parseProjectFile(content);
+      loadProjectState(data);
+      rememberProject(project.path, data, project.source);
+    } catch (err) {
+      removeRecentProject(project.path);
+      refreshRecentProjects();
+      setRecoveryError(err instanceof Error ? `Could not open recent project: ${err.message}` : 'Could not open recent project.');
     }
   };
 
@@ -545,6 +586,17 @@ export default function App() {
                       >
                         Recover
                       </button>
+                      {getAutosaveSnapshotPaths(recoveryCandidate.videoPath)
+                        .slice(1, (recoveryCandidate.snapshotCount || 0) + 1)
+                        .map((path, index) => (
+                        <button
+                          key={path}
+                          onClick={() => recoverAutosave(recoveryCandidate, index + 1)}
+                          className="rounded bg-editor-surface px-3 py-1.5 text-xs text-editor-text-muted hover:text-editor-text"
+                        >
+                          Earlier {index + 1}
+                        </button>
+                      ))}
                       <button
                         onClick={() => setRecoveryCandidate(null)}
                         className="rounded bg-editor-surface px-3 py-1.5 text-xs text-editor-text-muted hover:text-editor-text"
@@ -553,6 +605,29 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                </div>
+              </div>
+            )}
+            {recentProjects.length > 0 && (
+              <div className="w-full max-w-md rounded-lg border border-editor-border bg-editor-surface p-3 text-left">
+                <div className="text-sm font-medium text-editor-text">Recent projects</div>
+                <div className="mt-2 space-y-1">
+                  {recentProjects.map((project) => (
+                    <button
+                      key={project.path}
+                      onClick={() => openRecentProject(project)}
+                      className="flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left hover:bg-editor-bg"
+                      title={project.path}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs text-editor-text">{project.videoPath.split(/[\\/]/).pop()}</span>
+                        <span className="block truncate text-[10px] text-editor-text-muted">
+                          {project.source === 'autosave' ? 'Recovered snapshot' : 'Saved project'} · {new Date(project.modifiedAt).toLocaleString()}
+                        </span>
+                      </span>
+                      <FileInput className="h-3.5 w-3.5 shrink-0 text-editor-text-muted" />
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

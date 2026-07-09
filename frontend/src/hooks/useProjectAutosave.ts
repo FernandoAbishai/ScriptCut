@@ -9,6 +9,8 @@ const PROJECT_SCHEMA = 'scriptcut.project.v1';
 const PROJECT_VERSION = 1 as const;
 const PROJECT_APP_VERSION = '0.1.0';
 const AUTOSAVE_INDEX_KEY = 'scriptcut.autosaves';
+const RECENT_PROJECTS_KEY = 'scriptcut.recent-projects';
+const AUTOSAVE_SNAPSHOT_COUNT = 3;
 
 export interface AutosaveState {
   status: 'idle' | 'saving' | 'saved' | 'error' | 'unavailable';
@@ -21,6 +23,14 @@ export interface AutosaveCandidate {
   path: string;
   videoPath: string;
   modifiedAt: string;
+  snapshotCount?: number;
+}
+
+export interface RecentProject {
+  path: string;
+  videoPath: string;
+  modifiedAt: string;
+  source: 'project' | 'autosave';
 }
 
 export function getAutosavePath(videoPath: string) {
@@ -35,6 +45,15 @@ export function getAutosaveCandidatePaths(videoPath: string) {
   const current = getAutosavePath(videoPath);
   const legacy = getLegacyAutosavePath(videoPath);
   return current === legacy ? [current] : [current, legacy];
+}
+
+export function getAutosaveSnapshotPaths(videoPath: string) {
+  const current = getAutosavePath(videoPath);
+  const extension = current.endsWith('.aive') ? 'aive' : 'scriptcut';
+  const stem = current.slice(0, -(extension.length + 1));
+  return Array.from({ length: AUTOSAVE_SNAPSHOT_COUNT }, (_, index) =>
+    index === 0 ? current : `${stem}_snapshot_${index}.${extension}`,
+  );
 }
 
 function getAutosavePathWithExtension(videoPath: string, extension: 'scriptcut' | 'aive') {
@@ -54,7 +73,8 @@ export function listAutosaveCandidates(): AutosaveCandidate[] {
           candidate &&
           typeof candidate.path === 'string' &&
           typeof candidate.videoPath === 'string' &&
-          typeof candidate.modifiedAt === 'string',
+          typeof candidate.modifiedAt === 'string' &&
+          (candidate.snapshotCount === undefined || (Number.isInteger(candidate.snapshotCount) && candidate.snapshotCount >= 0)),
       )
       .sort((a, b) => Date.parse(b.modifiedAt) - Date.parse(a.modifiedAt));
   } catch {
@@ -80,6 +100,63 @@ export function removeAutosaveCandidate(path: string) {
     window.localStorage.setItem(AUTOSAVE_INDEX_KEY, JSON.stringify(next));
   } catch {
     // Ignore localStorage failures.
+  }
+}
+
+export function listRecentProjects(): RecentProject[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_PROJECTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as RecentProject[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (project) =>
+          project &&
+          typeof project.path === 'string' &&
+          typeof project.videoPath === 'string' &&
+          typeof project.modifiedAt === 'string' &&
+          (project.source === 'project' || project.source === 'autosave'),
+      )
+      .sort((a, b) => Date.parse(b.modifiedAt) - Date.parse(a.modifiedAt));
+  } catch {
+    return [];
+  }
+}
+
+export function rememberRecentProject(project: RecentProject) {
+  try {
+    const next = [
+      project,
+      ...listRecentProjects().filter((item) => item.path !== project.path),
+    ].slice(0, 8);
+    window.localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(next));
+  } catch {
+    // Recent projects are a convenience layer; project files remain canonical.
+  }
+}
+
+export function removeRecentProject(path: string) {
+  try {
+    window.localStorage.setItem(
+      RECENT_PROJECTS_KEY,
+      JSON.stringify(listRecentProjects().filter((project) => project.path !== path)),
+    );
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
+async function rotateAutosaveSnapshots(videoPath: string) {
+  if (!window.electronAPI?.readProjectFile || !window.electronAPI?.writeProjectFile) return;
+  const paths = getAutosaveSnapshotPaths(videoPath);
+  for (let index = paths.length - 1; index > 0; index--) {
+    try {
+      const content = await window.electronAPI.readProjectFile(paths[index - 1]);
+      await window.electronAPI.writeProjectFile(paths[index], content);
+    } catch {
+      // A missing earlier snapshot is expected on the first few autosaves.
+    }
   }
 }
 
@@ -466,11 +543,16 @@ export function useProjectAutosave() {
         const path = getAutosavePath(videoPath);
         setAutosave((current) => ({ ...current, status: 'saving', path, error: '' }));
         const serialized = serializeProjectFile(snapshot);
+        await rotateAutosaveSnapshots(videoPath);
         await window.electronAPI!.writeProjectFile(path, serialized);
+        const previous = listAutosaveCandidates().find((candidate) => candidate.path === path);
         rememberAutosaveCandidate({
           path,
           videoPath: snapshot.videoPath,
           modifiedAt: snapshot.modifiedAt,
+          snapshotCount: previous
+            ? Math.min(AUTOSAVE_SNAPSHOT_COUNT - 1, (previous.snapshotCount || 0) + 1)
+            : 0,
         });
         lastSavedRef.current = saveKey;
         setAutosave({ status: 'saved', savedAt: snapshot.modifiedAt, path, error: '' });
