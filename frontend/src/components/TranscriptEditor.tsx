@@ -507,38 +507,6 @@ export default function TranscriptEditor() {
             )}
           </>
         )}
-        {selectedWordIndices.length > 0 && (
-          <>
-            <button
-              onClick={hideSelectedWordsFromCaptions}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-border text-editor-text-muted rounded hover:bg-editor-surface transition-colors"
-            >
-              <CaptionsOff className="w-3 h-3" />
-              Hide captions
-            </button>
-            <button
-              onClick={muteSelectedWords}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-accent/20 text-editor-accent rounded hover:bg-editor-accent/30 transition-colors"
-            >
-              <VolumeX className="w-3 h-3" />
-              Mute
-            </button>
-            <button
-              onClick={replaceSelectedWordsWithRoomTone}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-warning/10 text-editor-warning rounded hover:bg-editor-warning/20 transition-colors"
-            >
-              <Waves className="w-3 h-3" />
-              Room tone
-            </button>
-            <button
-              onClick={deleteSelectedWords}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-danger/20 text-editor-danger rounded hover:bg-editor-danger/30 transition-colors"
-            >
-              <Trash2 className="w-3 h-3" />
-              Cut {selectedWordIndices.length}
-            </button>
-          </>
-        )}
       </div>
 
       {selectionSummary && (

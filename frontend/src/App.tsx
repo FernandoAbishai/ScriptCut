@@ -39,6 +39,7 @@ import {
   Copy,
   Info,
   LogOut,
+  MoreHorizontal,
 } from 'lucide-react';
 import { RELEASE_LINKS } from './utils/releaseInfo';
 
@@ -118,6 +119,7 @@ export default function App() {
   } = useEditorStore();
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('parakeet');
   const [transcriptionModel, setTranscriptionModel] = useState('nvidia/parakeet-tdt-0.6b-v3');
   const [transcriptionEngineStatus, setTranscriptionEngineStatus] = useState<TranscriptionEngineStatus | null>(null);
@@ -748,25 +750,53 @@ export default function App() {
             onClick={() => togglePanel('export')}
             disabled={words.length === 0}
           />
-          <ToolbarButton
-            icon={<Settings className="w-4 h-4" />}
-            label="Settings"
-            active={activePanel === 'settings'}
-            onClick={() => togglePanel('settings')}
-          />
-          <ToolbarButton
-            icon={<CheckCircle className="w-4 h-4" />}
-            label="Setup"
-            active={!onboardingDismissed}
-            onClick={showOnboarding}
-          />
-          {IS_ELECTRON && (
-            <ToolbarButton
-              icon={<LogOut className="w-4 h-4" />}
-              label="Exit"
-              onClick={handleExit}
-            />
-          )}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowMoreMenu((current) => !current)}
+              title="More tools"
+              className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                showMoreMenu || activePanel === 'settings'
+                  ? 'bg-editor-accent text-white'
+                  : 'text-editor-text-muted hover:bg-editor-surface hover:text-editor-text'
+              }`}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {showMoreMenu && (
+              <div className="absolute right-0 top-10 z-30 w-40 rounded-md border border-editor-border bg-editor-panel p-1 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePanel('settings');
+                    setShowMoreMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                >
+                  <Settings className="h-3.5 w-3.5" /> Settings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    showOnboarding();
+                    setShowMoreMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                >
+                  <CheckCircle className="h-3.5 w-3.5" /> Setup check
+                </button>
+                {IS_ELECTRON && (
+                  <button
+                    type="button"
+                    onClick={handleExit}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                  >
+                    <LogOut className="h-3.5 w-3.5" /> Exit ScriptCut
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
