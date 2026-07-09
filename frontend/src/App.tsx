@@ -31,6 +31,7 @@ import {
   CheckCircle,
   RefreshCw,
   Copy,
+  Info,
 } from 'lucide-react';
 import { RELEASE_LINKS } from './utils/releaseInfo';
 
@@ -834,10 +835,20 @@ function FirstRunChecklist({
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {rows.map((row) => {
           const guidance = getSetupGuidance(row);
+          const optional = row.label === 'Background removal';
           return (
-            <div key={row.label} className="flex items-start gap-2 rounded border border-editor-border bg-editor-bg px-2 py-2">
+            <div
+              key={row.label}
+              className={`flex items-start gap-2 rounded border px-2 py-2 ${
+                optional && !row.ok
+                  ? 'border-editor-border/70 bg-editor-surface'
+                  : 'border-editor-border bg-editor-bg'
+              }`}
+            >
               {row.ok ? (
                 <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-editor-success" />
+              ) : optional ? (
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-editor-text-muted" />
               ) : (
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" />
               )}
@@ -878,7 +889,7 @@ function FirstRunChecklist({
       </div>
       <div className={`mt-3 rounded px-2 py-1 text-[11px] ${requiredReady ? 'bg-editor-success/10 text-editor-success' : 'bg-editor-warning/10 text-editor-warning'}`}>
         {requiredReady
-          ? 'Core editing and export tools are ready. You can open media now.'
+          ? 'Core editing and export tools are ready. Optional add-ons can be installed later.'
           : 'Resolve required warnings before serious editing. Background removal is optional.'}
       </div>
     </div>
@@ -921,7 +932,7 @@ function getSetupGuidance(row: SystemCheck) {
 
   if (row.label === 'Background removal') {
     return {
-      message: 'Optional. Install MediaPipe and OpenCV only if you need background removal.',
+      message: 'Optional add-on. Install MediaPipe and OpenCV only if you need background removal.',
       command: 'pip install mediapipe opencv-python',
     };
   }
