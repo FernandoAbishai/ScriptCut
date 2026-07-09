@@ -20,6 +20,7 @@ const run = new Function('exports', 'module', 'require', compiled.outputText);
 run(module.exports, module, require);
 
 const {
+  adjustWordSelectionBoundary,
   formatSelectionDuration,
   normalizeWordSelection,
   summarizeWordSelection,
@@ -40,3 +41,7 @@ assert.equal(summary.endIndex, 2);
 assert.equal(summary.text, 'clips fast');
 assert.ok(Math.abs(summary.duration - 1.1) < 0.0001);
 assert.equal(formatSelectionDuration(65.4), '1:05.4');
+assert.deepEqual(adjustWordSelectionBoundary([1, 2], words, 'start', -1), [0, 1, 2]);
+assert.deepEqual(adjustWordSelectionBoundary([1, 2], words, 'start', 1), [2]);
+assert.deepEqual(adjustWordSelectionBoundary([1, 2], words, 'end', -1), [1]);
+assert.deepEqual(adjustWordSelectionBoundary([1, 2], words, 'end', 1), [1, 2]);

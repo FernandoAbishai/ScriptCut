@@ -5,7 +5,7 @@ import { Virtuoso } from 'react-virtuoso';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import { CaptionsOff, ChevronLeft, ChevronRight, Copy, Film, Pencil, Play, RotateCcw, Search, Trash2, UserRoundCheck, VolumeX, Waves, X } from 'lucide-react';
 import type { ClipDraft } from '../types/project';
-import { formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
+import { adjustWordSelectionBoundary, formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
 import { findTranscriptMatches } from '../utils/transcriptSearch';
 import { formatSpeakerDuration, getSpeakerStats } from '../utils/speakerStats';
 
@@ -30,6 +30,7 @@ export default function TranscriptEditor() {
   const restoreRange = useEditorStore((s) => s.restoreRange);
   const restoreEditOperation = useEditorStore((s) => s.restoreEditOperation);
   const requestSeek = useEditorStore((s) => s.requestSeek);
+  const requestPreviewRange = useEditorStore((s) => s.requestPreviewRange);
   const setClipDrafts = useAIStore((s) => s.setClipDrafts);
 
   const selectionStart = useRef<number | null>(null);
@@ -91,6 +92,11 @@ export default function TranscriptEditor() {
     () => summarizeWordSelection(selectedWordIndices, words),
     [selectedWordIndices, words],
   );
+  const selectionOperations = useMemo(() => {
+    if (!selectionSummary) return [];
+    const selected = new Set(selectionSummary.indices);
+    return editOperations.filter((operation) => operation.wordIndices.some((index) => selected.has(index)));
+  }, [editOperations, selectionSummary]);
   const searchMatches = useMemo(
     () => findTranscriptMatches(words, searchQuery),
     [searchQuery, words],
@@ -261,8 +267,19 @@ export default function TranscriptEditor() {
 
   const previewSelection = useCallback(() => {
     if (!selectionSummary) return;
-    requestSeek(selectionSummary.startTime, 'forward', true);
-  }, [requestSeek, selectionSummary]);
+    requestPreviewRange(selectionSummary.startTime, selectionSummary.endTime);
+  }, [requestPreviewRange, selectionSummary]);
+
+  const trimSelection = useCallback(
+    (boundary: 'start' | 'end', direction: -1 | 1) => {
+      const next = adjustWordSelectionBoundary(selectedWordIndices, words, boundary, direction);
+      setSelectedWordIndices(next);
+      if (next.length > 0 && boundary === 'start') {
+        requestSeek(words[next[0]]?.start ?? 0, direction < 0 ? 'backward' : 'forward', false);
+      }
+    },
+    [requestSeek, selectedWordIndices, setSelectedWordIndices, words],
+  );
 
   const copySelectionText = useCallback(async () => {
     if (!selectionSummary) return;
@@ -525,7 +542,7 @@ export default function TranscriptEditor() {
       </div>
 
       {selectionSummary && (
-        <div className="border-b border-editor-border bg-editor-surface/80 px-4 py-2 shrink-0">
+        <div className="border-b border-editor-border bg-editor-surface/80 px-4 py-3 shrink-0">
           <div className="flex flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-editor-text-muted">
@@ -570,6 +587,82 @@ export default function TranscriptEditor() {
               Clear
             </button>
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-editor-border/70 pt-2">
+            <span className="text-[10px] font-medium uppercase text-editor-text-muted">Trim to words</span>
+            <div className="flex items-center rounded border border-editor-border bg-editor-bg">
+              <button
+                onClick={() => trimSelection('start', -1)}
+                className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                title="Include previous word"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="px-1 text-[10px] text-editor-text-muted">Start</span>
+              <button
+                onClick={() => trimSelection('start', 1)}
+                className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                title="Remove first selected word"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center rounded border border-editor-border bg-editor-bg">
+              <button
+                onClick={() => trimSelection('end', -1)}
+                className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                title="Remove last selected word"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="px-1 text-[10px] text-editor-text-muted">End</span>
+              <button
+                onClick={() => trimSelection('end', 1)}
+                className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+                title="Include next word"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <span className="ml-auto text-[10px] text-editor-text-muted">
+              {words[selectionSummary.startIndex]?.word} - {words[selectionSummary.endIndex]?.word}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={hideSelectedWordsFromCaptions}
+              className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+            >
+              <CaptionsOff className="h-3 w-3" /> Hide captions
+            </button>
+            <button
+              onClick={muteSelectedWords}
+              className="flex items-center gap-1 rounded bg-editor-accent/20 px-2 py-1 text-[10px] text-editor-accent hover:bg-editor-accent/30"
+            >
+              <VolumeX className="h-3 w-3" /> Mute
+            </button>
+            <button
+              onClick={replaceSelectedWordsWithRoomTone}
+              className="flex items-center gap-1 rounded bg-editor-warning/10 px-2 py-1 text-[10px] text-editor-warning hover:bg-editor-warning/20"
+            >
+              <Waves className="h-3 w-3" /> Room tone
+            </button>
+            <button
+              onClick={deleteSelectedWords}
+              className="flex items-center gap-1 rounded bg-editor-danger/20 px-2 py-1 text-[10px] text-editor-danger hover:bg-editor-danger/30"
+            >
+              <Trash2 className="h-3 w-3" /> Cut
+            </button>
+            {selectionOperations.map((operation) => (
+              <button
+                key={operation.id}
+                onClick={() => restoreEditOperation(operation.id)}
+                className="flex items-center gap-1 rounded bg-editor-success/15 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/25"
+                title={`Restore ${operation.kind} layer`}
+              >
+                <RotateCcw className="h-3 w-3" /> Restore {operation.kind}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -612,7 +705,6 @@ export default function TranscriptEditor() {
         onMouseUp={handleMouseUp}
         onMouseDown={pauseAutoScroll}
         onWheel={pauseAutoScroll}
-        onTouchStart={pauseAutoScroll}
         onClick={handleClickOutside}
       >
         <Virtuoso

@@ -10,6 +10,8 @@ export type TranscriptSelectionSummary = {
   text: string;
 };
 
+export type WordSelectionBoundary = 'start' | 'end';
+
 export function normalizeWordSelection(indices: number[], words: Word[]) {
   if (words.length === 0 || indices.length === 0) return [];
   return [...new Set(indices)]
@@ -37,6 +39,28 @@ export function summarizeWordSelection(indices: number[], words: Word[]): Transc
       .replace(/\s+/g, ' ')
       .trim(),
   };
+}
+
+export function adjustWordSelectionBoundary(
+  indices: number[],
+  words: Word[],
+  boundary: WordSelectionBoundary,
+  direction: -1 | 1,
+) {
+  const normalized = normalizeWordSelection(indices, words);
+  if (normalized.length === 0) return normalized;
+
+  const first = normalized[0];
+  const last = normalized[normalized.length - 1];
+  if (boundary === 'start') {
+    if (direction < 0 && first > 0) return normalizeWordSelection([first - 1, ...normalized], words);
+    if (direction > 0 && normalized.length > 1) return normalized.slice(1);
+    return normalized;
+  }
+
+  if (direction > 0 && last < words.length - 1) return normalizeWordSelection([...normalized, last + 1], words);
+  if (direction < 0 && normalized.length > 1) return normalized.slice(0, -1);
+  return normalized;
 }
 
 export function formatSelectionDuration(seconds: number) {

@@ -18,6 +18,8 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
   const editOperations = useEditorStore((s) => s.editOperations);
   const previewCuts = useEditorStore((s) => s.previewCuts);
   const seekRequest = useEditorStore((s) => s.seekRequest);
+  const previewRangeEnd = useEditorStore((s) => s.previewRangeEnd);
+  const clearPreviewRange = useEditorStore((s) => s.clearPreviewRange);
 
   const publishCurrentTime = useCallback(
     (time: number, force = false) => {
@@ -99,6 +101,13 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
     const syncPreviewFrame = () => {
       if (!video.paused && !video.ended) {
         const t = video.currentTime;
+        if (previewRangeEnd !== null && t >= previewRangeEnd) {
+          video.currentTime = previewRangeEnd;
+          publishCurrentTime(previewRangeEnd, true);
+          clearPreviewRange();
+          video.pause();
+          return;
+        }
         const skippedTime = getPlayableSeekTime(t, deletedRanges, previewCuts, 'forward');
 
         if (skippedTime !== t) {
@@ -120,6 +129,13 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
 
     const onTimeUpdate = () => {
       const t = video.currentTime;
+      if (previewRangeEnd !== null && t >= previewRangeEnd) {
+        video.currentTime = previewRangeEnd;
+        publishCurrentTime(previewRangeEnd, true);
+        clearPreviewRange();
+        video.pause();
+        return;
+      }
       const audioLayer = getPreviewAudioLayer(t, editOperations, previewCuts);
       video.muted = audioLayer === 'mute' || audioLayer === 'room-tone';
       setRoomToneActive(audioLayer === 'room-tone' && !video.paused && !video.ended);
@@ -153,7 +169,7 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
       setRoomToneActive(false);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [videoRef, deletedRanges, editOperations, previewCuts, publishCurrentTime, setIsPlaying, setDuration, setRoomToneActive]);
+  }, [videoRef, deletedRanges, editOperations, previewCuts, previewRangeEnd, clearPreviewRange, publishCurrentTime, setIsPlaying, setDuration, setRoomToneActive]);
 
   useEffect(() => {
     const video = videoRef.current;

@@ -24,6 +24,7 @@ interface EditorState {
     direction: 'forward' | 'backward';
     play: boolean;
   } | null;
+  previewRangeEnd: number | null;
   previewCuts: boolean;
   previewAspectRatio: 'source' | 'vertical' | 'square';
 
@@ -46,6 +47,8 @@ interface EditorActions {
   setDuration: (duration: number) => void;
   setIsPlaying: (playing: boolean) => void;
   requestSeek: (time: number, direction?: 'forward' | 'backward', play?: boolean) => void;
+  requestPreviewRange: (start: number, end: number) => void;
+  clearPreviewRange: () => void;
   setPreviewCuts: (enabled: boolean) => void;
   setPreviewAspectRatio: (aspectRatio: EditorState['previewAspectRatio']) => void;
   setExportOptions: (options: ProjectExportOptions | ((current: ProjectExportOptions) => ProjectExportOptions)) => void;
@@ -128,6 +131,7 @@ const initialState: EditorState = {
   duration: 0,
   isPlaying: false,
   seekRequest: null,
+  previewRangeEnd: null,
   previewCuts: true,
   previewAspectRatio: 'source',
   selectedWordIndices: [],
@@ -189,6 +193,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       setIsPlaying: (playing) => set({ isPlaying: playing }),
       requestSeek: (time, direction = 'forward', play = false) =>
         set((state) => ({
+          previewRangeEnd: null,
           seekRequest: {
             id: (state.seekRequest?.id ?? 0) + 1,
             time,
@@ -196,6 +201,17 @@ export const useEditorStore = create<EditorState & EditorActions>()(
             play,
           },
         })),
+      requestPreviewRange: (start, end) =>
+        set((state) => ({
+          previewRangeEnd: Math.max(start, end),
+          seekRequest: {
+            id: (state.seekRequest?.id ?? 0) + 1,
+            time: start,
+            direction: 'forward',
+            play: true,
+          },
+        })),
+      clearPreviewRange: () => set({ previewRangeEnd: null }),
       setPreviewCuts: (enabled) => set({ previewCuts: enabled }),
       setPreviewAspectRatio: (aspectRatio) => set({ previewAspectRatio: aspectRatio }),
       setExportOptions: (options) =>
