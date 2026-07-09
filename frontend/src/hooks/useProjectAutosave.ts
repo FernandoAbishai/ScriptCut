@@ -281,6 +281,7 @@ function normalizeCaptionStyle(style: ProjectExportOptions['captionStyle'] | und
     preset: style.preset ? oneOf(style.preset, ['clean', 'creator', 'karaoke'], 'clean') : undefined,
     highlightColor: typeof style.highlightColor === 'string' ? style.highlightColor : undefined,
     wordsPerLine: Number.isInteger(style.wordsPerLine) ? style.wordsPerLine : undefined,
+    animation: oneOf(style.animation, ['none', 'pop', 'karaoke'], 'none'),
   };
 }
 

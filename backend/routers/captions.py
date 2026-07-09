@@ -27,6 +27,9 @@ class CaptionStyle(BaseModel):
     backgroundColor: str = "&H80000000"
     position: str = "bottom"
     bold: bool = True
+    highlightColor: Optional[str] = None
+    wordsPerLine: int = 8
+    animation: str = "none"
 
 
 class CaptionRequest(BaseModel):

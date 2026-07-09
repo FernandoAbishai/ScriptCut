@@ -6,6 +6,12 @@ export function getCaptionPresetLabel(preset?: CaptionStyle['preset']) {
   return 'Clean';
 }
 
+export function getCaptionAnimationLabel(animation?: CaptionStyle['animation']) {
+  if (animation === 'pop') return 'Pop in';
+  if (animation === 'karaoke') return 'Word timed';
+  return 'Static';
+}
+
 export function getCaptionPreviewWords(style: CaptionStyle, sample = 'This is the hook that stops the scroll') {
   const limit = Math.max(1, style.wordsPerLine ?? 5);
   return sample.split(/\s+/).slice(0, limit);

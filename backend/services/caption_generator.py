@@ -137,7 +137,8 @@ def generate_ass(
     bold = "-1" if s.get("bold", True) else "0"
     alignment = _caption_alignment(s.get("position", "bottom"))
     margin_v = 80 if alignment in {2, 5} else 60
-    use_word_highlight = bool(s.get("highlightColor"))
+    animation = s.get("animation", "karaoke" if s.get("preset") == "karaoke" else "none")
+    use_word_highlight = animation == "karaoke"
 
     header = f"""[Script Info]
 Title: ScriptCut Captions
@@ -168,6 +169,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             )
         else:
             text = " ".join(_escape_ass_text(w["word"]) for _, w in chunk)
+
+        if animation == "pop":
+            text = "{\\fad(70,70)\\fscx112\\fscy112\\t(0,120,\\fscx100\\fscy100)}" + text
 
         events.append(
             f"Dialogue: 0,{_format_ass_time(start_time)},{_format_ass_time(end_time)},Default,,0,0,0,,{text}"

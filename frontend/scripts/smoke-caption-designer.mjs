@@ -19,9 +19,10 @@ const module = { exports: {} };
 const run = new Function('exports', 'module', 'require', compiled.outputText);
 run(module.exports, module, require);
 
-const { getCaptionPositionClass, getCaptionPresetLabel, getCaptionPreviewWords } = module.exports;
+const { getCaptionAnimationLabel, getCaptionPositionClass, getCaptionPresetLabel, getCaptionPreviewWords } = module.exports;
 
 assert.equal(getCaptionPresetLabel('creator'), 'Creator');
 assert.equal(getCaptionPresetLabel(undefined), 'Clean');
 assert.deepEqual(getCaptionPreviewWords({ wordsPerLine: 3 }, 'one two three four'), ['one', 'two', 'three']);
 assert.equal(getCaptionPositionClass('center'), 'items-center');
+assert.equal(getCaptionAnimationLabel('karaoke'), 'Word timed');

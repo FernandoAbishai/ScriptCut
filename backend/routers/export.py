@@ -54,6 +54,7 @@ class CaptionStyleModel(BaseModel):
     preset: Optional[str] = None
     highlightColor: Optional[str] = None
     wordsPerLine: int = 8
+    animation: str = "none"
 
 
 class BackgroundRemovalModel(BaseModel):

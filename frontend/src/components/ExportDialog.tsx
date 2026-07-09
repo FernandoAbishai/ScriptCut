@@ -55,6 +55,7 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
     position: 'bottom',
     bold: true,
     wordsPerLine: 8,
+    animation: 'none',
   },
   creator: {
     preset: 'creator',
@@ -66,6 +67,7 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
     bold: true,
     highlightColor: '#facc15',
     wordsPerLine: 5,
+    animation: 'pop',
   },
   karaoke: {
     preset: 'karaoke',
@@ -77,6 +79,7 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
     bold: true,
     highlightColor: '#22c55e',
     wordsPerLine: 3,
+    animation: 'karaoke',
   },
 };
 
@@ -1255,6 +1258,17 @@ function CaptionStyleControls({
           ]}
         />
       </div>
+
+      <SelectField
+        label="Motion"
+        value={value.animation || 'none'}
+        onChange={(animation) => update({ animation: animation as CaptionStyle['animation'], preset: undefined })}
+        options={[
+          { value: 'none', label: 'Static' },
+          { value: 'pop', label: 'Pop in' },
+          { value: 'karaoke', label: 'Word timed' },
+        ]}
+      />
 
       <label className="space-y-1 block">
         <span className="text-xs text-editor-text-muted font-medium">Font Size</span>

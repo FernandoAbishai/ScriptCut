@@ -110,6 +110,7 @@ export interface CaptionStyle {
   preset?: 'clean' | 'creator' | 'karaoke';
   highlightColor?: string;
   wordsPerLine?: number;
+  animation?: 'none' | 'pop' | 'karaoke';
 }
 
 export type AIProvider = 'ollama' | 'openai' | 'claude' | '9router';
