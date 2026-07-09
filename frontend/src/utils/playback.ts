@@ -3,6 +3,14 @@ import type { DeletedRange, EditOperation } from '../types/project';
 export type SeekDirection = 'forward' | 'backward';
 type TimeRange = Pick<DeletedRange, 'start' | 'end'>;
 
+export interface PlaybackTimeState {
+  sourceTime: number;
+  previewTime: number;
+  sourceDuration: number;
+  previewDuration: number;
+  progress: number;
+}
+
 export function getPlayableSeekTime(
   time: number,
   deletedRanges: TimeRange[],
@@ -29,6 +37,31 @@ export function getPreviewDuration(
     (total, segment) => total + (segment.end - segment.start),
     0,
   );
+}
+
+export function getPlaybackTimeState(
+  sourceTime: number,
+  sourceDuration: number,
+  deletedRanges: TimeRange[],
+  previewCuts: boolean,
+): PlaybackTimeState {
+  const resolvedSourceDuration = Math.max(0, Number.isFinite(sourceDuration) ? sourceDuration : 0);
+  const resolvedPreviewDuration = getPreviewDuration(resolvedSourceDuration, deletedRanges, previewCuts);
+  const resolvedSourceTime = clamp(sourceTime, 0, resolvedSourceDuration);
+  const previewTime = sourceToPreviewTime(
+    resolvedSourceTime,
+    resolvedSourceDuration,
+    deletedRanges,
+    previewCuts,
+  );
+
+  return {
+    sourceTime: resolvedSourceTime,
+    previewTime,
+    sourceDuration: resolvedSourceDuration,
+    previewDuration: resolvedPreviewDuration,
+    progress: resolvedPreviewDuration > 0 ? clamp(previewTime / resolvedPreviewDuration, 0, 1) : 0,
+  };
 }
 
 export function sourceToPreviewTime(

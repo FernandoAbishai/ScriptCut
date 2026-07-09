@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('fs:writeFile', path, content),
   revealPath: (path) => ipcRenderer.invoke('shell:revealPath', path),
+  openPath: (path) => ipcRenderer.invoke('shell:openPath', path),
 });

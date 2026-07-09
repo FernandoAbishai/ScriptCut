@@ -1,7 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useVideoSync } from '../hooks/useVideoSync';
-import { getPreviewDuration, previewToSourceTime, sourceToPreviewTime } from '../utils/playback';
+import { getPlaybackTimeState, previewToSourceTime } from '../utils/playback';
 import { Play, Pause, Scissors, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 
 export default function VideoPlayer() {
@@ -21,14 +21,14 @@ export default function VideoPlayer() {
   const hasPlaybackEdits =
     deletedRanges.length > 0 ||
     editOperations.some((operation) => operation.kind === 'mute' || operation.kind === 'room-tone');
-  const previewDuration = getPreviewDuration(duration, deletedRanges, previewCuts);
+  const playbackState = getPlaybackTimeState(displayTime, duration, deletedRanges, previewCuts);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     let raf = 0;
     const tick = () => {
-      setDisplayTime(sourceToPreviewTime(video.currentTime, duration, deletedRanges, previewCuts));
+      setDisplayTime(video.currentTime);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -45,21 +45,21 @@ export default function VideoPlayer() {
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const ratio = (e.clientX - rect.left) / rect.width;
-      const targetPreviewTime = ratio * previewDuration;
+      const targetPreviewTime = ratio * playbackState.previewDuration;
       seekTo(previewToSourceTime(targetPreviewTime, duration, deletedRanges, previewCuts));
     },
-    [seekTo, duration, deletedRanges, previewCuts, previewDuration],
+    [seekTo, duration, deletedRanges, previewCuts, playbackState.previewDuration],
   );
 
   const skip = useCallback(
     (delta: number) => {
       const video = videoRef.current;
       if (!video) return;
-      const targetPreviewTime = displayTime + delta;
+      const targetPreviewTime = playbackState.previewTime + delta;
       const sourceTime = previewToSourceTime(targetPreviewTime, duration, deletedRanges, previewCuts);
       seekTo(sourceTime, delta < 0 ? 'backward' : 'forward');
     },
-    [seekTo, duration, deletedRanges, displayTime, previewCuts],
+    [seekTo, duration, deletedRanges, playbackState.previewTime, previewCuts],
   );
 
   if (!videoUrl) {
@@ -114,7 +114,7 @@ export default function VideoPlayer() {
         >
           <div
             className="h-full bg-editor-accent rounded-full relative transition-all group-hover:h-2"
-            style={{ width: previewDuration > 0 ? `${(displayTime / previewDuration) * 100}%` : '0%' }}
+            style={{ width: `${playbackState.progress * 100}%` }}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
@@ -149,7 +149,7 @@ export default function VideoPlayer() {
             )}
             <Volume2 className="w-3.5 h-3.5" />
             <span className="font-mono">
-              {formatTime(displayTime)} / {formatTime(previewDuration)}
+              {formatTime(playbackState.previewTime)} / {formatTime(playbackState.previewDuration)}
             </span>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { ZoomIn, ZoomOut, AlertTriangle } from 'lucide-react';
-import { getPlayableSeekTime } from '../utils/playback';
+import { ZoomIn, ZoomOut, AlertTriangle, LocateFixed } from 'lucide-react';
+import { getPlaybackTimeState, getPlayableSeekTime } from '../utils/playback';
 
 export default function WaveformTimeline() {
   const waveCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -10,6 +10,7 @@ export default function WaveformTimeline() {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [waveformRevision, setWaveformRevision] = useState(0);
+  const [followPlayhead, setFollowPlayhead] = useState(true);
 
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const videoPath = useEditorStore((s) => s.videoPath);
@@ -29,6 +30,8 @@ export default function WaveformTimeline() {
   const currentTimeRef = useRef(0);
   const dragStartTimeRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
+  const manualScrollPauseUntilRef = useRef(0);
+  const playbackState = getPlaybackTimeState(currentTime, duration, deletedRanges, previewCuts);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
@@ -231,6 +234,26 @@ export default function WaveformTimeline() {
     return () => observer.disconnect();
   }, [drawStaticWaveform]);
 
+  useEffect(() => {
+    if (!followPlayhead || dragStartTimeRef.current !== null) return;
+    if (Date.now() < manualScrollPauseUntilRef.current) return;
+    const container = containerRef.current?.querySelector('[data-timeline-scroll="true"]');
+    const canvas = headCanvasRef.current;
+    if (!(container instanceof HTMLDivElement) || !canvas || duration <= 0) return;
+
+    const playheadX = (currentTime / duration) * canvas.getBoundingClientRect().width;
+    const viewStart = container.scrollLeft;
+    const viewEnd = viewStart + container.clientWidth;
+    const margin = Math.min(120, container.clientWidth * 0.25);
+
+    if (playheadX < viewStart + margin || playheadX > viewEnd - margin) {
+      container.scrollTo({
+        left: Math.max(0, playheadX - container.clientWidth * 0.45),
+        behavior: 'smooth',
+      });
+    }
+  }, [currentTime, duration, followPlayhead, zoom]);
+
   const timeFromPointer = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!headCanvasRef.current || duration === 0) return;
@@ -262,6 +285,7 @@ export default function WaveformTimeline() {
       if (rawTime === undefined) return;
       dragStartTimeRef.current = rawTime;
       dragMovedRef.current = false;
+      manualScrollPauseUntilRef.current = Date.now() + 1200;
     },
     [timeFromPointer],
   );
@@ -316,6 +340,16 @@ export default function WaveformTimeline() {
           Timeline
         </span>
         <div className="flex items-center gap-1">
+          <span className="mr-1 hidden font-mono text-[10px] text-editor-text-muted sm:inline">
+            {formatTimelineTime(playbackState.previewTime)} / {formatTimelineTime(playbackState.previewDuration)}
+          </span>
+          <button
+            onClick={() => setFollowPlayhead((current) => !current)}
+            className={`p-0.5 ${followPlayhead ? 'text-editor-accent' : 'text-editor-text-muted'} hover:text-editor-text`}
+            title={followPlayhead ? 'Following playhead' : 'Follow playhead'}
+          >
+            <LocateFixed className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={() => setZoom((current) => Math.max(1, current - 0.5))}
             disabled={zoom <= 1}
@@ -333,7 +367,13 @@ export default function WaveformTimeline() {
           </button>
         </div>
       </div>
-      <div className="flex-1 relative overflow-x-auto">
+      <div
+        className="flex-1 relative overflow-x-auto"
+        data-timeline-scroll="true"
+        onScroll={() => {
+          manualScrollPauseUntilRef.current = Date.now() + 900;
+        }}
+      >
         <div className="relative h-full min-w-full" style={{ width: `${zoom * 100}%` }}>
           <canvas ref={waveCanvasRef} className="absolute inset-0 h-full w-full" />
           <canvas
@@ -357,6 +397,13 @@ export default function WaveformTimeline() {
       </div>
     </div>
   );
+}
+
+function formatTimelineTime(seconds: number) {
+  const safeSeconds = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remaining = Math.floor(safeSeconds % 60);
+  return `${minutes}:${remaining.toString().padStart(2, '0')}`;
 }
 
 function getSelectedTimeRanges(words: Array<{ start: number; end: number }>, selectedWordIndices: number[]) {

@@ -81,6 +81,7 @@ const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
 };
 
 const EXPORT_DIRECTORY_KEY = 'scriptcut.export.directory';
+const EXPORT_PATH_KEY = 'scriptcut.export.path';
 const EXPORT_HISTORY_KEY = 'scriptcut.export.history.v1';
 type CreatorTemplateId = 'shorts-batch' | 'caption-review' | 'podcast-square';
 
@@ -116,6 +117,11 @@ function joinPath(directory: string, filename: string) {
   const separator = getPathSeparator(directory);
   const trimmed = directory.replace(/[\\/]+$/, '');
   return trimmed ? `${trimmed}${separator}${filename}` : filename;
+}
+
+function ensureFileExtension(filePath: string, format: ExportOptions['format']) {
+  if (!filePath) return filePath;
+  return filePath.replace(/\.(mp4|mov|webm)$/i, '') + `.${format}`;
 }
 
 function safeFileStem(value: string) {
@@ -251,6 +257,7 @@ export default function ExportDialog() {
   const [exportLogs, setExportLogs] = useState<Array<{ time: string; message: string }>>([]);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
+  const [exportPath, setExportPath] = useState(() => window.localStorage.getItem(EXPORT_PATH_KEY) || '');
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
   const readiness = getExportReadiness(options, hasCuts, words.length, !!window.electronAPI);
   const preflight = getExportPreflight({
@@ -351,7 +358,32 @@ export default function ExportDialog() {
     if (!directory) return;
     setExportDirectory(directory);
     window.localStorage.setItem(EXPORT_DIRECTORY_KEY, directory);
+    setExportPath('');
+    window.localStorage.removeItem(EXPORT_PATH_KEY);
   }, [exportDirectory, videoPath]);
+
+  const chooseExportPath = useCallback(async () => {
+    if (!window.electronAPI || !videoPath) return;
+    const selectedPath = await window.electronAPI.saveFile({
+      title: 'Save exported video',
+      defaultPath: exportPath
+        ? ensureFileExtension(exportPath, options.format)
+        : exportDirectory
+          ? joinPath(exportDirectory, getDefaultExportFilename(videoPath, options.preset, options.format))
+          : getDefaultExportPath(videoPath, options.format),
+      filters: [
+        { name: 'MP4', extensions: ['mp4'] },
+        { name: 'MOV', extensions: ['mov'] },
+        { name: 'WebM', extensions: ['webm'] },
+      ],
+    });
+    if (!selectedPath) return;
+    const normalizedPath = ensureFileExtension(selectedPath, options.format);
+    setExportPath(normalizedPath);
+    setExportDirectory('');
+    window.localStorage.setItem(EXPORT_PATH_KEY, normalizedPath);
+    window.localStorage.removeItem(EXPORT_DIRECTORY_KEY);
+  }, [exportDirectory, exportPath, options.format, options.preset, videoPath]);
 
   const rememberExport = useCallback((item: ExportHistoryItem) => {
     setExportHistory((current) => {
@@ -368,7 +400,18 @@ export default function ExportDialog() {
     await window.electronAPI?.revealPath(path);
   }, []);
 
+  const openPath = useCallback(async (path: string) => {
+    const result = await window.electronAPI?.openPath(path);
+    if (typeof result === 'string' && result) {
+      setExportError(result);
+    }
+  }, []);
+
   const revealExportDirectory = useCallback(async () => {
+    if (exportPath) {
+      await revealPath(exportPath);
+      return;
+    }
     if (exportDirectory) {
       await revealPath(exportDirectory);
       return;
@@ -376,7 +419,7 @@ export default function ExportDialog() {
     if (exportHistory[0]?.outputPath) {
       await revealPath(exportHistory[0].outputPath);
     }
-  }, [exportDirectory, exportHistory, revealPath]);
+  }, [exportDirectory, exportHistory, exportPath, revealPath]);
 
   const clearExportHistory = useCallback(() => {
     setExportHistory([]);
@@ -447,18 +490,25 @@ export default function ExportDialog() {
     }
 
     const outputPath = window.electronAPI
-      ? exportDirectory
-        ? joinPath(exportDirectory, getDefaultExportFilename(videoPath, exportOptions.preset, exportOptions.format))
-        : await window.electronAPI.saveFile({
-          defaultPath: getDefaultExportPath(videoPath, exportOptions.format),
-          filters: [
-            { name: 'MP4', extensions: ['mp4'] },
-            { name: 'MOV', extensions: ['mov'] },
-            { name: 'WebM', extensions: ['webm'] },
-          ],
-        })
+      ? exportPath
+        ? ensureFileExtension(exportPath, exportOptions.format)
+        : exportDirectory
+          ? joinPath(exportDirectory, getDefaultExportFilename(videoPath, exportOptions.preset, exportOptions.format))
+          : await window.electronAPI.saveFile({
+            title: 'Save exported video',
+            defaultPath: getDefaultExportPath(videoPath, exportOptions.format),
+            filters: [
+              { name: 'MP4', extensions: ['mp4'] },
+              { name: 'MOV', extensions: ['mov'] },
+              { name: 'WebM', extensions: ['webm'] },
+            ],
+          })
       : undefined;
     if (window.electronAPI && !outputPath) return;
+    if (window.electronAPI && outputPath && !exportPath && !exportDirectory) {
+      setExportPath(outputPath);
+      window.localStorage.setItem(EXPORT_PATH_KEY, outputPath);
+    }
 
     setExportError('');
     setExportResult(null);
@@ -509,7 +559,7 @@ export default function ExportDialog() {
       setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
       setExporting(false, 0);
     }
-  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, pollExportJob]);
+  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, exportPath, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, pollExportJob]);
 
   const handleExport = useCallback(() => {
     void startExport(options);
@@ -707,19 +757,23 @@ export default function ExportDialog() {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-[11px] text-editor-text">
-                  {exportDirectory || 'Ask where to save each export'}
+                  {exportPath || exportDirectory || 'Choose where to save the export'}
                 </div>
                 <div className="text-[10px] text-editor-text-muted">
-                  {exportDirectory
+                  {exportPath
+                    ? 'Exact output file'
+                    : exportDirectory
                     ? getDefaultExportFilename(videoPath || 'scriptcut_export', options.preset, options.format)
                     : 'Uses native Save dialog'}
                 </div>
               </div>
               <div className="flex shrink-0 gap-1">
-                {exportDirectory && (
+                {(exportPath || exportDirectory) && (
                   <button
                     onClick={() => {
+                      setExportPath('');
                       setExportDirectory('');
+                      window.localStorage.removeItem(EXPORT_PATH_KEY);
                       window.localStorage.removeItem(EXPORT_DIRECTORY_KEY);
                     }}
                     className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
@@ -727,20 +781,28 @@ export default function ExportDialog() {
                     Reset
                   </button>
                 )}
-                {(exportDirectory || exportHistory.length > 0) && (
+                {(exportPath || exportDirectory || exportHistory.length > 0) && (
                   <button
                     onClick={revealExportDirectory}
                     className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
                   >
-                    Open
+                    Reveal
                   </button>
                 )}
                 <button
-                  onClick={chooseExportDirectory}
+                  onClick={chooseExportPath}
                   className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
                 >
+                  <Download className="h-3 w-3" />
+                  Save as
+                </button>
+                <button
+                  onClick={chooseExportDirectory}
+                  className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
+                  title="Choose an export folder and auto-name files"
+                >
                   <FolderOpen className="h-3 w-3" />
-                  Choose
+                  Folder
                 </button>
               </div>
             </div>
@@ -855,13 +917,22 @@ export default function ExportDialog() {
           <div>Exported to {exportResult.outputPath}</div>
           {exportResult.srtPath && <div>Captions saved to {exportResult.srtPath}</div>}
           {window.electronAPI && (
-            <button
-              onClick={() => revealPath(exportResult.outputPath)}
-              className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Reveal in Finder
-            </button>
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => openPath(exportResult.outputPath)}
+                className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open file
+              </button>
+              <button
+                onClick={() => revealPath(exportResult.outputPath)}
+                className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30"
+              >
+                <FolderOpen className="h-3 w-3" />
+                Reveal in Finder
+              </button>
+            </div>
           )}
           {exportResult.downloadUrl && !window.electronAPI && (
             <a
@@ -908,12 +979,20 @@ export default function ExportDialog() {
                   <div className="truncate text-editor-text">{getDownloadFilename(item.outputPath, 'Export')}</div>
                   <div>{new Date(item.exportedAt).toLocaleString()} · {item.preset} · {item.format.toUpperCase()}</div>
                 </div>
-                <button
-                  onClick={() => revealPath(item.outputPath)}
-                  className="shrink-0 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
-                >
-                  Reveal
-                </button>
+                <div className="flex shrink-0 gap-1">
+                  <button
+                    onClick={() => openPath(item.outputPath)}
+                    className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+                  >
+                    Open
+                  </button>
+                  <button
+                    onClick={() => revealPath(item.outputPath)}
+                    className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+                  >
+                    Reveal
+                  </button>
+                </div>
               </div>
             ))}
           </div>

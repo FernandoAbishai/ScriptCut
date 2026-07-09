@@ -144,3 +144,8 @@ ipcMain.handle('shell:revealPath', async (_event, filePath) => {
   shell.showItemInFolder(filePath);
   return true;
 });
+
+ipcMain.handle('shell:openPath', async (_event, filePath) => {
+  const error = await shell.openPath(filePath);
+  return error || true;
+});

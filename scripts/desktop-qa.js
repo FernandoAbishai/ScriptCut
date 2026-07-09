@@ -47,6 +47,7 @@ const steps = [
   ['Caption designer smoke tests', 'npm', ['run', 'test:caption-designer', '--prefix', 'frontend']],
   ['Social publishing smoke tests', 'npm', ['run', 'test:social-publishing', '--prefix', 'frontend']],
   ['Hook frame smoke tests', 'npm', ['run', 'test:hook-frames', '--prefix', 'frontend']],
+  ['Playback sync smoke tests', 'npm', ['run', 'test:playback-sync', '--prefix', 'frontend']],
 ];
 
 for (const [name, command, args] of steps) {
