@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { PythonBackend } = require('./python-bridge');
 
@@ -8,6 +9,43 @@ let backendStartupError = '';
 
 const isDev = !app.isPackaged;
 const BACKEND_PORT = 8642;
+const MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024;
+const PROJECT_EXTENSIONS = new Set(['.scriptcut', '.aive', '.cutscript']);
+
+function fileExtension(filePath) {
+  return typeof filePath === 'string' ? path.extname(filePath).toLowerCase() : '';
+}
+
+function assertProjectPath(filePath) {
+  if (typeof filePath !== 'string' || !PROJECT_EXTENSIONS.has(fileExtension(filePath))) {
+    throw new Error('Only ScriptCut project files can be read or written.');
+  }
+  assertSafeFilePath(filePath);
+}
+
+function assertTextContent(content) {
+  if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_PROJECT_FILE_BYTES) {
+    throw new Error('Project data must be text smaller than 50 MB.');
+  }
+}
+
+function assertClipManifestPath(filePath) {
+  const basename = typeof filePath === 'string' ? path.basename(filePath) : '';
+  if (!/^scriptcut_clip_manifest_[a-zA-Z0-9-]+\.json$/.test(basename)) {
+    throw new Error('Only ScriptCut clip manifests can be written.');
+  }
+  assertSafeFilePath(filePath);
+}
+
+function assertSafeFilePath(filePath) {
+  const directory = path.dirname(path.resolve(filePath));
+  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
+    throw new Error('The destination folder does not exist.');
+  }
+  if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
+    throw new Error('Symbolic links are not supported for project files.');
+  }
+}
 
 function isTrustedAppUrl(url) {
   if (isDev) {
@@ -176,13 +214,24 @@ ipcMain.handle('app:quit', () => {
   return true;
 });
 
-ipcMain.handle('fs:readFile', async (_event, filePath) => {
-  const fs = require('fs');
+ipcMain.handle('project:read', async (_event, filePath) => {
+  assertProjectPath(filePath);
+  if (fs.statSync(filePath).size > MAX_PROJECT_FILE_BYTES) {
+    throw new Error('Project file is larger than 50 MB.');
+  }
   return fs.readFileSync(filePath, 'utf-8');
 });
 
-ipcMain.handle('fs:writeFile', async (_event, filePath, content) => {
-  const fs = require('fs');
+ipcMain.handle('project:write', async (_event, filePath, content) => {
+  assertProjectPath(filePath);
+  assertTextContent(content);
+  fs.writeFileSync(filePath, content, 'utf-8');
+  return true;
+});
+
+ipcMain.handle('clip-manifest:write', async (_event, filePath, content) => {
+  assertClipManifestPath(filePath);
+  assertTextContent(content);
   fs.writeFileSync(filePath, content, 'utf-8');
   return true;
 });

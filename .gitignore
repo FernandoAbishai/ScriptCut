@@ -27,9 +27,6 @@ Thumbs.db
 *.log
 .cache/
 
-# Lock files (root only — frontend lock is committed)
-/package-lock.json
-
 # Electron build output
 dist/
 build/bin/*

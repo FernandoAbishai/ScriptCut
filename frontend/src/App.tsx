@@ -210,7 +210,7 @@ export default function App() {
     try {
       const projectPath = await window.electronAPI!.openProject();
       if (!projectPath) return;
-      const content = await window.electronAPI!.readFile(projectPath);
+      const content = await window.electronAPI!.readProjectFile(projectPath);
       const data = parseProjectFile(content);
       loadProjectState(data);
     } catch (err) {
@@ -223,7 +223,7 @@ export default function App() {
     if (!IS_ELECTRON) return;
     setRecoveryError('');
     try {
-      const content = await window.electronAPI!.readFile(candidate.path);
+      const content = await window.electronAPI!.readProjectFile(candidate.path);
       const data = parseProjectFile(content);
       loadProjectState(data);
     } catch (err) {
@@ -319,7 +319,7 @@ export default function App() {
 
     for (const autosavePath of getAutosaveCandidatePaths(path)) {
       try {
-        const content = await window.electronAPI!.readFile(autosavePath);
+        const content = await window.electronAPI!.readProjectFile(autosavePath);
         const data = parseProjectFile(content);
         if (data.videoPath !== path || !Array.isArray(data.words)) continue;
 

@@ -441,7 +441,7 @@ export function useProjectAutosave() {
       return;
     }
 
-    if (!window.electronAPI?.writeFile) {
+    if (!window.electronAPI?.writeProjectFile) {
       setAutosave({ status: 'unavailable', savedAt: '', path: '', error: '' });
       return;
     }
@@ -466,7 +466,7 @@ export function useProjectAutosave() {
         const path = getAutosavePath(videoPath);
         setAutosave((current) => ({ ...current, status: 'saving', path, error: '' }));
         const serialized = serializeProjectFile(snapshot);
-        await window.electronAPI!.writeFile(path, serialized);
+        await window.electronAPI!.writeProjectFile(path, serialized);
         rememberAutosaveCandidate({
           path,
           videoPath: snapshot.videoPath,

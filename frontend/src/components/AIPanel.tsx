@@ -2819,7 +2819,7 @@ async function writeClipBatchManifest({
   results: BatchExportResult[];
   words: Word[];
 }) {
-  if (!directory || !window.electronAPI?.writeFile) return '';
+  if (!directory || !window.electronAPI?.writeClipManifest) return '';
   const manifestPath = joinPath(directory, `scriptcut_clip_manifest_${timestampForFilename()}.json`);
   const manifest = {
     app: 'ScriptCut',
@@ -2872,7 +2872,7 @@ async function writeClipBatchManifest({
       transcript: getClipTranscript(words, draft),
     })),
   };
-  await window.electronAPI.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+  await window.electronAPI.writeClipManifest(manifestPath, JSON.stringify(manifest, null, 2));
   return manifestPath;
 }
 

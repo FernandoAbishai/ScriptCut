@@ -103,7 +103,7 @@ export function previewToSourceTime(
     elapsed += segmentDuration;
   }
 
-  return segments.at(-1)?.end ?? sourceDuration;
+  return segments[segments.length - 1]?.end ?? sourceDuration;
 }
 
 function getPlayableSegments(sourceDuration: number, deletedRanges: TimeRange[]) {

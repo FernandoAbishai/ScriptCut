@@ -160,13 +160,13 @@ export async function saveProject() {
     const defaultPath = state.videoPath.replace(/\.[^.\\/]+$/, '.scriptcut');
     const defaultName = defaultPath.split(/[\\/]/).pop() || 'project.scriptcut';
 
-    if (window.electronAPI?.saveFile && window.electronAPI?.writeFile) {
+    if (window.electronAPI?.saveFile && window.electronAPI?.writeProjectFile) {
       const outputPath = await window.electronAPI.saveFile({
         defaultPath,
         filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
       });
       if (!outputPath) return null;
-      await window.electronAPI.writeFile(outputPath, serializeProjectFile(projectData));
+      await window.electronAPI.writeProjectFile(outputPath, serializeProjectFile(projectData));
       return outputPath;
     }
 

@@ -10,8 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   quit: () => ipcRenderer.invoke('app:quit'),
   encryptString: (data) => ipcRenderer.invoke('safe-storage:encrypt', data),
   decryptString: (encrypted) => ipcRenderer.invoke('safe-storage:decrypt', encrypted),
-  readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
-  writeFile: (path, content) => ipcRenderer.invoke('fs:writeFile', path, content),
+  readProjectFile: (path) => ipcRenderer.invoke('project:read', path),
+  writeProjectFile: (path, content) => ipcRenderer.invoke('project:write', path, content),
+  writeClipManifest: (path, content) => ipcRenderer.invoke('clip-manifest:write', path, content),
   revealPath: (path) => ipcRenderer.invoke('shell:revealPath', path),
   openPath: (path) => ipcRenderer.invoke('shell:openPath', path),
 });

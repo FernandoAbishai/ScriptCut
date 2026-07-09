@@ -10,8 +10,9 @@ interface ElectronAPI {
   quit: () => Promise<boolean>;
   encryptString: (data: string) => Promise<string>;
   decryptString: (encrypted: string) => Promise<string>;
-  readFile: (path: string) => Promise<string>;
-  writeFile: (path: string, content: string) => Promise<boolean>;
+  readProjectFile: (path: string) => Promise<string>;
+  writeProjectFile: (path: string, content: string) => Promise<boolean>;
+  writeClipManifest: (path: string, content: string) => Promise<boolean>;
   revealPath: (path: string) => Promise<boolean>;
   openPath: (path: string) => Promise<boolean | string>;
 }
