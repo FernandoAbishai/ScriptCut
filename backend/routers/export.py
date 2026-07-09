@@ -3,6 +3,7 @@
 import logging
 import tempfile
 import os
+import math
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -85,6 +86,40 @@ class ExportRequest(BaseModel):
     deleted_indices: Optional[List[int]] = None
 
 
+def _preflight_export(req: ExportRequest) -> None:
+    input_path = os.path.abspath(req.input_path)
+    if not os.path.isfile(input_path):
+        raise ValueError(f"Input media file was not found: {req.input_path}")
+    if not os.access(input_path, os.R_OK):
+        raise ValueError(f"Input media file is not readable: {req.input_path}")
+
+    if not req.keep_segments:
+        raise ValueError("No segments to export")
+
+    for index, segment in enumerate(req.keep_segments, start=1):
+        if not math.isfinite(segment.start) or not math.isfinite(segment.end):
+            raise ValueError(f"Export segment {index} has invalid timestamps")
+        if segment.start < 0:
+            raise ValueError(f"Export segment {index} starts before 0 seconds")
+        if segment.end <= segment.start:
+            raise ValueError(f"Export segment {index} must end after it starts")
+
+    if req.output_path:
+        output_path = os.path.abspath(req.output_path)
+        if output_path == input_path:
+            raise ValueError("Output path cannot overwrite the source media file")
+
+        output_dir = os.path.dirname(output_path) or os.getcwd()
+        if not os.path.isdir(output_dir):
+            raise ValueError(f"Export destination folder does not exist: {output_dir}")
+        if not os.access(output_dir, os.W_OK):
+            raise ValueError(f"Export destination folder is not writable: {output_dir}")
+
+        suffix = os.path.splitext(output_path)[1].lower().lstrip(".")
+        if suffix and suffix not in {"mp4", "mov", "webm"}:
+            raise ValueError("Export output must use .mp4, .mov, or .webm")
+
+
 def _default_export_path(input_path: str, format_hint: str) -> str:
     suffix = f".{format_hint if format_hint in {'mp4', 'mov', 'webm'} else 'mp4'}"
     temp_dir = os.path.join(tempfile.gettempdir(), "scriptcut_exports")
@@ -127,6 +162,7 @@ def run_export(req: ExportRequest, progress_callback=None):
 
     try:
         progress(5, "Preparing export")
+        _preflight_export(req)
         if not req.output_path:
             req.output_path = _default_export_path(req.input_path, req.format)
         segments = [{"start": s.start, "end": s.end} for s in req.keep_segments]

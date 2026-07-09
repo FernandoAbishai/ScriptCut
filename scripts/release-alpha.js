@@ -63,11 +63,42 @@ function checksumFile(filePath) {
   return hash.digest('hex');
 }
 
+function currentGitCommit() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return result.status === 0 ? result.stdout.trim() : '';
+}
+
 function writeChecksums(artifacts) {
   const lines = artifacts.map((filePath) => `${checksumFile(filePath)}  ${path.basename(filePath)}`);
   const checksumPath = path.join(releaseDir, 'SHA256SUMS.txt');
   fs.writeFileSync(checksumPath, `${lines.join('\n')}\n`, 'utf8');
   return checksumPath;
+}
+
+function writeReleaseManifest(pkg, artifacts, checksumPath) {
+  const manifestPath = path.join(releaseDir, 'release-manifest.json');
+  const manifest = {
+    name: pkg.name,
+    productName: pkg.build?.productName || pkg.name,
+    version: pkg.version,
+    channel: 'alpha',
+    tag: `v${pkg.version}-alpha`,
+    commit: currentGitCommit(),
+    generatedAt: new Date().toISOString(),
+    checksums: path.relative(root, checksumPath),
+    assets: artifacts.map((filePath) => ({
+      file: path.basename(filePath),
+      path: path.relative(root, filePath),
+      bytes: fs.statSync(filePath).size,
+      sha256: checksumFile(filePath),
+    })),
+  };
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  return manifestPath;
 }
 
 function writeReleaseNotes(pkg, artifacts, checksumPath) {
@@ -127,16 +158,18 @@ function main() {
   }
 
   const checksumPath = writeChecksums(artifacts);
+  const manifestPath = writeReleaseManifest(pkg, artifacts, checksumPath);
   const notesPath = writeReleaseNotes(pkg, artifacts, checksumPath);
 
   console.log('\nAlpha release package prepared.');
   console.log(`Release notes: ${path.relative(root, notesPath)}`);
+  console.log(`Release manifest: ${path.relative(root, manifestPath)}`);
   console.log(`Checksums: ${path.relative(root, checksumPath)}`);
   for (const artifact of artifacts) {
     console.log(`Artifact: ${path.relative(root, artifact)}`);
   }
   console.log('\nDraft the GitHub release with:');
-  console.log(`gh release create v${pkg.version}-alpha --draft --title "ScriptCut v${pkg.version}-alpha" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)}`);
+  console.log(`gh release create v${pkg.version}-alpha --draft --title "ScriptCut v${pkg.version}-alpha" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)} ${path.relative(root, manifestPath)}`);
 }
 
 main();

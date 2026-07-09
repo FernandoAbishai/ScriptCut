@@ -37,9 +37,11 @@ class BackendSmokeTests(unittest.TestCase):
             return output_path
 
         with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
             output_path = str(Path(tmp) / "edited.mp4")
             request = export_router.ExportRequest(
-                input_path=str(Path(tmp) / "input.mp4"),
+                input_path=str(input_path),
                 output_path=output_path,
                 keep_segments=[export_router.SegmentModel(start=0, end=4)],
                 captions="sidecar",
@@ -86,6 +88,43 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(result["output_path"], captured["output_path"])
         self.assertTrue(result["output_path"].endswith(".mp4"))
         self.assertIn("scriptcut_exports", result["output_path"])
+
+    def test_export_preflight_rejects_missing_input_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            request = export_router.ExportRequest(
+                input_path=str(Path(tmp) / "missing.mp4"),
+                output_path=str(Path(tmp) / "edited.mp4"),
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+            )
+
+            with self.assertRaisesRegex(ValueError, "Input media file was not found"):
+                export_router.run_export(request)
+
+    def test_export_preflight_rejects_bad_destination_folder(self) -> None:
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=str(Path(tmp) / "missing-folder" / "edited.mp4"),
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+            )
+
+            with self.assertRaisesRegex(ValueError, "Export destination folder does not exist"):
+                export_router.run_export(request)
+
+    def test_export_preflight_rejects_source_overwrite(self) -> None:
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=str(input_path),
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+            )
+
+            with self.assertRaisesRegex(ValueError, "cannot overwrite"):
+                export_router.run_export(request)
 
     def test_reencode_video_only_does_not_map_audio(self) -> None:
         captured: dict[str, list[str]] = {}
@@ -251,10 +290,12 @@ class BackendSmokeTests(unittest.TestCase):
             raise RuntimeError("background removal failed")
 
         with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
             output_path = str(Path(tmp) / "edited.mp4")
             background_path = output_path + ".bg.mp4"
             request = export_router.ExportRequest(
-                input_path=str(Path(tmp) / "input.mp4"),
+                input_path=str(input_path),
                 output_path=output_path,
                 keep_segments=[export_router.SegmentModel(start=0, end=4)],
                 backgroundRemoval=export_router.BackgroundRemovalModel(enabled=True),
@@ -282,10 +323,12 @@ class BackendSmokeTests(unittest.TestCase):
             raise RuntimeError("mux failed")
 
         with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
             output_path = str(Path(tmp) / "edited.mp4")
             muxed_path = output_path + ".muxed.mp4"
             request = export_router.ExportRequest(
-                input_path=str(Path(tmp) / "input.mp4"),
+                input_path=str(input_path),
                 output_path=output_path,
                 keep_segments=[export_router.SegmentModel(start=0, end=4)],
                 enhanceAudio=True,

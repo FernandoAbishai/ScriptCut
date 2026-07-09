@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw } from 'lucide-react';
+import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw, AlertTriangle } from 'lucide-react';
 import type { CaptionStyle, ExportOptions, ProjectExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
 
@@ -179,11 +179,57 @@ function getExportReadiness(options: ProjectExportOptions, hasCuts: boolean, wor
   };
 }
 
+function getExportPreflight({
+  videoPath,
+  duration,
+  options,
+  hasCuts,
+  wordCount,
+  backgroundCapabilities,
+  isElectron,
+}: {
+  videoPath: string | null;
+  duration: number;
+  options: ProjectExportOptions;
+  hasCuts: boolean;
+  wordCount: number;
+  backgroundCapabilities: BackgroundCapabilities | null;
+  isElectron: boolean;
+}) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+
+  if (!videoPath) blockers.push('Open a video or audio file before exporting.');
+  if (duration <= 0) blockers.push('Wait for media metadata to load before exporting.');
+  if (options.captions !== 'none' && wordCount === 0) warnings.push('Caption export needs transcript words; this export will not include captions yet.');
+  if (options.backgroundRemoval?.enabled && backgroundCapabilities && !backgroundCapabilities.available) {
+    blockers.push('Background removal is enabled but MediaPipe/OpenCV is not available.');
+  }
+  if (options.mode === 'fast' && (hasCuts || options.aspectRatio !== 'source' || options.captions === 'burn-in')) {
+    warnings.push('This export needs frame-accurate re-encode even if Fast is selected.');
+  }
+  if (!isElectron) warnings.push('Browser mode exports to a backend temp folder first, then downloads from this panel.');
+
+  return { blockers, warnings, ready: blockers.length === 0 };
+}
+
+function getFriendlyExportError(message: string) {
+  const lower = message.toLowerCase();
+  if (lower.includes('input media file was not found')) return 'The source media file could not be found. Reopen the video and try again.';
+  if (lower.includes('not readable')) return 'ScriptCut cannot read the source media file. Check file permissions or move it to a normal folder.';
+  if (lower.includes('destination folder does not exist')) return 'The export folder no longer exists. Choose a new export folder.';
+  if (lower.includes('not writable')) return 'ScriptCut cannot write to that export folder. Choose another folder or check permissions.';
+  if (lower.includes('cannot overwrite')) return 'Choose a different export path; ScriptCut will not overwrite the source media file.';
+  if (lower.includes('ffmpeg') || lower.includes('stream copy') || lower.includes('re-encode')) return 'FFmpeg could not finish the export. Retry with Re-encode or check the job log.';
+  return message;
+}
+
 export default function ExportDialog() {
   const {
     videoPath,
     words,
     deletedRanges,
+    duration,
     isExporting,
     exportProgress,
     backendUrl,
@@ -207,6 +253,15 @@ export default function ExportDialog() {
   const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
   const readiness = getExportReadiness(options, hasCuts, words.length, !!window.electronAPI);
+  const preflight = getExportPreflight({
+    videoPath,
+    duration,
+    options,
+    hasCuts,
+    wordCount: words.length,
+    backgroundCapabilities,
+    isElectron: !!window.electronAPI,
+  });
 
   useEffect(() => {
     let canceled = false;
@@ -374,14 +429,28 @@ export default function ExportDialog() {
     [backendUrl, options.format, options.preset, rememberExport, setExporting],
   );
 
-  const handleExport = useCallback(async () => {
+  const startExport = useCallback(async (exportOptions: ProjectExportOptions) => {
     if (!videoPath) return;
+
+    const currentPreflight = getExportPreflight({
+      videoPath,
+      duration,
+      options: exportOptions,
+      hasCuts,
+      wordCount: words.length,
+      backgroundCapabilities,
+      isElectron: !!window.electronAPI,
+    });
+    if (!currentPreflight.ready) {
+      setExportError(currentPreflight.blockers.join(' '));
+      return;
+    }
 
     const outputPath = window.electronAPI
       ? exportDirectory
-        ? joinPath(exportDirectory, getDefaultExportFilename(videoPath, options.preset, options.format))
+        ? joinPath(exportDirectory, getDefaultExportFilename(videoPath, exportOptions.preset, exportOptions.format))
         : await window.electronAPI.saveFile({
-          defaultPath: getDefaultExportPath(videoPath, options.format),
+          defaultPath: getDefaultExportPath(videoPath, exportOptions.format),
           filters: [
             { name: 'MP4', extensions: ['mp4'] },
             { name: 'MOV', extensions: ['mov'] },
@@ -411,14 +480,14 @@ export default function ExportDialog() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...options,
+          ...exportOptions,
           input_path: videoPath,
           output_path: outputPath || undefined,
           keep_segments: keepSegments,
           muted_ranges: getMutedRanges(),
-          words: options.captions !== 'none' ? words : undefined,
-          deleted_indices: options.captions !== 'none' ? [...deletedSet] : undefined,
-          captionStyle: options.captions === 'burn-in' ? options.captionStyle : undefined,
+          words: exportOptions.captions !== 'none' ? words : undefined,
+          deleted_indices: exportOptions.captions !== 'none' ? [...deletedSet] : undefined,
+          captionStyle: exportOptions.captions === 'burn-in' ? exportOptions.captionStyle : undefined,
         }),
       });
       if (!res.ok) {
@@ -437,10 +506,20 @@ export default function ExportDialog() {
       await pollExportJob(jobId);
     } catch (err) {
       console.error('Export error:', err);
-      setExportError(err instanceof Error ? err.message : String(err));
+      setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
       setExporting(false, 0);
     }
-  }, [videoPath, options, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, words, pollExportJob, exportDirectory]);
+  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, pollExportJob]);
+
+  const handleExport = useCallback(() => {
+    void startExport(options);
+  }, [options, startExport]);
+
+  const retryWithReencode = useCallback(() => {
+    const nextOptions = { ...options, mode: 'reencode' as const };
+    setExportOptions(nextOptions);
+    void startExport(nextOptions);
+  }, [options, setExportOptions, startExport]);
 
   const cancelExport = useCallback(async () => {
     if (!exportJobId) return;
@@ -468,7 +547,7 @@ export default function ExportDialog() {
       await pollExportJob(jobId);
     } catch (err) {
       console.error('Export retry error:', err);
-      setExportError(err instanceof Error ? err.message : String(err));
+      setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
       setExporting(false, 0);
     }
   }, [backendUrl, lastExportJobId, pollExportJob, setExporting]);
@@ -493,6 +572,22 @@ export default function ExportDialog() {
         </div>
         <p className="text-[11px] leading-4 text-editor-text-muted">{readiness.note}</p>
       </div>
+
+      {(preflight.blockers.length > 0 || preflight.warnings.length > 0) && (
+        <div className={`space-y-1 rounded border p-2 text-[11px] ${
+          preflight.blockers.length > 0
+            ? 'border-editor-warning/30 bg-editor-warning/10 text-editor-warning'
+            : 'border-editor-accent/30 bg-editor-accent/10 text-editor-accent'
+        }`}>
+          <div className="flex items-center gap-1 font-medium">
+            {preflight.blockers.length > 0 ? <AlertTriangle className="h-3.5 w-3.5" /> : <Info className="h-3.5 w-3.5" />}
+            Export preflight
+          </div>
+          {[...preflight.blockers, ...preflight.warnings].map((item) => (
+            <div key={item}>{item}</div>
+          ))}
+        </div>
+      )}
 
       <fieldset className="space-y-2">
         <legend className="text-xs text-editor-text-muted font-medium">Creator Template</legend>
@@ -693,7 +788,7 @@ export default function ExportDialog() {
       <div className="grid grid-cols-[1fr_auto] gap-2">
         <button
           onClick={handleExport}
-          disabled={isExporting || !videoPath}
+          disabled={isExporting || !preflight.ready}
           className="flex items-center justify-center gap-2 px-4 py-3 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-semibold transition-colors"
         >
           {isExporting ? (
@@ -742,6 +837,14 @@ export default function ExportDialog() {
               className="rounded bg-editor-danger/20 px-2 py-1 text-[10px] text-editor-danger hover:bg-editor-danger/30"
             >
               Retry export
+            </button>
+          )}
+          {options.mode === 'fast' && (
+            <button
+              onClick={retryWithReencode}
+              className="ml-2 rounded bg-editor-accent/20 px-2 py-1 text-[10px] text-editor-accent hover:bg-editor-accent/30"
+            >
+              Retry with Re-encode
             </button>
           )}
         </div>
