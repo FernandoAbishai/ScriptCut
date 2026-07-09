@@ -74,6 +74,12 @@ npm run release:alpha
 
 That command runs release trust checks, prepares bundled FFmpeg/FFprobe from the current machine, runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, writes `dist/release-alpha/release-manifest.json`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
 
+By default the package is prepared for `v0.1.0-alpha`. For follow-up alpha builds under the same app version, pass a more specific tag:
+
+```bash
+RELEASE_TAG=v0.1.0-alpha.1 npm run release:alpha
+```
+
 The command also runs `npm run release:trust`. Missing signing or notarization credentials are warnings for local alpha drafts, but should be resolved before publishing broadly.
 
 Build a local macOS DMG:
@@ -124,7 +130,7 @@ Attach:
 - `dist/release-alpha/release-manifest.json`
 - short demo video or screenshot, when available
 
-After `npm run release:alpha`, the script prints a `gh release create ... --draft` command. Review the generated release notes before publishing.
+After `npm run release:alpha`, the script prints a `gh release create ... --draft` command using the active release tag. Review the generated release notes before publishing.
 
 ## Signing And Notarization
 
