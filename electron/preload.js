@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFile: (options) => ipcRenderer.invoke('dialog:saveFile', options),
   openProject: () => ipcRenderer.invoke('dialog:openProject'),
   getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
+  quit: () => ipcRenderer.invoke('app:quit'),
   encryptString: (data) => ipcRenderer.invoke('safe-storage:encrypt', data),
   decryptString: (encrypted) => ipcRenderer.invoke('safe-storage:decrypt', encrypted),
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),

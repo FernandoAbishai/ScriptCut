@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Copy,
   Info,
+  LogOut,
 } from 'lucide-react';
 import { RELEASE_LINKS } from './utils/releaseInfo';
 
@@ -424,6 +425,10 @@ export default function App() {
   const togglePanel = (panel: Panel) =>
     setActivePanel((prev) => (prev === panel ? null : panel));
 
+  const handleExit = () => {
+    void window.electronAPI?.quit();
+  };
+
   if (!videoPath) {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-8 bg-editor-bg px-6">
@@ -435,6 +440,17 @@ export default function App() {
             className="hidden"
             onChange={handleBrowserFileChange}
           />
+        )}
+        {IS_ELECTRON && (
+          <button
+            type="button"
+            onClick={handleExit}
+            title="Exit ScriptCut"
+            className="absolute right-4 top-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-editor-text-muted transition-colors hover:bg-editor-surface hover:text-editor-text"
+          >
+            <LogOut className="h-4 w-4" />
+            Exit
+          </button>
         )}
         <div className="flex flex-col items-center gap-3">
           <Film className="w-14 h-14 text-editor-accent opacity-80" />
@@ -663,6 +679,13 @@ export default function App() {
             active={!onboardingDismissed}
             onClick={showOnboarding}
           />
+          {IS_ELECTRON && (
+            <ToolbarButton
+              icon={<LogOut className="w-4 h-4" />}
+              label="Exit"
+              onClick={handleExit}
+            />
+          )}
         </div>
       </header>
 

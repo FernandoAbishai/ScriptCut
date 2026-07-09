@@ -129,6 +129,11 @@ ipcMain.handle('get-backend-url', () => {
   return `http://localhost:${BACKEND_PORT}`;
 });
 
+ipcMain.handle('app:quit', () => {
+  app.quit();
+  return true;
+});
+
 ipcMain.handle('fs:readFile', async (_event, filePath) => {
   const fs = require('fs');
   return fs.readFileSync(filePath, 'utf-8');
