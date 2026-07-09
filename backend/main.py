@@ -1,6 +1,5 @@
 import logging
 import os
-import secrets
 import stat
 import tempfile
 import uuid
@@ -11,6 +10,7 @@ from fastapi import FastAPI, File, Query, Request, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from local_api_auth import is_authorized_local_api_request
 from routers import transcribe, export, ai, captions, audio, jobs, background, system
 
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +49,7 @@ async def require_local_api_token(request: Request, call_next):
         LOCAL_API_TOKEN
         and request.method != "OPTIONS"
         and request.url.path != "/health"
-        and not secrets.compare_digest(request.headers.get("X-ScriptCut-Token", ""), LOCAL_API_TOKEN)
+        and not is_authorized_local_api_request(LOCAL_API_TOKEN, request.headers.get("X-ScriptCut-Token"))
     ):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized local API request"})
     return await call_next(request)
