@@ -127,6 +127,7 @@ export default function App() {
   const [recoveryError, setRecoveryError] = useState('');
   const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
   const [systemChecksError, setSystemChecksError] = useState('');
+  const [backendStartupError, setBackendStartupError] = useState('');
   const [isCheckingSystem, setIsCheckingSystem] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => window.localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true',
@@ -139,6 +140,11 @@ export default function App() {
   useEffect(() => {
     if (IS_ELECTRON) {
       window.electronAPI!.getBackendUrl().then(setBackendUrl);
+      window.electronAPI!.getStartupStatus().then(({ backendError }) => {
+        if (!backendError) return;
+        setBackendStartupError(`The local editing backend could not start: ${backendError}. Fix the setup issue, then quit and reopen ScriptCut.`);
+        setOnboardingDismissed(false);
+      });
     }
   }, [setBackendUrl]);
 
@@ -463,7 +469,7 @@ export default function App() {
         {!onboardingDismissed && (
           <FirstRunChecklist
             checks={systemChecks?.checks}
-            error={systemChecksError}
+            error={backendStartupError || systemChecksError}
             loading={isCheckingSystem}
             isElectron={IS_ELECTRON}
             onRefresh={refreshSystemChecks}

@@ -5,6 +5,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      package_desktop:
+        description: Build an unpacked macOS desktop app for release-candidate validation
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -36,7 +43,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install root dependencies
-        run: npm install --package-lock=false --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
@@ -79,3 +86,28 @@ jobs:
 
       - name: Compile backend
         run: python -m compileall -q backend
+
+  package-desktop:
+    name: Package macOS desktop app
+    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build unpacked desktop app
+        run: npm run dist:dir

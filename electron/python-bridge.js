@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const path = require('path');
 const http = require('http');
 const { resolvePythonRuntime } = require('./python-runtime');
@@ -9,6 +10,7 @@ class PythonBackend {
     this.port = port;
     this.isDev = isDev;
     this.process = null;
+    this.apiToken = null;
   }
 
   async start() {
@@ -28,6 +30,10 @@ class PythonBackend {
 
     const { command, argsPrefix } = resolvePythonRuntime();
 
+    // Packaged builds use a per-launch token so another local process cannot
+    // call the backend or stream arbitrary local files through it.
+    this.apiToken = this.isDev ? null : crypto.randomBytes(32).toString('hex');
+
     this.process = spawn(command, [
       ...argsPrefix,
       '-m', 'uvicorn', 'main:app',
@@ -36,7 +42,12 @@ class PythonBackend {
     ], {
       cwd: backendDir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...bundledToolEnv(this.isDev), PYTHONUNBUFFERED: '1' },
+      env: {
+        ...process.env,
+        ...bundledToolEnv(this.isDev),
+        ...(this.apiToken ? { SCRIPTCUT_API_TOKEN: this.apiToken } : {}),
+        PYTHONUNBUFFERED: '1',
+      },
     });
 
     this.process.stdout.on('data', (data) => {
@@ -80,6 +91,7 @@ class PythonBackend {
       }
       this.process = null;
     }
+    this.apiToken = null;
   }
 
   _waitForReady(timeoutMs) {
@@ -90,14 +102,27 @@ class PythonBackend {
           reject(new Error('Backend startup timed out'));
           return;
         }
+        const remainingMs = timeoutMs - (Date.now() - startTime);
+        let completed = false;
+        const retry = () => {
+          if (completed) return;
+          completed = true;
+          setTimeout(check, 500);
+        };
         const req = http.get(`http://127.0.0.1:${this.port}/health`, (res) => {
+          res.resume();
           if (res.statusCode === 200) {
+            completed = true;
             resolve();
           } else {
-            setTimeout(check, 500);
+            retry();
           }
         });
-        req.on('error', () => setTimeout(check, 500));
+        req.on('error', retry);
+        req.setTimeout(Math.max(1, Math.min(2000, remainingMs)), () => {
+          req.destroy();
+          retry();
+        });
         req.end();
       };
       setTimeout(check, 1000);

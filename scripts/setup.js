@@ -54,8 +54,8 @@ function main() {
   console.log('Setting up ScriptCut development environment.');
 
   if (!backendOnly) {
-    run('npm', ['install']);
-    run('npm', ['install'], { cwd: path.join(root, 'frontend') });
+    run('npm', ['ci']);
+    run('npm', ['ci'], { cwd: path.join(root, 'frontend') });
   }
 
   if (!fs.existsSync(venvPython)) {

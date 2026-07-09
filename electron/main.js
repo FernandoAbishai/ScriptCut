@@ -4,9 +4,23 @@ const { PythonBackend } = require('./python-bridge');
 
 let mainWindow = null;
 let pythonBackend = null;
+let backendStartupError = '';
 
 const isDev = !app.isPackaged;
 const BACKEND_PORT = 8642;
+
+function isTrustedAppUrl(url) {
+  if (isDev) {
+    return url.startsWith('http://localhost:5173/');
+  }
+  return url.startsWith('file://');
+}
+
+function openExternalUrl(url) {
+  if (url.startsWith('https://')) {
+    void shell.openExternal(url);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -37,6 +51,25 @@ function createWindow() {
     mainWindow.show();
   });
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedAppUrl(url)) return;
+    event.preventDefault();
+    openExternalUrl(url);
+  });
+
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const token = pythonBackend?.apiToken;
+    if (token && details.url.startsWith(`http://127.0.0.1:${BACKEND_PORT}/`)) {
+      details.requestHeaders['X-ScriptCut-Token'] = token;
+    }
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -44,7 +77,12 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   pythonBackend = new PythonBackend(BACKEND_PORT, isDev);
-  await pythonBackend.start();
+  try {
+    await pythonBackend.start();
+  } catch (error) {
+    backendStartupError = error instanceof Error ? error.message : String(error);
+    console.error('[backend] Startup failed:', backendStartupError);
+  }
 
   createWindow();
 
@@ -128,6 +166,10 @@ ipcMain.handle('safe-storage:decrypt', (_event, encrypted) => {
 ipcMain.handle('get-backend-url', () => {
   return `http://localhost:${BACKEND_PORT}`;
 });
+
+ipcMain.handle('app:getStartupStatus', () => ({
+  backendError: backendStartupError,
+}));
 
 ipcMain.handle('app:quit', () => {
   app.quit();

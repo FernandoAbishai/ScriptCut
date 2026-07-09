@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import unittest
 import subprocess
@@ -17,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from routers import export as export_router
 from routers import ai as ai_router
 from routers import system as system_router
+import main as backend_main
 from services import video_editor
 from services import ai_provider
 from services.caption_generator import generate_srt
@@ -24,6 +26,29 @@ from services.job_manager import JobManager
 
 
 class BackendSmokeTests(unittest.TestCase):
+    def test_packaged_backend_requires_local_api_token(self) -> None:
+        async def next_handler(_request):
+            return backend_main.JSONResponse(status_code=200, content={"status": "ok"})
+
+        def request_with_headers(headers: list[tuple[bytes, bytes]]):
+            return backend_main.Request({
+                "type": "http",
+                "method": "GET",
+                "path": "/file",
+                "headers": headers,
+                "query_string": b"",
+            })
+
+        with patch.object(backend_main, "LOCAL_API_TOKEN", "smoke-token"):
+            rejected = asyncio.run(backend_main.require_local_api_token(request_with_headers([]), next_handler))
+            accepted = asyncio.run(backend_main.require_local_api_token(
+                request_with_headers([(b"x-scriptcut-token", b"smoke-token")]),
+                next_handler,
+            ))
+
+        self.assertEqual(rejected.status_code, 401)
+        self.assertEqual(accepted.status_code, 200)
+
     def test_sidecar_export_uses_caption_line_length(self) -> None:
         captured: dict[str, str] = {}
 

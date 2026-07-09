@@ -1,5 +1,6 @@
 import logging
 import os
+import secrets
 import stat
 import tempfile
 import uuid
@@ -8,7 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Query, Request, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from routers import transcribe, export, ai, captions, audio, jobs, background, system
 
@@ -37,6 +38,21 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
 )
+
+LOCAL_API_TOKEN = os.getenv("SCRIPTCUT_API_TOKEN", "")
+
+
+@app.middleware("http")
+async def require_local_api_token(request: Request, call_next):
+    """Protect packaged local APIs from other processes on the same machine."""
+    if (
+        LOCAL_API_TOKEN
+        and request.method != "OPTIONS"
+        and request.url.path != "/health"
+        and not secrets.compare_digest(request.headers.get("X-ScriptCut-Token", ""), LOCAL_API_TOKEN)
+    ):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized local API request"})
+    return await call_next(request)
 
 app.include_router(transcribe.router)
 app.include_router(export.router)
