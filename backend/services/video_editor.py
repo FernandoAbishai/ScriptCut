@@ -8,13 +8,34 @@ import subprocess
 import tempfile
 import os
 import json
+import re
 from pathlib import Path
 from typing import List
+from functools import lru_cache
 
 from utils.ffmpeg import find_ffmpeg as _find_ffmpeg
 from utils.ffmpeg import find_ffprobe as _find_ffprobe
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def supports_ass_subtitles() -> bool:
+    """Whether the selected FFmpeg binary can render ASS burn-in captions."""
+    try:
+        result = subprocess.run(
+            [_find_ffmpeg(), "-hide_banner", "-filters"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+
+    return any(
+        re.match(r"^\s*[.A-Z]{2}\s+ass\s", line)
+        for line in (result.stdout or "").splitlines()
+    )
 
 
 def _has_audio_stream(input_path: str) -> bool:
@@ -241,14 +262,21 @@ def export_reencode_with_subs(
 
     filter_complex = "".join(filter_parts)
 
-    # Escape path for FFmpeg subtitle filter (Windows backslashes need escaping)
-    escaped_sub = subtitle_path.replace("\\", "/").replace(":", "\\:")
+    # Use the explicit filename option. Recent FFmpeg builds reject the
+    # positional ass=/path form, especially with macOS temporary paths.
+    escaped_sub = (
+        subtitle_path.replace("\\", "/")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+        .replace(",", "\\,")
+    )
+    subtitle_filter = f"ass=filename='{escaped_sub}'"
 
     video_filter = _build_video_filter(resolution, aspect_ratio, reframe)
     if video_filter:
-        filter_complex += f";[outv]{video_filter},ass='{escaped_sub}'[outv_final]"
+        filter_complex += f";[outv]{video_filter},{subtitle_filter}[outv_final]"
     else:
-        filter_complex += f";[outv]ass='{escaped_sub}'[outv_final]"
+        filter_complex += f";[outv]{subtitle_filter}[outv_final]"
     video_map = "[outv_final]"
 
     codec_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k"]

@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services.video_editor import export_stream_copy, export_reencode, export_reencode_with_subs
+from services.video_editor import export_stream_copy, export_reencode, export_reencode_with_subs, supports_ass_subtitles
 from services.audio_cleaner import clean_audio
 from services.caption_generator import generate_srt, generate_ass, save_captions
 from services.background_removal import remove_background_on_export
@@ -173,7 +173,18 @@ def run_export(req: ExportRequest, progress_callback=None):
             raise ValueError("No segments to export")
 
         use_stream_copy = req.mode == "fast" and len(segments) == 1
-        needs_reencode_for_subs = req.captions == "burn-in"
+        words_dicts = [w.model_dump() for w in req.words] if req.words else []
+        deleted_set = set(req.deleted_indices or [])
+        muted_ranges = [{"start": r.start, "end": r.end, "kind": r.kind} for r in req.muted_ranges]
+        effective_captions = req.captions
+        if req.captions == "burn-in" and words_dicts and not supports_ass_subtitles():
+            effective_captions = "sidecar"
+            warnings.append(
+                "Burn-in captions are unavailable because this FFmpeg build does not include the ASS subtitle filter. "
+                "The clip was exported with a sidecar .srt caption file instead."
+            )
+
+        needs_reencode_for_subs = effective_captions == "burn-in"
         needs_reencode_for_aspect = req.aspectRatio != "source"
         needs_reencode_for_mutes = bool(req.muted_ranges)
 
@@ -181,13 +192,9 @@ def run_export(req: ExportRequest, progress_callback=None):
         if needs_reencode_for_subs or needs_reencode_for_aspect or needs_reencode_for_mutes:
             use_stream_copy = False
 
-        words_dicts = [w.model_dump() for w in req.words] if req.words else []
-        deleted_set = set(req.deleted_indices or [])
-        muted_ranges = [{"start": r.start, "end": r.end, "kind": r.kind} for r in req.muted_ranges]
-
         # Generate ASS file for burn-in
         ass_path = None
-        if req.captions == "burn-in" and words_dicts:
+        if effective_captions == "burn-in" and words_dicts:
             progress(15, "Generating captions")
             caption_style = req.captionStyle.model_dump() if req.captionStyle else None
             words_per_line = req.captionStyle.wordsPerLine if req.captionStyle else 8
@@ -287,7 +294,7 @@ def run_export(req: ExportRequest, progress_callback=None):
 
         # Sidecar SRT: generate and save alongside video
         srt_path = None
-        if req.captions == "sidecar" and words_dicts:
+        if effective_captions == "sidecar" and words_dicts:
             progress(88, "Writing sidecar captions")
             words_per_line = req.captionStyle.wordsPerLine if req.captionStyle else 8
             srt_content = generate_srt(words_dicts, deleted_set, words_per_line=words_per_line)

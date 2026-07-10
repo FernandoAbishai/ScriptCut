@@ -921,12 +921,13 @@ function FirstRunChecklist({
     },
     checks?.python,
     checks?.ffmpeg,
+    checks?.captions,
     checks?.transcription,
     checks?.audio,
     checks?.background,
   ].filter(Boolean) as SystemCheck[];
   const requiredReady = rows
-    .filter((row) => row.label !== 'Background removal')
+    .filter((row) => row.label !== 'Background removal' && row.label !== 'Burn-in captions')
     .every((row) => row.ok);
   const [copiedCommand, setCopiedCommand] = useState('');
 
@@ -969,7 +970,7 @@ function FirstRunChecklist({
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {rows.map((row) => {
           const guidance = getSetupGuidance(row);
-          const optional = row.label === 'Background removal';
+          const optional = row.label === 'Background removal' || row.label === 'Burn-in captions';
           return (
             <div
               key={row.label}
@@ -1054,6 +1055,12 @@ function getSetupGuidance(row: SystemCheck) {
       command: 'brew install ffmpeg',
       link: RELEASE_LINKS.latestRelease,
       linkLabel: 'Get desktop release',
+    };
+  }
+
+  if (row.label === 'Burn-in captions') {
+    return {
+      message: 'This FFmpeg build exports an .srt caption file. Use an FFmpeg build with libass to burn captions directly into video.',
     };
   }
 

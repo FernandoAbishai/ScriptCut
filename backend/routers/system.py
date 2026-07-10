@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from services.audio_cleaner import is_deepfilter_available
 from services.background_removal import capabilities as background_capabilities
+from services.video_editor import supports_ass_subtitles
 from utils.ffmpeg import find_ffmpeg
 
 router = APIRouter()
@@ -69,6 +70,11 @@ async def system_checks():
                 "detail": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             },
             "ffmpeg": _ffmpeg_status(),
+            "captions": {
+                "ok": supports_ass_subtitles(),
+                "label": "Burn-in captions",
+                "detail": "ASS subtitle rendering ready" if supports_ass_subtitles() else "Optional: install an FFmpeg build with libass for burn-in captions. Exports will include an .srt caption file instead.",
+            },
             "transcription": {
                 "ok": bool(default_engine),
                 "label": "Transcription",

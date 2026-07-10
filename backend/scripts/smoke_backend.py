@@ -71,6 +71,42 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIn("three", captured["content"])
         self.assertEqual(captured["content"].count("-->"), 2)
 
+    def test_burn_in_caption_falls_back_to_sidecar_without_ass_filter(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_reencode(input_path, output_path, segments, **_kwargs):
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        def fake_save_captions(content: str, output_path: str):
+            captured["content"] = content
+            Path(output_path).write_text(content, encoding="utf-8")
+            return output_path
+
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            output_path = str(Path(tmp) / "clip.mp4")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=output_path,
+                keep_segments=[export_router.SegmentModel(start=0, end=4)],
+                aspectRatio="vertical",
+                captions="burn-in",
+                words=[export_router.ExportWordModel(word="caption", start=0, end=0.5)],
+            )
+
+            with (
+                patch.object(export_router, "supports_ass_subtitles", return_value=False),
+                patch.object(export_router, "export_reencode", fake_reencode),
+                patch.object(export_router, "save_captions", fake_save_captions),
+            ):
+                result = export_router.run_export(request)
+
+        self.assertTrue(result["srt_path"].endswith(".srt"))
+        self.assertIn("Burn-in captions are unavailable", result["warnings"][0])
+        self.assertIn("caption", captured["content"])
+
     def test_export_without_output_path_uses_backend_temp_file(self) -> None:
         captured: dict[str, str] = {}
 
@@ -160,6 +196,36 @@ class BackendSmokeTests(unittest.TestCase):
         command_text = " ".join(captured["cmd"])
         self.assertNotIn("[outa]", command_text)
         self.assertIn("concat=n=1:v=1:a=0[outv]", command_text)
+
+    def test_subtitle_export_uses_explicit_ass_filename_option(self) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def fake_run_ffmpeg(cmd, progress_callback=None):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with TemporaryDirectory() as tmp:
+            input_path = str(Path(tmp) / "input.mp4")
+            output_path = str(Path(tmp) / "output.mp4")
+            subtitle_path = str(Path(tmp) / "captions.ass")
+            Path(input_path).write_text("placeholder", encoding="utf-8")
+            Path(subtitle_path).write_text("[Script Info]", encoding="utf-8")
+
+            with (
+                patch.object(video_editor, "_find_ffmpeg", return_value="ffmpeg"),
+                patch.object(video_editor, "_has_audio_stream", return_value=False),
+                patch.object(video_editor, "_run_ffmpeg", fake_run_ffmpeg),
+            ):
+                video_editor.export_reencode_with_subs(
+                    input_path,
+                    output_path,
+                    [{"start": 0, "end": 2}],
+                    subtitle_path,
+                )
+
+        filter_complex = captured["cmd"][captured["cmd"].index("-filter_complex") + 1]
+        self.assertIn("ass=filename='", filter_complex)
+        self.assertNotIn("ass='/", filter_complex)
 
     def test_captions_hide_deleted_words(self) -> None:
         srt = generate_srt(

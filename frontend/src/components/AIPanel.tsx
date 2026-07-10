@@ -45,7 +45,7 @@ type ExportJob = {
   progress: number;
   message: string;
   logs?: Array<{ time: string; message: string }>;
-  result?: { output_path?: string; srt_path?: string };
+  result?: { output_path?: string; srt_path?: string; warnings?: string[] };
   error?: string;
 };
 
@@ -785,6 +785,7 @@ export default function AIPanel() {
           return {
             outputPath: job.result?.output_path || '',
             srtPath: job.result?.srt_path,
+            warnings: job.result?.warnings || [],
           };
         }
         if (job.status === 'failed' || job.status === 'canceled') {
@@ -885,7 +886,7 @@ export default function AIPanel() {
         if (!silent) {
           alert(
             output.srtPath
-              ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}`
+              ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}${output.warnings.length ? `\n\n${output.warnings.join('\n')}` : ''}`
               : `Clip exported to: ${output.outputPath}`,
           );
         }
@@ -951,7 +952,7 @@ export default function AIPanel() {
         });
         alert(
           output.srtPath
-            ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}`
+            ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}${output.warnings.length ? `\n\n${output.warnings.join('\n')}` : ''}`
             : `Clip exported to: ${output.outputPath}`,
         );
       } catch (err) {
