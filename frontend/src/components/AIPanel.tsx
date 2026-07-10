@@ -5,6 +5,8 @@ import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw,
 import type { CaptionStyle, ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
   getClipDraftReadinessScore,
+  buildClipExportCaptionWords,
+  getClipExportSegments,
   getClipTranscript,
   getWordIndicesForClip,
   normalizeClipDraftRange,
@@ -799,23 +801,33 @@ export default function AIPanel() {
       settings?: Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'id' | 'exportDirectory'>,
       silent = false,
     ) => {
-      if (!videoPath) return;
       try {
-        const format = settings?.format ?? 'mp4';
-        const aspectRatio = settings?.aspectRatio ?? 'source';
-        const captions = settings?.captions ?? 'none';
-        const outputDirectory = settings?.exportDirectory || clipExportDirectory || getPathDirectory(videoPath);
-        const outputPath = buildClipOutputPath(outputDirectory, clip.title, format, settings?.id);
-        const clipWords = buildClipCaptionWords(words, clip.startWordIndex, clip.endWordIndex, clip.startTime);
-        const captionHidden = new Set(getCaptionHiddenIndices());
-        const deletedSet = new Set<number>();
-        for (const range of deletedRanges) {
-          for (const index of range.wordIndices) deletedSet.add(index);
+        if (!videoPath) throw new Error('Load a video before exporting a clip.');
+        const clipWordIndices = getWordIndicesForClip(words, clip);
+        if (clipWordIndices.length === 0) throw new Error('This clip has no transcript range to export.');
+        if (!Number.isFinite(clip.startTime) || !Number.isFinite(clip.endTime) || clip.endTime - clip.startTime < 0.25) {
+          throw new Error('Set a clip range of at least 0.25 seconds before exporting.');
         }
-        const deletedClipIndices = clipWords
-          .map((_, localIndex) => clip.startWordIndex + localIndex)
-          .map((globalIndex, localIndex) => (deletedSet.has(globalIndex) || captionHidden.has(globalIndex) ? localIndex : -1))
-          .filter((index) => index >= 0);
+        if (settings?.id) {
+          const validation = validateClipDraftForExport(settings as ClipDraft, words, videoPath);
+          if (!validation.ready) throw new Error(validation.reasons.join('\n'));
+        }
+
+        const format = settings?.format ?? 'mp4';
+        const aspectRatio = settings?.aspectRatio ?? SHORTS_DRAFT_DEFAULTS.aspectRatio;
+        const captions = settings?.captions ?? SHORTS_DRAFT_DEFAULTS.captions;
+        const outputDirectory = settings?.exportDirectory || clipExportDirectory || getPathDirectory(videoPath);
+        if (!outputDirectory) throw new Error('Choose an export folder before exporting this clip.');
+        const outputPath = buildClipOutputPath(outputDirectory, clip.title, format, settings?.id);
+        const captionHidden = new Set(getCaptionHiddenIndices());
+        const keepSegments = getClipExportSegments(clip, deletedRanges);
+        if (keepSegments.length === 0) {
+          throw new Error('Every part of this clip has been removed in the transcript. Restore content or adjust the clip range.');
+        }
+        const clipWords = buildClipExportCaptionWords(words, clip, keepSegments, captionHidden);
+        const mutedRanges = getMutedRanges().filter(
+          (range) => range.end > clip.startTime && range.start < clip.endTime,
+        );
 
         const res = await fetch(`${backendUrl}/jobs/export`, {
           method: 'POST',
@@ -823,22 +835,30 @@ export default function AIPanel() {
           body: JSON.stringify({
             input_path: videoPath,
             output_path: outputPath,
-            keep_segments: [{ start: clip.startTime, end: clip.endTime }],
-            mode: aspectRatio === 'source' && format === 'mp4' && captions !== 'burn-in' ? 'fast' : 'reencode',
+            keep_segments: keepSegments,
+            mode: keepSegments.length === 1 && aspectRatio === 'source' && format === 'mp4' && captions !== 'burn-in' ? 'fast' : 'reencode',
             resolution: settings?.resolution ?? '1080p',
             aspectRatio,
-            reframe: settings?.reframe,
+            reframe: settings?.reframe ?? (aspectRatio === 'vertical' ? SHORTS_DRAFT_DEFAULTS.reframe : undefined),
             format,
             enhanceAudio: !!settings?.enhanceAudio,
             captions,
-            captionStyle: captions === 'burn-in' ? settings?.captionStyle : undefined,
+            captionStyle: captions === 'burn-in' ? settings?.captionStyle ?? SHORTS_DRAFT_DEFAULTS.captionStyle : undefined,
             words: captions !== 'none' ? clipWords : undefined,
-            deleted_indices: captions !== 'none' ? deletedClipIndices : undefined,
-            muted_ranges: getMutedRanges(),
+            muted_ranges: mutedRanges,
             backgroundRemoval: settings?.backgroundRemoval?.enabled ? settings.backgroundRemoval : undefined,
           }),
         });
-        if (!res.ok) throw new Error('Export start failed');
+        if (!res.ok) {
+          let detail = `Export could not start (${res.status}).`;
+          try {
+            const body = await res.json() as { detail?: unknown };
+            if (typeof body.detail === 'string') detail = body.detail;
+          } catch {
+            // Keep the HTTP status when the backend cannot return a JSON error.
+          }
+          throw new Error(detail);
+        }
         const { job_id: jobId } = await res.json();
         if (settings?.id) {
           updateClipDraft(settings.id, { status: 'exporting', lastError: undefined });
@@ -877,7 +897,7 @@ export default function AIPanel() {
           updateClipDraft(settings.id, { status: 'failed', lastError: message });
         }
         if (!silent && !message.toLowerCase().includes('canceled')) {
-          alert('Failed to export clip. Check console for details.');
+          alert(`Failed to export clip.\n\n${message}`);
         }
         throw err;
       } finally {
@@ -2730,14 +2750,6 @@ function getFileNameFromPath(path: string, fallback: string) {
 
 function isPreviewAspectRatio(value: unknown): value is ClipDraft['aspectRatio'] {
   return value === 'source' || value === 'vertical' || value === 'square';
-}
-
-function buildClipCaptionWords(words: Word[], startIndex: number, endIndex: number, clipStartTime: number) {
-  return words.slice(startIndex, endIndex + 1).map((word) => ({
-    ...word,
-    start: Math.max(0, word.start - clipStartTime),
-    end: Math.max(0, word.end - clipStartTime),
-  }));
 }
 
 function isEditSuggestionAlreadyCut(suggestion: EditPlanSuggestion, deletedWordMap: Map<number, string>) {

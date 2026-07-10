@@ -1,4 +1,4 @@
-import type { ClipDraft, ClipSuggestion, Word } from '../types/project';
+import type { ClipDraft, ClipSuggestion, DeletedRange, Word } from '../types/project';
 
 export type ClipDraftExportValidation = {
   ready: boolean;
@@ -9,6 +9,11 @@ export type ClipDraftReadinessScore = {
   score: number;
   label: string;
   reasons: string[];
+};
+
+export type ClipExportSegment = {
+  start: number;
+  end: number;
 };
 
 export function findWordIndexAtOrAfter(words: Word[], time: number) {
@@ -91,6 +96,84 @@ export function validateClipDraftForExport(
     ready: reasons.length === 0,
     reasons,
   };
+}
+
+/**
+ * Returns the source segments that remain after applying transcript cuts to a
+ * clip. The renderer concatenates these segments, so clips stay faithful to
+ * the edited main timeline instead of exporting the untouched source range.
+ */
+export function getClipExportSegments(
+  clip: Pick<ClipSuggestion, 'startTime' | 'endTime'>,
+  deletedRanges: DeletedRange[],
+): ClipExportSegment[] {
+  const clipStart = Math.max(0, clip.startTime);
+  const clipEnd = Math.max(clipStart, clip.endTime);
+  if (clipEnd - clipStart < 0.001) return [];
+
+  const cuts = deletedRanges
+    .map((range) => ({
+      start: Math.max(clipStart, range.start),
+      end: Math.min(clipEnd, range.end),
+    }))
+    .filter((range) => range.end - range.start > 0.001)
+    .sort((left, right) => left.start - right.start)
+    .reduce<ClipExportSegment[]>((merged, range) => {
+      const previous = merged[merged.length - 1];
+      if (previous && range.start <= previous.end) {
+        previous.end = Math.max(previous.end, range.end);
+      } else {
+        merged.push(range);
+      }
+      return merged;
+    }, []);
+
+  const kept: ClipExportSegment[] = [];
+  let cursor = clipStart;
+  for (const cut of cuts) {
+    if (cut.start - cursor > 0.001) kept.push({ start: cursor, end: cut.start });
+    cursor = Math.max(cursor, cut.end);
+  }
+  if (clipEnd - cursor > 0.001) kept.push({ start: cursor, end: clipEnd });
+  return kept;
+}
+
+/**
+ * Re-times transcript words to the concatenated clip timeline. Caption words
+ * hidden in the editor are removed here; deleted words disappear with their
+ * source segment rather than being shown at stale source timestamps.
+ */
+export function buildClipExportCaptionWords(
+  words: Word[],
+  clip: Pick<ClipSuggestion, 'startWordIndex' | 'endWordIndex'>,
+  segments: ClipExportSegment[],
+  hiddenIndices: Set<number> = new Set(),
+): Word[] {
+  const indices = getWordIndicesForClip(words, clip);
+  const result: Word[] = [];
+  let outputOffset = 0;
+
+  for (const segment of segments) {
+    for (const index of indices) {
+      if (hiddenIndices.has(index)) continue;
+      const word = words[index];
+      if (!word) continue;
+      const start = Math.max(word.start, segment.start);
+      const end = Math.min(word.end, segment.end);
+      if (end - start <= 0.001) continue;
+      result.push({
+        ...word,
+        start: roundExportTime(outputOffset + start - segment.start),
+        end: roundExportTime(outputOffset + end - segment.start),
+      });
+    }
+    outputOffset += segment.end - segment.start;
+  }
+  return result;
+}
+
+function roundExportTime(value: number) {
+  return Math.round(value * 1000) / 1000;
 }
 
 export function getClipDraftReadinessScore(
