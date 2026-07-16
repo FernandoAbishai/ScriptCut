@@ -247,7 +247,7 @@ function main() {
     console.log(`Artifact: ${path.relative(root, artifact)}`);
   }
   console.log('\nDraft the GitHub release with:');
-  console.log(`gh release create ${tag} --draft --prerelease --title "ScriptCut ${tag}" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)} ${path.relative(root, manifestPath)}`);
+  console.log(`gh release create ${tag} --draft --title "ScriptCut ${tag}" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)} ${path.relative(root, manifestPath)}`);
 }
 
 main();

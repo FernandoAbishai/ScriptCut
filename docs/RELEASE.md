@@ -142,6 +142,8 @@ Attach:
 
 After `npm run release:alpha`, the script prints a `gh release create ... --draft` command using the active release tag. Review the generated release notes before publishing.
 
+Publish a verified public alpha as the repository's latest release, even though its title includes `alpha`. ScriptCut's in-app and README download links use `/releases/latest`; leave the alpha warning in the title and release notes rather than marking the release as a GitHub prerelease.
+
 ## Signing And Notarization
 
 The alpha release flow can prepare a draft DMG without Apple credentials, but public macOS distribution should be signed and notarized.
