@@ -31,8 +31,8 @@ import {
   FileInput,
   Save,
   AlertTriangle,
-  Upload,
   FileVideo,
+  Smartphone,
   CheckCircle,
   RefreshCw,
   Copy,
@@ -46,6 +46,7 @@ const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
 
 type Panel = 'ai' | 'settings' | 'export' | null;
+type WorkflowIntent = 'full-video' | 'short';
 type TranscriptionEngine = 'auto' | 'whisperx' | 'whisper' | 'parakeet';
 type TranscriptionEngineStatus = {
   default_engine?: TranscriptionEngine | null;
@@ -114,12 +115,14 @@ export default function App() {
     setBackendUrl,
     setTranscription,
     setTranscribing,
+    setExportOptions,
+    setPreviewAspectRatio,
     backendUrl,
   } = useEditorStore();
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('parakeet');
+  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
   const [transcriptionModel, setTranscriptionModel] = useState('nvidia/parakeet-tdt-0.6b-v3');
   const [transcriptionEngineStatus, setTranscriptionEngineStatus] = useState<TranscriptionEngineStatus | null>(null);
   const [transcriptionMessage, setTranscriptionMessage] = useState('');
@@ -129,6 +132,7 @@ export default function App() {
   const [browserUploadName, setBrowserUploadName] = useState('');
   const [browserUploadError, setBrowserUploadError] = useState('');
   const [isBrowserUploading, setIsBrowserUploading] = useState(false);
+  const [browserWorkflowIntent, setBrowserWorkflowIntent] = useState<WorkflowIntent>('full-video');
   const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
   const [recoveryError, setRecoveryError] = useState('');
@@ -291,7 +295,48 @@ export default function App() {
     }
   };
 
-  const handleOpenFile = async () => {
+  const applyWorkflowIntent = useCallback((intent: WorkflowIntent) => {
+    if (intent === 'short') {
+      setPreviewAspectRatio('vertical');
+      setExportOptions((current) => ({
+        ...current,
+        preset: 'youtube-shorts',
+        mode: 'reencode',
+        resolution: '1080p',
+        aspectRatio: 'vertical',
+        reframe: current.reframe || { x: 50, y: 50 },
+        format: 'mp4',
+        enhanceAudio: false,
+        captions: 'burn-in',
+        captionStyle: {
+          preset: 'creator',
+          fontName: current.captionStyle?.fontName || 'Arial',
+          fontSize: 58,
+          fontColor: current.captionStyle?.fontColor || '#ffffff',
+          backgroundColor: '#111827',
+          position: current.captionStyle?.position || 'bottom',
+          bold: current.captionStyle?.bold ?? true,
+          highlightColor: current.captionStyle?.highlightColor || '#facc15',
+          wordsPerLine: 5,
+          animation: 'pop',
+        },
+      }));
+      return;
+    }
+
+    setPreviewAspectRatio('source');
+    setExportOptions((current) => ({
+      ...current,
+      preset: 'source',
+      mode: 'fast',
+      aspectRatio: 'source',
+      captions: 'none',
+      enhanceAudio: false,
+    }));
+  }, [setExportOptions, setPreviewAspectRatio]);
+
+  const handleOpenFile = async (intent: WorkflowIntent = 'full-video') => {
+    applyWorkflowIntent(intent);
     if (IS_ELECTRON) {
       const path = await window.electronAPI!.openFile();
       if (path) {
@@ -299,9 +344,10 @@ export default function App() {
         if (restored) return;
 
         loadVideo(path);
-        await transcribeVideo(path);
+        await transcribeVideo(path, intent);
       }
     } else {
+      setBrowserWorkflowIntent(intent);
       fileInputRef.current?.click();
     }
   };
@@ -310,17 +356,18 @@ export default function App() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    await uploadBrowserFile(file);
+    await uploadBrowserFile(file, browserWorkflowIntent);
   };
 
   const handleBrowserDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
-    await uploadBrowserFile(file);
+    applyWorkflowIntent('full-video');
+    await uploadBrowserFile(file, 'full-video');
   };
 
-  const uploadBrowserFile = async (file: File) => {
+  const uploadBrowserFile = async (file: File, intent: WorkflowIntent) => {
     setBrowserUploadName(file.name);
     setBrowserUploadError('');
     setTranscriptionError('');
@@ -347,7 +394,7 @@ export default function App() {
 
       const data = (await res.json()) as { path: string; filename: string; size: number };
       loadVideo(data.path);
-      await transcribeVideo(data.path);
+      await transcribeVideo(data.path, intent);
     } catch (err) {
       console.error('Browser upload error:', err);
       setBrowserUploadError(err instanceof Error ? err.message : String(err));
@@ -380,7 +427,7 @@ export default function App() {
     return false;
   };
 
-  const transcribeVideo = async (path: string) => {
+  const transcribeVideo = async (path: string, intent?: WorkflowIntent) => {
     setTranscribing(true, 0);
     setTranscriptionMessage('Starting transcription');
     setTranscriptionError('');
@@ -406,6 +453,7 @@ export default function App() {
       setLastTranscriptionJobId(jobId);
       const data = await pollTranscriptionJob(jobId);
       setTranscription(data);
+      if (intent) setActivePanel(intent === 'short' ? 'ai' : 'export');
     } catch (err) {
       console.error('Transcription error:', err);
       const message = err instanceof Error ? err.message : String(err);
@@ -527,52 +575,43 @@ export default function App() {
           />
         )}
 
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <label className="text-xs text-editor-text-muted whitespace-nowrap">Transcription engine:</label>
-          <select
-            value={transcriptionEngine}
-            onChange={(e) => {
-              const engine = e.target.value as TranscriptionEngine;
-              setTranscriptionEngine(engine);
-              setTranscriptionModel(TRANSCRIPTION_MODELS[engine][0].value);
-            }}
-            className="px-3 py-1.5 bg-editor-surface border border-editor-border rounded-lg text-xs text-editor-text focus:outline-none focus:border-editor-accent"
-          >
-            <option value="auto">Auto best available</option>
-            <option value="parakeet">Parakeet TDT v3 multilingual</option>
-            <option value="whisperx">WhisperX aligned</option>
-            <option value="whisper">Whisper fallback</option>
-          </select>
-          <select
-            value={transcriptionModel}
-            onChange={(e) => setTranscriptionModel(e.target.value)}
-            className="px-3 py-1.5 bg-editor-surface border border-editor-border rounded-lg text-xs text-editor-text focus:outline-none focus:border-editor-accent"
-          >
-            {TRANSCRIPTION_MODELS[transcriptionEngine].map((model) => (
-              <option key={model.value} value={model.value}>
-                {model.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="max-w-xl rounded border border-editor-border bg-editor-surface px-3 py-2 text-center text-[11px] text-editor-text-muted">
-          {transcriptionEngine === 'parakeet' ? (
-            transcriptionEngineStatus?.engines?.parakeet?.available ? (
-              <span>Parakeet TDT v3 ready - fast multilingual transcription with word timestamps.</span>
-            ) : (
-              <span>
-                Parakeet TDT v3 selected. Install locally with{' '}
-                <code className="rounded bg-editor-bg px-1">pip install -U nemo_toolkit['asr']</code>, or choose Auto/Whisper.
-              </span>
-            )
-          ) : transcriptionEngine === 'auto' ? (
-            <span>
-              Auto uses Parakeet when available, then falls back to WhisperX or Whisper.
-            </span>
-          ) : (
-            <span>{TRANSCRIPTION_MODELS[transcriptionEngine][0]?.label || 'Transcription engine selected'}.</span>
-          )}
-        </div>
+        <details className="w-full max-w-md rounded border border-editor-border bg-editor-surface px-3 py-2 text-xs text-editor-text-muted">
+          <summary className="cursor-pointer text-center text-[11px]">Transcription settings</summary>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <select
+              value={transcriptionEngine}
+              onChange={(e) => {
+                const engine = e.target.value as TranscriptionEngine;
+                setTranscriptionEngine(engine);
+                setTranscriptionModel(TRANSCRIPTION_MODELS[engine][0].value);
+              }}
+              className="px-3 py-1.5 bg-editor-bg border border-editor-border rounded-md text-xs text-editor-text focus:outline-none focus:border-editor-accent"
+            >
+              <option value="auto">Auto best available</option>
+              <option value="parakeet">Parakeet TDT v3 multilingual</option>
+              <option value="whisperx">WhisperX aligned</option>
+              <option value="whisper">Whisper fallback</option>
+            </select>
+            <select
+              value={transcriptionModel}
+              onChange={(e) => setTranscriptionModel(e.target.value)}
+              className="px-3 py-1.5 bg-editor-bg border border-editor-border rounded-md text-xs text-editor-text focus:outline-none focus:border-editor-accent"
+            >
+              {TRANSCRIPTION_MODELS[transcriptionEngine].map((model) => (
+                <option key={model.value} value={model.value}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="mt-2 text-center text-[10px] leading-4">
+            {transcriptionEngine === 'parakeet' && !transcriptionEngineStatus?.engines?.parakeet?.available
+              ? 'Parakeet needs its optional local package. Auto will choose the best available engine instead.'
+              : transcriptionEngine === 'auto'
+                ? 'Auto uses the best available local transcription engine.'
+                : `${TRANSCRIPTION_MODELS[transcriptionEngine][0]?.label || 'Selected transcription engine'}.`}
+          </p>
+        </details>
 
         {IS_ELECTRON ? (
           <div className="flex flex-col items-center gap-3">
@@ -640,13 +679,21 @@ export default function App() {
                 </div>
               </div>
             )}
-            <button
-              onClick={handleOpenFile}
-              className="flex items-center gap-2 px-6 py-3 bg-editor-accent hover:bg-editor-accent-hover rounded-lg text-white font-medium transition-colors"
-            >
-              <FolderOpen className="w-5 h-5" />
-              Open Video File
-            </button>
+            <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
+              <StartWorkflowButton
+                icon={<FileVideo className="h-4 w-4" />}
+                title="Edit full video"
+                detail="Trim the transcript, then export"
+                onClick={() => void handleOpenFile('full-video')}
+              />
+              <StartWorkflowButton
+                icon={<Smartphone className="h-4 w-4" />}
+                title="Create a short"
+                detail="9:16 output with creator captions"
+                onClick={() => void handleOpenFile('short')}
+                primary
+              />
+            </div>
             <button
               onClick={handleLoadProject}
               className="flex items-center gap-2 px-4 py-2 text-sm text-editor-text-muted hover:text-editor-text hover:bg-editor-surface rounded-lg transition-colors"
@@ -673,15 +720,23 @@ export default function App() {
                   Pick a file from your folders or drop it here. ScriptCut uploads it to the local backend before transcription.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isBrowserUploading}
-                className="flex items-center gap-2 rounded bg-editor-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-editor-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isBrowserUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Browse files
-              </button>
+              <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
+                <StartWorkflowButton
+                  icon={isBrowserUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileVideo className="h-4 w-4" />}
+                  title="Edit full video"
+                  detail="Choose a file from your folders"
+                  onClick={() => void handleOpenFile('full-video')}
+                  disabled={isBrowserUploading}
+                />
+                <StartWorkflowButton
+                  icon={<Smartphone className="h-4 w-4" />}
+                  title="Create a short"
+                  detail="Set up vertical output immediately"
+                  onClick={() => void handleOpenFile('short')}
+                  disabled={isBrowserUploading}
+                  primary
+                />
+              </div>
               {browserUploadName && (
                 <div className="max-w-full truncate text-[11px] text-editor-text-muted">
                   {isBrowserUploading ? 'Uploading' : 'Last selected'}: {browserUploadName}
@@ -1150,6 +1205,41 @@ function ToolbarButton({
     >
       {icon}
       {label}
+    </button>
+  );
+}
+
+function StartWorkflowButton({
+  icon,
+  title,
+  detail,
+  onClick,
+  primary = false,
+  disabled = false,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex min-h-20 items-start gap-2 rounded-md border px-3 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        primary
+          ? 'border-editor-accent bg-editor-accent text-white hover:bg-editor-accent-hover'
+          : 'border-editor-border bg-editor-surface text-editor-text hover:border-editor-accent/60 hover:bg-editor-bg'
+      }`}
+    >
+      <span className={`mt-0.5 ${primary ? 'text-white' : 'text-editor-accent'}`}>{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className={`mt-0.5 block text-[10px] leading-4 ${primary ? 'text-white/80' : 'text-editor-text-muted'}`}>{detail}</span>
+      </span>
     </button>
   );
 }
