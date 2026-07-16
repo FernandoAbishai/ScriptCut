@@ -63,6 +63,31 @@ class JobManager:
             job = self._jobs.get(job_id)
             return self._public_job(job) if job else None
 
+    def recent(self, *, kind: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
+        """Return a small, support-safe summary of recent jobs."""
+        with self._lock:
+            self._prune_locked()
+            jobs = [
+                job
+                for job in self._jobs.values()
+                if kind is None or job.get("kind") == kind
+            ]
+            jobs.sort(key=lambda job: job.get("updatedAt") or "", reverse=True)
+            return [
+                {
+                    "id": job["id"],
+                    "kind": job.get("kind"),
+                    "attempt": job.get("attempt"),
+                    "status": job.get("status"),
+                    "progress": job.get("progress"),
+                    "message": job.get("message"),
+                    "error": job.get("error"),
+                    "updatedAt": job.get("updatedAt"),
+                    "logs": list(job.get("logs") or [])[-12:],
+                }
+                for job in jobs[: max(1, min(limit, 10))]
+            ]
+
     def retry(self, job_id: str) -> str | None:
         with self._lock:
             self._prune_locked()

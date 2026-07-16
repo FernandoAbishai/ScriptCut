@@ -306,6 +306,46 @@ class BackendSmokeTests(unittest.TestCase):
             self.assertIn("ok", result["checks"][key])
             self.assertIn("detail", result["checks"][key])
 
+    def test_system_diagnostics_is_report_safe(self) -> None:
+        import asyncio
+
+        with (
+            patch.object(
+                system_router,
+                "_ffmpeg_status",
+                return_value={
+                    "ok": True,
+                    "detail": "System: /Users/fernando/bin/ffmpeg",
+                },
+            ),
+            patch.object(system_router, "supports_ass_subtitles", return_value=False),
+        ):
+            result = asyncio.run(system_router.system_diagnostics())
+
+        self.assertEqual(result["backend"]["status"], "ready")
+        self.assertEqual(result["ffmpeg"]["version"], "available")
+        self.assertEqual(result["ffmpeg"]["captionFallback"], "sidecar-srt")
+        self.assertNotIn("/Users/fernando", str(result))
+
+    def test_recent_jobs_filters_and_bounds_logs(self) -> None:
+        manager = JobManager()
+
+        def target(progress):
+            for index in range(16):
+                progress(index * 6, f"progress {index}")
+
+        export_job_id = manager.create("export", target)
+        manager.create("transcribe", target)
+        time.sleep(0.08)
+
+        jobs = manager.recent(kind="export", limit=1)
+
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["id"], export_job_id)
+        self.assertEqual(jobs[0]["kind"], "export")
+        self.assertLessEqual(len(jobs[0]["logs"]), 12)
+        self.assertNotIn("_target", jobs[0])
+
     def _load_transcription_service_or_skip(self):
         try:
             from services import transcription

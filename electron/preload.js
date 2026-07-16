@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openProject: () => ipcRenderer.invoke('dialog:openProject'),
   getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
   getStartupStatus: () => ipcRenderer.invoke('app:getStartupStatus'),
+  getAppInfo: () => ipcRenderer.invoke('app:getInfo'),
   quit: () => ipcRenderer.invoke('app:quit'),
   encryptString: (data) => ipcRenderer.invoke('safe-storage:encrypt', data),
   decryptString: (encrypted) => ipcRenderer.invoke('safe-storage:decrypt', encrypted),

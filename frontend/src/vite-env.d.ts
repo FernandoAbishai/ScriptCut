@@ -7,6 +7,13 @@ interface ElectronAPI {
   openProject: () => Promise<string | null>;
   getBackendUrl: () => Promise<string>;
   getStartupStatus: () => Promise<{ backendError: string }>;
+  getAppInfo: () => Promise<{
+    version: string;
+    platform: string;
+    arch: string;
+    packaged: boolean;
+    electron: string;
+  }>;
   quit: () => Promise<boolean>;
   encryptString: (data: string) => Promise<string>;
   decryptString: (encrypted: string) => Promise<string>;

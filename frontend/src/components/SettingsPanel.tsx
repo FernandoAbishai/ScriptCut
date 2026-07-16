@@ -4,6 +4,7 @@ import type { AIProvider } from '../types/project';
 import { useEditorStore } from '../store/editorStore';
 import { Bot, Cloud, Brain, RefreshCw, Route, ShieldCheck, Copy, CheckCircle2, AlertCircle, Download, ExternalLink, MonitorCheck } from 'lucide-react';
 import { RELEASE_LINKS, SCRIPTCUT_VERSION } from '../utils/releaseInfo';
+import { buildSupportReport } from '../utils/supportReport';
 
 const AI_PROVIDERS: AIProvider[] = ['ollama', 'openai', 'claude', '9router'];
 
@@ -24,6 +25,7 @@ export default function SettingsPanel() {
   const [ollamaStatus, setOllamaStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [nineRouterStatus, setNineRouterStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [copiedCommand, setCopiedCommand] = useState('');
+  const [supportReportStatus, setSupportReportStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
 
   const fetchOllamaModels = useCallback(async () => {
     setLoadingModels(true);
@@ -141,6 +143,37 @@ export default function SettingsPanel() {
     window.setTimeout(() => setCopiedCommand(''), 1500);
   }, []);
 
+  const copySupportReport = useCallback(async () => {
+    setSupportReportStatus('copying');
+    const getJson = async (path: string) => {
+      try {
+        const response = await fetch(`${backendUrl}${path}`);
+        return response.ok ? await response.json() : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+
+    try {
+      const [runtime, recentJobs, app] = await Promise.all([
+        getJson('/system/diagnostics'),
+        getJson('/jobs/recent?kind=export&limit=3'),
+        window.electronAPI?.getAppInfo?.().catch(() => undefined),
+      ]);
+      const report = buildSupportReport({
+        fallbackVersion: SCRIPTCUT_VERSION,
+        app,
+        runtime,
+        jobs: recentJobs?.jobs || [],
+      });
+      await navigator.clipboard.writeText(report);
+      setSupportReportStatus('copied');
+      window.setTimeout(() => setSupportReportStatus('idle'), 1800);
+    } catch {
+      setSupportReportStatus('error');
+    }
+  }, [backendUrl]);
+
   return (
     <div className="p-4 space-y-6">
       <h3 className="text-sm font-semibold">AI Settings</h3>
@@ -166,6 +199,30 @@ export default function SettingsPanel() {
           <ReleaseLink href={RELEASE_LINKS.troubleshooting} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Fix setup" />
           <ReleaseLink href={RELEASE_LINKS.issues} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Report issue" />
         </div>
+        <div className="flex items-center justify-between gap-2 rounded border border-editor-border bg-editor-bg px-2 py-2">
+          <span className="text-[10px] text-editor-text-muted">Copy a redacted support report before reporting an export issue.</span>
+          <div className="flex shrink-0 gap-1">
+            <button
+              onClick={copySupportReport}
+              disabled={supportReportStatus === 'copying'}
+              className="inline-flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface disabled:opacity-50"
+            >
+              {supportReportStatus === 'copied' ? <CheckCircle2 className="h-3 w-3 text-editor-success" /> : <Copy className="h-3 w-3" />}
+              {supportReportStatus === 'copying' ? 'Preparing' : supportReportStatus === 'copied' ? 'Copied' : 'Copy report'}
+            </button>
+            <a
+              href={RELEASE_LINKS.bugReport}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
+            >
+              <ExternalLink className="h-3 w-3" /> Bug form
+            </a>
+          </div>
+        </div>
+        {supportReportStatus === 'error' && (
+          <p className="text-[10px] text-editor-warning">Could not copy the report. Check clipboard permissions and try again.</p>
+        )}
       </div>
 
       <div className="space-y-2 rounded-lg border border-editor-border bg-editor-surface p-3">

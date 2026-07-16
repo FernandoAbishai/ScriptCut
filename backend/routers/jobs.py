@@ -1,6 +1,6 @@
 """Background job endpoints for long-running local operations."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from routers.ai import (
     ClipMetadataRequest,
@@ -53,6 +53,14 @@ async def create_clip_metadata_job(req: ClipMetadataRequest):
 async def create_edit_plan_job(req: EditPlanRequest):
     job_id = job_manager.create("ai:edit-plan", lambda progress: run_edit_plan(req, progress))
     return {"job_id": job_id}
+
+
+@router.get("/jobs/recent")
+async def get_recent_jobs(
+    kind: str | None = None,
+    limit: int = Query(default=3, ge=1, le=10),
+):
+    return {"jobs": job_manager.recent(kind=kind, limit=limit)}
 
 
 @router.get("/jobs/{job_id}")

@@ -209,6 +209,14 @@ ipcMain.handle('app:getStartupStatus', () => ({
   backendError: backendStartupError,
 }));
 
+ipcMain.handle('app:getInfo', () => ({
+  version: app.getVersion(),
+  platform: process.platform,
+  arch: process.arch,
+  packaged: app.isPackaged,
+  electron: process.versions.electron,
+}));
+
 ipcMain.handle('app:quit', () => {
   app.quit();
   return true;

@@ -1,6 +1,7 @@
 """System readiness checks for first-run onboarding."""
 
 import os
+import platform
 import subprocess
 import sys
 
@@ -51,6 +52,14 @@ def _transcription_status() -> dict:
         }
 
 
+def _diagnostic_ffmpeg_version(ffmpeg: dict) -> str:
+    """Return an FFmpeg version string without exposing a local executable path."""
+    if not ffmpeg.get("ok"):
+        return "not available"
+    detail = _first_line(str(ffmpeg.get("detail") or ""))
+    return detail if "ffmpeg version" in detail.lower() else "available"
+
+
 @router.get("/system/checks")
 async def system_checks():
     transcription = _transcription_status()
@@ -91,5 +100,27 @@ async def system_checks():
                 "label": "Background removal",
                 "detail": "Ready" if background.get("available") else "Optional: install MediaPipe and OpenCV",
             },
+        },
+    }
+
+
+@router.get("/system/diagnostics")
+async def system_diagnostics():
+    """Return runtime facts safe to include in a public support report."""
+    ffmpeg = _ffmpeg_status()
+    captions_available = supports_ass_subtitles() if ffmpeg["ok"] else False
+    return {
+        "backend": {"status": "ready"},
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+        },
+        "ffmpeg": {
+            "available": ffmpeg["ok"],
+            "version": _diagnostic_ffmpeg_version(ffmpeg),
+            "assSubtitles": captions_available,
+            "captionFallback": "burn-in" if captions_available else "sidecar-srt",
         },
     }
