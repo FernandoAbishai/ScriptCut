@@ -23,7 +23,6 @@ import {
   type RecentProject,
 } from './hooks/useProjectAutosave';
 import {
-  Film,
   FolderOpen,
   Settings,
   Sparkles,
@@ -502,8 +501,16 @@ export default function App() {
           </button>
         )}
         <div className="flex flex-col items-center gap-3">
-          <Film className="w-14 h-14 text-editor-accent opacity-80" />
-          <h1 className="text-3xl font-semibold tracking-tight">ScriptCut</h1>
+          <img
+            src="/brand/scriptcut-mark.svg"
+            alt=""
+            className="h-16 w-16"
+          />
+          <img
+            src="/brand/scriptcut-wordmark.svg"
+            alt="ScriptCut"
+            className="h-auto w-[220px] max-w-full"
+          />
           <p className="text-editor-text-muted text-sm max-w-sm text-center">
             Open-source text-based video editing powered by AI.
           </p>
@@ -709,7 +716,7 @@ export default function App() {
       {/* Top bar */}
       <header className="h-12 flex items-center justify-between px-4 border-b border-editor-border shrink-0">
         <div className="flex items-center gap-3">
-          <Film className="w-5 h-5 text-editor-accent" />
+          <img src="/brand/scriptcut-mark.svg" alt="ScriptCut" className="h-5 w-5" />
           <div className="min-w-0">
             <span className="block max-w-[300px] truncate text-sm font-medium">
               {videoPath.split(/[\\/]/).pop()}
