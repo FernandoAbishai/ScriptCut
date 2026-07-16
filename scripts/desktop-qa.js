@@ -36,6 +36,18 @@ function pythonArgs(args) {
   };
 }
 
+function packageEnvironment() {
+  const env = {
+    ...process.env,
+    ELECTRON_CACHE: path.join(root, '.cache', 'electron'),
+    ELECTRON_BUILDER_CACHE: path.join(root, '.cache', 'electron-builder'),
+  };
+  if (!env.CSC_LINK && !env.CSC_NAME && !env.CSC_IDENTITY_AUTO_DISCOVERY) {
+    env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+  }
+  return env;
+}
+
 const steps = [
   ['Environment doctor', 'npm', ['run', 'doctor']],
   ['Frontend lint', 'npm', ['run', 'lint']],
@@ -60,17 +72,13 @@ const compile = pythonArgs(['-m', 'compileall', '-q', 'backend']);
 runStep('Backend Python compile', compile.command, compile.args);
 
 if (includePackageBuild) {
-  const cacheRoot = path.join(root, '.cache');
-  const electronCache = path.join(cacheRoot, 'electron');
-  const electronBuilderCache = path.join(cacheRoot, 'electron-builder');
+  const packageEnv = packageEnvironment();
+  const electronCache = packageEnv.ELECTRON_CACHE;
+  const electronBuilderCache = packageEnv.ELECTRON_BUILDER_CACHE;
   fs.mkdirSync(electronCache, { recursive: true });
   fs.mkdirSync(electronBuilderCache, { recursive: true });
   runStep(`Electron unpacked ${buildArchitecture} app build`, 'npm', ['run', `dist:dir:${buildArchitecture}`], {
-    env: {
-      ...process.env,
-      ELECTRON_CACHE: electronCache,
-      ELECTRON_BUILDER_CACHE: electronBuilderCache,
-    },
+    env: packageEnv,
   });
   if (process.platform === 'darwin') {
     runStep('Packaged FFmpeg verification', 'node', ['scripts/check-packaged-ffmpeg.js', '--arch', buildArchitecture]);

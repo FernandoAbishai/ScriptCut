@@ -43,11 +43,16 @@ function ensureReleaseDirs() {
 }
 
 function releaseEnv() {
-  return {
+  const env = {
     ...process.env,
     ELECTRON_CACHE: electronCache,
     ELECTRON_BUILDER_CACHE: electronBuilderCache,
   };
+  if (!env.CSC_LINK && !env.CSC_NAME && !env.CSC_IDENTITY_AUTO_DISCOVERY) {
+    // Avoid accidentally selecting a local Apple Development certificate for an unsigned alpha.
+    env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+  }
+  return env;
 }
 
 function releaseArchitecture() {

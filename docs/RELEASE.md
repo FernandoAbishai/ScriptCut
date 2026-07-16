@@ -90,6 +90,8 @@ On an Apple Silicon Mac this produces and verifies an arm64 DMG. An Intel build 
 
 The command also runs `npm run release:trust`. Missing signing or notarization credentials are warnings for local alpha drafts, but should be resolved before publishing broadly.
 
+When no Developer ID credentials are configured, the alpha release flow deliberately disables Electron Builder's automatic certificate discovery. This prevents a random local Apple Development certificate from producing an inconsistent build. The resulting alpha is unsigned and is not a notarized public macOS release.
+
 Build a local macOS DMG:
 
 ```bash
