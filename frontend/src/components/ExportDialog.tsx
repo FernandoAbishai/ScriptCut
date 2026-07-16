@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { CaptionStyle, ExportOptions, ProjectExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
 
@@ -43,6 +43,24 @@ interface BackgroundCapabilities {
   opencv: boolean;
   rvm: boolean;
   replacements: string[];
+}
+
+interface SystemCheck {
+  ok: boolean;
+  label: string;
+  detail: string;
+}
+
+interface SystemChecksResponse {
+  checks?: Record<string, SystemCheck>;
+}
+
+type PreflightState = 'ready' | 'warning' | 'blocked';
+
+interface ExportPreflightItem {
+  label: string;
+  detail: string;
+  state: PreflightState;
 }
 
 const CAPTION_PRESETS: Record<CaptionPreset, CaptionStyle> = {
@@ -168,12 +186,25 @@ function getExportPresetLabel(preset: ExportPreset) {
   }
 }
 
-function getExportReadiness(options: ProjectExportOptions, hasCuts: boolean, wordCount: number, isElectron: boolean) {
+function getCaptionDelivery(options: ProjectExportOptions, systemChecks: SystemChecksResponse | null) {
+  if (options.captions === 'none') return 'no captions';
+  if (options.captions === 'sidecar') return 'video + SRT captions';
+  if (systemChecks?.checks?.captions && !systemChecks.checks.captions.ok) return 'video + SRT captions';
+  return 'burned captions';
+}
+
+function getExportReadiness(
+  options: ProjectExportOptions,
+  hasCuts: boolean,
+  wordCount: number,
+  isElectron: boolean,
+  systemChecks: SystemChecksResponse | null,
+) {
   const details = [
     getExportPresetLabel(options.preset),
     options.aspectRatio === 'vertical' ? '9:16 vertical' : options.aspectRatio === 'square' ? '1:1 square' : 'original frame',
     options.mode === 'fast' && !hasCuts ? 'fast stream copy' : 'frame-accurate encode',
-    options.captions === 'burn-in' ? 'burned captions' : options.captions === 'sidecar' ? 'SRT sidecar' : 'no captions',
+    getCaptionDelivery(options, systemChecks),
   ];
 
   if (options.enhanceAudio) details.push('audio enhancement');
@@ -196,6 +227,9 @@ function getExportPreflight({
   wordCount,
   backgroundCapabilities,
   isElectron,
+  exportPath,
+  exportDirectory,
+  systemChecks,
 }: {
   videoPath: string | null;
   duration: number;
@@ -204,12 +238,58 @@ function getExportPreflight({
   wordCount: number;
   backgroundCapabilities: BackgroundCapabilities | null;
   isElectron: boolean;
+  exportPath: string;
+  exportDirectory: string;
+  systemChecks: SystemChecksResponse | null;
 }) {
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const items: ExportPreflightItem[] = [];
 
-  if (!videoPath) blockers.push('Open a video or audio file before exporting.');
-  if (duration <= 0) blockers.push('Wait for media metadata to load before exporting.');
+  if (!videoPath) {
+    blockers.push('Open a video or audio file before exporting.');
+    items.push({ label: 'Source', detail: 'No media file loaded', state: 'blocked' });
+  } else if (duration <= 0) {
+    blockers.push('Wait for media metadata to load before exporting.');
+    items.push({ label: 'Source', detail: 'Reading media metadata', state: 'blocked' });
+  } else {
+    items.push({ label: 'Source', detail: getDownloadFilename(videoPath, 'Loaded media'), state: 'ready' });
+  }
+
+  if (!isElectron) {
+    items.push({ label: 'Destination', detail: 'Download after local render', state: 'warning' });
+  } else if (exportPath) {
+    items.push({ label: 'Destination', detail: 'Exact output file selected', state: 'ready' });
+  } else if (exportDirectory) {
+    items.push({ label: 'Destination', detail: 'Export folder selected', state: 'ready' });
+  } else {
+    items.push({ label: 'Destination', detail: 'Choose a file in the native Save dialog', state: 'ready' });
+  }
+
+  const ffmpegCheck = systemChecks?.checks?.ffmpeg;
+  if (!systemChecks) {
+    items.push({ label: 'Renderer', detail: 'Checking local FFmpeg', state: 'warning' });
+  } else if (!ffmpegCheck?.ok) {
+    blockers.push(ffmpegCheck?.detail || 'FFmpeg is not ready for export.');
+    items.push({ label: 'Renderer', detail: ffmpegCheck?.detail || 'FFmpeg unavailable', state: 'blocked' });
+  } else {
+    items.push({ label: 'Renderer', detail: 'FFmpeg ready', state: 'ready' });
+  }
+
+  if (options.captions === 'burn-in') {
+    const captionsCheck = systemChecks?.checks?.captions;
+    if (!captionsCheck) {
+      items.push({ label: 'Captions', detail: 'Checking burn-in support', state: 'warning' });
+    } else if (!captionsCheck.ok) {
+      warnings.push('This FFmpeg build will export the video with a matching .srt caption file instead of burning captions into the video.');
+      items.push({ label: 'Captions', detail: 'Video + .srt sidecar', state: 'warning' });
+    } else {
+      items.push({ label: 'Captions', detail: 'Burned into the video', state: 'ready' });
+    }
+  } else if (options.captions === 'sidecar') {
+    items.push({ label: 'Captions', detail: 'Video + .srt sidecar', state: 'ready' });
+  }
+
   if (options.captions !== 'none' && wordCount === 0) warnings.push('Caption export needs transcript words; this export will not include captions yet.');
   if (options.backgroundRemoval?.enabled && backgroundCapabilities && !backgroundCapabilities.available) {
     blockers.push('Background removal is enabled but MediaPipe/OpenCV is not available.');
@@ -219,7 +299,7 @@ function getExportPreflight({
   }
   if (!isElectron) warnings.push('Browser mode exports to a backend temp folder first, then downloads from this panel.');
 
-  return { blockers, warnings, ready: blockers.length === 0 };
+  return { blockers, warnings, items, ready: blockers.length === 0 };
 }
 
 function getFriendlyExportError(message: string) {
@@ -259,10 +339,11 @@ export default function ExportDialog() {
   const [lastExportJobId, setLastExportJobId] = useState('');
   const [exportLogs, setExportLogs] = useState<Array<{ time: string; message: string }>>([]);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
+  const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
   const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
   const [exportPath, setExportPath] = useState(() => window.localStorage.getItem(EXPORT_PATH_KEY) || '');
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
-  const readiness = getExportReadiness(options, hasCuts, words.length, !!window.electronAPI);
+  const readiness = getExportReadiness(options, hasCuts, words.length, !!window.electronAPI, systemChecks);
   const preflight = getExportPreflight({
     videoPath,
     duration,
@@ -271,6 +352,9 @@ export default function ExportDialog() {
     wordCount: words.length,
     backgroundCapabilities,
     isElectron: !!window.electronAPI,
+    exportPath,
+    exportDirectory,
+    systemChecks,
   });
 
   useEffect(() => {
@@ -282,6 +366,21 @@ export default function ExportDialog() {
       })
       .catch(() => {
         if (!canceled) setBackgroundCapabilities(null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [backendUrl]);
+
+  useEffect(() => {
+    let canceled = false;
+    fetch(`${backendUrl}/system/checks`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SystemChecksResponse | null) => {
+        if (!canceled) setSystemChecks(data);
+      })
+      .catch(() => {
+        if (!canceled) setSystemChecks(null);
       });
     return () => {
       canceled = true;
@@ -486,6 +585,9 @@ export default function ExportDialog() {
       wordCount: words.length,
       backgroundCapabilities,
       isElectron: !!window.electronAPI,
+      exportPath,
+      exportDirectory,
+      systemChecks,
     });
     if (!currentPreflight.ready) {
       setExportError(currentPreflight.blockers.join(' '));
@@ -562,7 +664,7 @@ export default function ExportDialog() {
       setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
       setExporting(false, 0);
     }
-  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, exportPath, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, pollExportJob]);
+  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, exportPath, systemChecks, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, pollExportJob]);
 
   const handleExport = useCallback(() => {
     void startExport(options);
@@ -624,6 +726,22 @@ export default function ExportDialog() {
           ))}
         </div>
         <p className="text-[11px] leading-4 text-editor-text-muted">{readiness.note}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded border border-editor-border bg-editor-surface p-2">
+        {preflight.items.map((item) => (
+          <div key={item.label} className="min-w-0 rounded bg-editor-bg px-2 py-1.5">
+            <div className="flex items-center gap-1 text-[10px] font-medium text-editor-text-muted">
+              {item.state === 'ready' ? (
+                <CheckCircle2 className="h-3 w-3 shrink-0 text-editor-success" />
+              ) : (
+                <AlertTriangle className={`h-3 w-3 shrink-0 ${item.state === 'blocked' ? 'text-editor-danger' : 'text-editor-warning'}`} />
+              )}
+              {item.label}
+            </div>
+            <div className="mt-0.5 truncate text-[10px] text-editor-text" title={item.detail}>{item.detail}</div>
+          </div>
+        ))}
       </div>
 
       {(preflight.blockers.length > 0 || preflight.warnings.length > 0) && (
@@ -837,7 +955,12 @@ export default function ExportDialog() {
         onChange={(v) => setExportOptions((o) => ({ ...o, captions: v as ExportOptions['captions'] }))}
         options={[
           { value: 'none', label: 'No captions' },
-          { value: 'burn-in', label: 'Burn-in (permanent)' },
+          {
+            value: 'burn-in',
+            label: systemChecks?.checks?.captions?.ok === false
+              ? 'Video + SRT fallback on this computer'
+              : 'Burn-in (permanent)',
+          },
           { value: 'sidecar', label: 'Sidecar SRT file' },
         ]}
       />
