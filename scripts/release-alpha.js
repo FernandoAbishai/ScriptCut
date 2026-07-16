@@ -36,6 +36,7 @@ function runStep(name, command, args, options = {}) {
 }
 
 function ensureReleaseDirs() {
+  fs.rmSync(releaseDir, { recursive: true, force: true });
   fs.mkdirSync(releaseDir, { recursive: true });
   fs.mkdirSync(electronCache, { recursive: true });
   fs.mkdirSync(electronBuilderCache, { recursive: true });
@@ -49,12 +50,39 @@ function releaseEnv() {
   };
 }
 
+function releaseArchitecture() {
+  const arch = process.env.SCRIPTCUT_RELEASE_ARCH?.trim() || process.arch;
+  if (!['arm64', 'x64'].includes(arch)) {
+    throw new Error(`Unsupported macOS release architecture: ${arch}. Expected arm64 or x64.`);
+  }
+  return arch;
+}
+
+function releasePlatformLabel(arch) {
+  return arch === 'arm64' ? 'macOS Apple Silicon (arm64)' : 'macOS Intel (x64)';
+}
+
 function findArtifacts() {
   if (!fs.existsSync(distDir)) return [];
   return fs.readdirSync(distDir)
     .filter((name) => /\.(dmg|zip|AppImage|exe)$/i.test(name))
     .map((name) => path.join(distDir, name))
     .filter((filePath) => fs.statSync(filePath).isFile());
+}
+
+function snapshotArtifacts() {
+  return new Map(findArtifacts().map((filePath) => {
+    const stat = fs.statSync(filePath);
+    return [filePath, { bytes: stat.size, modifiedAt: stat.mtimeMs }];
+  }));
+}
+
+function findFreshArtifacts(before) {
+  return findArtifacts().filter((filePath) => {
+    const stat = fs.statSync(filePath);
+    const previous = before.get(filePath);
+    return !previous || previous.bytes !== stat.size || previous.modifiedAt !== stat.mtimeMs;
+  });
 }
 
 function checksumFile(filePath) {
@@ -72,8 +100,8 @@ function currentGitCommit() {
   return result.status === 0 ? result.stdout.trim() : '';
 }
 
-function readFfmpegBundleManifest() {
-  const manifestPath = path.join(root, 'build', 'bin', `${process.platform}-${process.arch}`, 'bundle-manifest.json');
+function readFfmpegBundleManifest(arch) {
+  const manifestPath = path.join(root, 'build', 'bin', `darwin-${arch}`, 'bundle-manifest.json');
   if (!fs.existsSync(manifestPath)) {
     throw new Error('FFmpeg bundle manifest is missing. Run npm run release:ffmpeg before preparing a release.');
   }
@@ -97,7 +125,7 @@ function writeChecksums(artifacts) {
   return checksumPath;
 }
 
-function writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle) {
+function writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch) {
   const manifestPath = path.join(releaseDir, 'release-manifest.json');
   const manifest = {
     name: pkg.name,
@@ -105,6 +133,9 @@ function writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle) {
     version: pkg.version,
     channel: 'alpha',
     tag,
+    platform: 'darwin',
+    architecture: arch,
+    compatibility: releasePlatformLabel(arch),
     commit: currentGitCommit(),
     generatedAt: new Date().toISOString(),
     ffmpegBundle,
@@ -120,7 +151,7 @@ function writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle) {
   return manifestPath;
 }
 
-function writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle) {
+function writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch) {
   const notesPath = path.join(releaseDir, 'RELEASE_NOTES.md');
   const artifactList = artifacts
     .map((filePath) => `- ${path.basename(filePath)}`)
@@ -145,9 +176,15 @@ ScriptCut is an open-source, local-first desktop video editor for creators.
 
 ## Install
 
-1. Download the macOS DMG attached to this release.
+1. Download the ${releasePlatformLabel(arch)} DMG attached to this release.
 2. Open ScriptCut.
 3. Run the first-launch checks and follow any setup prompts.
+
+## Compatibility
+
+- This package is for ${releasePlatformLabel(arch)}.
+- It includes portable FFmpeg and FFprobe for local export.
+- The alpha still uses a compatible local Python runtime for its editing backend. See the install guide before downloading.
 
 ## Alpha Status
 
@@ -165,25 +202,37 @@ Compare the downloaded file against \`SHA256SUMS.txt\`.
 }
 
 function main() {
+  if (process.platform !== 'darwin') {
+    throw new Error('ScriptCut macOS releases must be prepared on macOS.');
+  }
   const pkg = readPackage();
   const tag = releaseTag(pkg);
+  const arch = releaseArchitecture();
   ensureReleaseDirs();
+
+  const env = {
+    ...releaseEnv(),
+    SCRIPTCUT_RELEASE_ARCH: arch,
+    SCRIPTCUT_BUILD_ARCH: arch,
+  };
 
   runStep('Release trust readiness', 'node', ['scripts/check-release-trust.js']);
   runStep('Prepare bundled FFmpeg', 'npm', ['run', 'release:ffmpeg']);
-  const ffmpegBundle = readFfmpegBundleManifest();
-  runStep('Desktop package QA', 'npm', ['run', 'qa:desktop:package'], { env: releaseEnv() });
-  runStep('Build macOS DMG', 'npm', ['run', 'dist:mac'], { env: releaseEnv() });
+  runStep('Validate macOS release platform', 'node', ['scripts/release-platform.js', '--arch', arch], { env });
+  const ffmpegBundle = readFfmpegBundleManifest(arch);
+  runStep('Desktop package QA', 'npm', ['run', 'qa:desktop:package'], { env });
+  const beforeBuild = snapshotArtifacts();
+  runStep(`Build ${releasePlatformLabel(arch)} DMG`, 'npm', ['run', `dist:mac:${arch}`], { env });
 
-  const artifacts = findArtifacts();
+  const artifacts = findFreshArtifacts(beforeBuild);
   if (artifacts.length === 0) {
     console.error('\nNo release artifacts found in dist/.');
     process.exit(1);
   }
 
   const checksumPath = writeChecksums(artifacts);
-  const manifestPath = writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle);
-  const notesPath = writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle);
+  const manifestPath = writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch);
+  const notesPath = writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch);
 
   console.log('\nAlpha release package prepared.');
   console.log(`Release notes: ${path.relative(root, notesPath)}`);
@@ -193,7 +242,7 @@ function main() {
     console.log(`Artifact: ${path.relative(root, artifact)}`);
   }
   console.log('\nDraft the GitHub release with:');
-  console.log(`gh release create ${tag} --draft --title "ScriptCut ${tag}" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)} ${path.relative(root, manifestPath)}`);
+  console.log(`gh release create ${tag} --draft --prerelease --title "ScriptCut ${tag}" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)} ${path.relative(root, manifestPath)}`);
 }
 
 main();

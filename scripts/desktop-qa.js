@@ -7,6 +7,7 @@ const { resolvePythonRuntime } = require('../electron/python-runtime');
 
 const root = path.join(__dirname, '..');
 const includePackageBuild = process.argv.includes('--package');
+const buildArchitecture = process.env.SCRIPTCUT_BUILD_ARCH || process.arch;
 
 function runStep(name, command, args, options = {}) {
   console.log(`\n==> ${name}`);
@@ -47,6 +48,7 @@ const steps = [
   ['Caption designer smoke tests', 'npm', ['run', 'test:caption-designer', '--prefix', 'frontend']],
   ['Social publishing smoke tests', 'npm', ['run', 'test:social-publishing', '--prefix', 'frontend']],
   ['Hook frame smoke tests', 'npm', ['run', 'test:hook-frames', '--prefix', 'frontend']],
+  ['Support report smoke tests', 'npm', ['run', 'test:support-report', '--prefix', 'frontend']],
   ['Playback sync smoke tests', 'npm', ['run', 'test:playback-sync', '--prefix', 'frontend']],
 ];
 
@@ -63,13 +65,16 @@ if (includePackageBuild) {
   const electronBuilderCache = path.join(cacheRoot, 'electron-builder');
   fs.mkdirSync(electronCache, { recursive: true });
   fs.mkdirSync(electronBuilderCache, { recursive: true });
-  runStep('Electron unpacked app build', 'npm', ['run', 'dist:dir'], {
+  runStep(`Electron unpacked ${buildArchitecture} app build`, 'npm', ['run', `dist:dir:${buildArchitecture}`], {
     env: {
       ...process.env,
       ELECTRON_CACHE: electronCache,
       ELECTRON_BUILDER_CACHE: electronBuilderCache,
     },
   });
+  if (process.platform === 'darwin') {
+    runStep('Packaged FFmpeg verification', 'node', ['scripts/check-packaged-ffmpeg.js', '--arch', buildArchitecture]);
+  }
 }
 
 console.log('\nDesktop QA checks passed.');
