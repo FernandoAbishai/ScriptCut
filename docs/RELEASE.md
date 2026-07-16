@@ -80,6 +80,14 @@ By default the package is prepared for `v0.1.0-alpha`. For follow-up alpha build
 RELEASE_TAG=v0.1.0-alpha.1 npm run release:alpha
 ```
 
+The release script only creates a DMG for the architecture of the Mac preparing it. Verify the matching FFmpeg bundle before packaging:
+
+```bash
+npm run release:platform
+```
+
+On an Apple Silicon Mac this produces and verifies an arm64 DMG. An Intel build must be prepared and verified on a native Intel Mac with its own FFmpeg bundle; do not cross-package an unverified target.
+
 The command also runs `npm run release:trust`. Missing signing or notarization credentials are warnings for local alpha drafts, but should be resolved before publishing broadly.
 
 Build a local macOS DMG:
@@ -115,7 +123,7 @@ Highlights:
 - Use optional AI helpers while keeping media local
 
 Install:
-1. Download the macOS DMG attached to this release.
+1. Download the macOS Apple Silicon (arm64) DMG attached to this release.
 2. Open ScriptCut.
 3. Run the first-launch checks and follow any dependency prompts.
 
@@ -168,6 +176,7 @@ Supported notarization inputs:
 ## Notes
 
 - Python 3.11 is the recommended runtime for local development.
+- Current desktop alphas bundle FFmpeg/FFprobe but still use a compatible local Python runtime and backend dependency set. State this clearly in every release description until the backend runtime is bundled.
 - `npm run release:ffmpeg` verifies that FFmpeg/FFprobe execute from the release bundle and packages non-system macOS dylibs. Do not manually copy host FFmpeg executables into a release.
 - The bundle manifest records whether the selected FFmpeg supports ASS burn-in captions. Releases without that filter use the tested sidecar `.srt` fallback and must state that in their notes.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.

@@ -975,13 +975,21 @@ function FirstRunChecklist({
   onDismiss: () => void;
 }) {
   const rows = [
-    checks?.backend,
+    checks?.backend || {
+      ok: false,
+      label: 'Local backend',
+      detail: error ? 'Could not start. Read the setup guidance below.' : loading ? 'Checking local editing engine' : 'Local editing engine is not available',
+    },
     {
       ok: isElectron,
       label: 'Desktop app',
       detail: isElectron ? 'Native file access ready' : 'Browser mode is for development and testing',
     },
-    checks?.python,
+    checks?.python || (error ? {
+      ok: false,
+      label: 'Python',
+      detail: 'The local backend must start before Python can be verified.',
+    } : undefined),
     checks?.ffmpeg,
     checks?.captions,
     checks?.transcription,
@@ -1106,8 +1114,17 @@ function getSetupGuidance(row: SystemCheck) {
 
   if (row.label === 'Python') {
     return {
-      message: 'Install Python 3.11, then restart ScriptCut.',
-      command: 'brew install python@3.11',
+      message: 'This alpha uses Python 3.11 for its local editing engine. Install it once, restart ScriptCut, then refresh these checks.',
+      link: RELEASE_LINKS.pythonDownloads,
+      linkLabel: 'Install Python for macOS',
+    };
+  }
+
+  if (row.label === 'Local backend') {
+    return {
+      message: 'ScriptCut could not start its local editing engine. Follow the setup guide, then restart the app and refresh these checks.',
+      link: RELEASE_LINKS.installGuide,
+      linkLabel: 'Open setup guide',
     };
   }
 

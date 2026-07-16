@@ -1,5 +1,9 @@
 # ScriptCut
 
+<p align="center">
+  <img src="frontend/public/brand/scriptcut-wordmark.svg" width="360" alt="ScriptCut" />
+</p>
+
 ScriptCut is an open-source, local-first video editor for creators. It lets you edit a video by editing the transcript, then package clips for Shorts, TikTok, Reels, podcasts, and social posts.
 
 Think of it as a creator-owned, Descript-style workflow:
@@ -15,6 +19,16 @@ ScriptCut runs best as the desktop app. The browser page at `localhost:5173` is 
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
 
+## Start Here
+
+The fastest creator path is:
+
+1. Download the **ScriptCut desktop alpha** for macOS Apple Silicon.
+2. Choose **Edit full video** or **Create a short**, then select a local video file.
+3. Review the transcript and press **Export** when the preflight panel is ready.
+
+Use the [First Export Guide](docs/FIRST_EXPORT.md) for a short, non-technical walkthrough. It includes what to expect from captions and where to get help if export is blocked.
+
 ## Download ScriptCut
 
 The intended user version is the **ScriptCut desktop app**.
@@ -28,6 +42,12 @@ For the public alpha:
 5. Open a video and start editing from the transcript.
 
 If no release asset is available yet, ScriptCut can still be run from source using the contributor setup below. The release flow is documented in [docs/RELEASE.md](docs/RELEASE.md).
+
+## Alpha Compatibility
+
+The current downloadable alpha is verified for **macOS Apple Silicon (arm64)**. It includes a portable FFmpeg/FFprobe bundle for local export.
+
+This alpha is not yet a fully self-contained installer: it uses a compatible local Python 3.10-3.12 runtime and backend dependency set for editing. The setup assistant reports what is missing at launch and links to the simplest recovery path. See [Platform Support](docs/PLATFORM_SUPPORT.md) for the current support matrix before downloading.
 
 ## Which Version Should I Use?
 

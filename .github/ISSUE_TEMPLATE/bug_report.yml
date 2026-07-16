@@ -34,5 +34,5 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: Paste relevant `npm run doctor` output, logs, or screenshots.
+      description: In ScriptCut, open Settings and choose Copy report, then paste it here. The report redacts local paths and credential-like values. Include a screenshot when useful.
       render: text

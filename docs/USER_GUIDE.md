@@ -9,11 +9,11 @@ ScriptCut lets you edit spoken video by editing the transcript. Delete words to 
 ## Install the App
 
 1. Go to the [latest ScriptCut release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
-2. Download the macOS `.dmg`.
+2. Download the macOS Apple Silicon (arm64) `.dmg`.
 3. Open the DMG and launch ScriptCut.
 4. If macOS warns that the app is from an unidentified developer during alpha testing, open it from System Settings after confirming you trust the downloaded release.
 
-If there is no release download yet, use the repository setup in [Install ScriptCut](./INSTALL.md).
+The alpha includes FFmpeg for export but still uses a compatible local Python runtime and ScriptCut backend dependency set for editing. The setup assistant tells you whether anything is missing. If there is no release download yet, use the repository setup in [Install ScriptCut](./INSTALL.md).
 
 ## First Launch
 

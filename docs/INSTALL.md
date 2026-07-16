@@ -7,12 +7,14 @@ ScriptCut is a local-first Electron app with a React frontend and FastAPI backen
 For non-technical use, install the desktop app from the latest GitHub Release:
 
 1. Open the [latest release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
-2. Download the macOS `.dmg`.
+2. Download the **macOS Apple Silicon (arm64)** `.dmg`.
 3. Open ScriptCut and follow the first-run setup assistant.
 
-If a DMG is not attached yet, use the source setup below.
+The desktop alpha includes portable FFmpeg and FFprobe for export. It still uses a compatible local Python 3.10-3.12 runtime and ScriptCut backend dependency set for editing, so the first-run assistant may ask you to install Python once. Use the [First Export Guide](./FIRST_EXPORT.md) for the shortest path, or install Python from [python.org for macOS](https://www.python.org/downloads/macos/).
 
-## Requirements
+Read [Platform Support](./PLATFORM_SUPPORT.md) before downloading. If a DMG is not attached yet, use the source setup below.
+
+## Source Development Requirements
 
 - Node.js 18 or newer
 - Python 3.10, 3.11, or 3.12

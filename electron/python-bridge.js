@@ -11,9 +11,13 @@ class PythonBackend {
     this.isDev = isDev;
     this.process = null;
     this.apiToken = null;
+    this.lastBackendError = '';
+    this.backendExitReason = '';
   }
 
   async start() {
+    this.lastBackendError = '';
+    this.backendExitReason = '';
     // In dev mode, check if a backend is already running (e.g. from `npm run dev:backend`)
     // If so, reuse it instead of spawning a duplicate.
     if (this.isDev) {
@@ -55,15 +59,24 @@ class PythonBackend {
     });
 
     this.process.stderr.on('data', (data) => {
-      console.error(`[backend] ${data.toString().trim()}`);
+      const output = data.toString().trim();
+      if (output) {
+        this.lastBackendError = output.slice(-1200);
+        console.error(`[backend] ${output}`);
+      }
     });
 
     this.process.on('error', (err) => {
+      this.backendExitReason = `Local backend could not start: ${err.message}`;
+      this.lastBackendError = this.backendExitReason;
       console.error('[backend] Failed to start Python backend:', err.message);
     });
 
-    this.process.on('exit', (code) => {
-      console.log(`[backend] Process exited with code ${code}`);
+    this.process.on('exit', (code, signal) => {
+      this.backendExitReason = signal
+        ? `Local backend exited with signal ${signal}.`
+        : `Local backend exited with code ${code ?? 'unknown'}.`;
+      console.log(`[backend] ${this.backendExitReason}`);
       this.process = null;
     });
 
@@ -98,8 +111,14 @@ class PythonBackend {
     const startTime = Date.now();
     return new Promise((resolve, reject) => {
       const check = () => {
+        if (this.backendExitReason) {
+          const detail = this.lastBackendError ? ` ${this.lastBackendError}` : '';
+          reject(new Error(`${this.backendExitReason}${detail}`));
+          return;
+        }
         if (Date.now() - startTime > timeoutMs) {
-          reject(new Error('Backend startup timed out'));
+          const detail = this.lastBackendError ? ` Last backend error: ${this.lastBackendError}` : '';
+          reject(new Error(`Backend startup timed out.${detail}`));
           return;
         }
         const remainingMs = timeoutMs - (Date.now() - startTime);
