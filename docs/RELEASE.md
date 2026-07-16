@@ -58,7 +58,7 @@ Then verify the creator workflow manually:
 - Transcribe with the selected engine.
 - Delete a few words and preview edited playback.
 - Export a source-frame MP4.
-- Export a vertical shorts MP4 with captions.
+- Export a vertical shorts MP4 with captions. Confirm the setup check and release manifest agree on whether captions are burned in or delivered as a sidecar `.srt` file.
 - Create at least one clip draft and export it.
 - Save a `.scriptcut` project and reopen it.
 
@@ -72,7 +72,7 @@ Prepare a local alpha release package:
 npm run release:alpha
 ```
 
-That command runs release trust checks, prepares bundled FFmpeg/FFprobe from the current machine, runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, writes `dist/release-alpha/release-manifest.json`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
+That command runs release trust checks, prepares a portable FFmpeg/FFprobe bundle, runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, writes `dist/release-alpha/release-manifest.json`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
 
 By default the package is prepared for `v0.1.0-alpha`. For follow-up alpha builds under the same app version, pass a more specific tag:
 
@@ -110,7 +110,7 @@ ScriptCut is an open-source, local-first desktop video editor for creators.
 Highlights:
 - Edit video by editing transcript text
 - Export source, square, and vertical shorts clips
-- Burn in creator captions
+- Burn in creator captions when the bundled FFmpeg supports ASS subtitles; otherwise export a matching `.srt` caption file
 - Package clip titles, captions, descriptions, hashtags, and hook frames
 - Use optional AI helpers while keeping media local
 
@@ -168,7 +168,8 @@ Supported notarization inputs:
 ## Notes
 
 - Python 3.11 is the recommended runtime for local development.
-- FFmpeg must be available for exports.
+- `npm run release:ffmpeg` verifies that FFmpeg/FFprobe execute from the release bundle and packages non-system macOS dylibs. Do not manually copy host FFmpeg executables into a release.
+- The bundle manifest records whether the selected FFmpeg supports ASS burn-in captions. Releases without that filter use the tested sidecar `.srt` fallback and must state that in their notes.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.
 - Browser mode at `localhost:5173` is for development. The desktop app is the intended user version.
 - Public macOS releases should be signed and notarized with Apple Developer credentials.

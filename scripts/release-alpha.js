@@ -72,6 +72,14 @@ function currentGitCommit() {
   return result.status === 0 ? result.stdout.trim() : '';
 }
 
+function readFfmpegBundleManifest() {
+  const manifestPath = path.join(root, 'build', 'bin', `${process.platform}-${process.arch}`, 'bundle-manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error('FFmpeg bundle manifest is missing. Run npm run release:ffmpeg before preparing a release.');
+  }
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+}
+
 function releaseTag(pkg) {
   const tag = process.env.RELEASE_TAG?.trim() || `v${pkg.version}-alpha`;
   const expectedPrefix = `v${pkg.version}-alpha`;
@@ -89,7 +97,7 @@ function writeChecksums(artifacts) {
   return checksumPath;
 }
 
-function writeReleaseManifest(pkg, tag, artifacts, checksumPath) {
+function writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle) {
   const manifestPath = path.join(releaseDir, 'release-manifest.json');
   const manifest = {
     name: pkg.name,
@@ -99,6 +107,7 @@ function writeReleaseManifest(pkg, tag, artifacts, checksumPath) {
     tag,
     commit: currentGitCommit(),
     generatedAt: new Date().toISOString(),
+    ffmpegBundle,
     checksums: path.relative(root, checksumPath),
     assets: artifacts.map((filePath) => ({
       file: path.basename(filePath),
@@ -111,12 +120,16 @@ function writeReleaseManifest(pkg, tag, artifacts, checksumPath) {
   return manifestPath;
 }
 
-function writeReleaseNotes(pkg, tag, artifacts, checksumPath) {
+function writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle) {
   const notesPath = path.join(releaseDir, 'RELEASE_NOTES.md');
   const artifactList = artifacts
     .map((filePath) => `- ${path.basename(filePath)}`)
     .concat(`- ${path.relative(root, checksumPath)}`)
     .join('\n');
+
+  const captionNote = ffmpegBundle.capabilities?.assSubtitles
+    ? 'Burn in creator captions directly into exported video.'
+    : 'Export a matching `.srt` caption file when burn-in captions are selected.';
 
   fs.writeFileSync(notesPath, `# ScriptCut ${tag}
 
@@ -126,7 +139,7 @@ ScriptCut is an open-source, local-first desktop video editor for creators.
 
 - Edit video by editing transcript text.
 - Export source, square, and vertical shorts clips.
-- Burn in creator captions.
+- ${captionNote}
 - Package clip titles, captions, descriptions, hashtags, and hook-frame notes.
 - Use optional AI helpers while keeping media local.
 
@@ -158,6 +171,7 @@ function main() {
 
   runStep('Release trust readiness', 'node', ['scripts/check-release-trust.js']);
   runStep('Prepare bundled FFmpeg', 'npm', ['run', 'release:ffmpeg']);
+  const ffmpegBundle = readFfmpegBundleManifest();
   runStep('Desktop package QA', 'npm', ['run', 'qa:desktop:package'], { env: releaseEnv() });
   runStep('Build macOS DMG', 'npm', ['run', 'dist:mac'], { env: releaseEnv() });
 
@@ -168,8 +182,8 @@ function main() {
   }
 
   const checksumPath = writeChecksums(artifacts);
-  const manifestPath = writeReleaseManifest(pkg, tag, artifacts, checksumPath);
-  const notesPath = writeReleaseNotes(pkg, tag, artifacts, checksumPath);
+  const manifestPath = writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle);
+  const notesPath = writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle);
 
   console.log('\nAlpha release package prepared.');
   console.log(`Release notes: ${path.relative(root, notesPath)}`);

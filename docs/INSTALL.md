@@ -75,7 +75,7 @@ sudo apt install ffmpeg
 
 Windows users should install FFmpeg and ensure `ffmpeg.exe` is available in `PATH`.
 
-Release maintainers can copy the current machine's `ffmpeg` and `ffprobe` into `build/bin/<platform>-<arch>/` with:
+Release maintainers can create and verify a portable FFmpeg/FFprobe bundle in `build/bin/<platform>-<arch>/` with:
 
 ```bash
 npm run release:ffmpeg
