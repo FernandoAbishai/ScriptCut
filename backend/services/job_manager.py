@@ -1,9 +1,11 @@
-"""Small in-memory job registry for long-running local backend tasks."""
+"""Bounded in-memory job registry for long-running local backend tasks."""
 
 from __future__ import annotations
 
+import os
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import uuid4
@@ -13,6 +15,8 @@ RETRYABLE_STATUSES = {"failed", "canceled"}
 MAX_RETAINED_JOBS = 100
 TERMINAL_JOB_TTL = timedelta(hours=6)
 MAX_JOB_LOGS = 100
+MAX_WORKERS = max(1, min(int(os.getenv("SCRIPTCUT_JOB_WORKERS", "2")), 4))
+MAX_PENDING_JOBS = max(MAX_WORKERS, min(int(os.getenv("SCRIPTCUT_MAX_PENDING_JOBS", "8")), 32))
 
 
 class JobCanceled(RuntimeError):
@@ -20,9 +24,11 @@ class JobCanceled(RuntimeError):
 
 
 class JobManager:
-    def __init__(self) -> None:
+    def __init__(self, *, max_workers: int = MAX_WORKERS, max_pending_jobs: int = MAX_PENDING_JOBS) -> None:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+        self._max_pending_jobs = max(max_workers, max_pending_jobs)
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="scriptcut-job")
 
     def create(
         self,
@@ -36,6 +42,9 @@ class JobManager:
         now = _now()
         with self._lock:
             self._prune_locked()
+            active = sum(1 for job in self._jobs.values() if job.get("status") not in TERMINAL_STATUSES)
+            if active >= self._max_pending_jobs:
+                raise RuntimeError("The local job queue is full. Wait for an active job to finish.")
             self._jobs[job_id] = {
                 "id": job_id,
                 "kind": kind,
@@ -52,9 +61,7 @@ class JobManager:
                 "updatedAt": now,
                 "_target": target,
             }
-
-        thread = threading.Thread(target=self._run, args=(job_id, target), daemon=True)
-        thread.start()
+        self._executor.submit(self._run, job_id, target)
         return job_id
 
     def get(self, job_id: str) -> dict[str, Any] | None:
@@ -64,14 +71,9 @@ class JobManager:
             return self._public_job(job) if job else None
 
     def recent(self, *, kind: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
-        """Return a small, support-safe summary of recent jobs."""
         with self._lock:
             self._prune_locked()
-            jobs = [
-                job
-                for job in self._jobs.values()
-                if kind is None or job.get("kind") == kind
-            ]
+            jobs = [job for job in self._jobs.values() if kind is None or job.get("kind") == kind]
             jobs.sort(key=lambda job: job.get("updatedAt") or "", reverse=True)
             return [
                 {
@@ -92,17 +94,15 @@ class JobManager:
         with self._lock:
             self._prune_locked()
             job = self._jobs.get(job_id)
-            if not job:
-                return None
-            if job.get("status") not in RETRYABLE_STATUSES:
+            if not job or job.get("status") not in RETRYABLE_STATUSES:
                 return None
             target = job.get("_target")
             if not target:
                 return None
             original_job_id = job.get("originalJobId") or job["id"]
             attempt = int(job.get("attempt") or 1) + 1
-
-        return self.create(job["kind"], target, original_job_id=original_job_id, attempt=attempt)
+            kind = job["kind"]
+        return self.create(kind, target, original_job_id=original_job_id, attempt=attempt)
 
     def cancel(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -114,13 +114,23 @@ class JobManager:
                 return self._public_job(job)
             job["cancelRequested"] = True
             now = _now()
-            job["status"] = "canceling"
-            job["message"] = "Cancel requested"
+            if job["status"] == "queued":
+                job["status"] = "canceled"
+                job["message"] = "Canceled"
+                job["completedAt"] = now
+                job["_target"] = None
+            else:
+                job["status"] = "canceling"
+                job["message"] = "Cancel requested"
             job["updatedAt"] = now
-            self._append_log_locked(job, now, "Cancel requested")
+            self._append_log_locked(job, now, job["message"])
             return self._public_job(job)
 
     def _run(self, job_id: str, target: Callable[[Callable[[int, str], None]], Any]) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job or job.get("status") == "canceled":
+                return
         self._update(job_id, status="running", progress=1, message="Started")
 
         def progress(percent: int, message: str) -> None:
@@ -134,15 +144,15 @@ class JobManager:
             result = target(progress)
             job = self.get(job_id)
             if job and job.get("cancelRequested"):
-                self._update(job_id, status="canceled", message="Canceled")
+                self._update(job_id, status="canceled", message="Canceled", _target=None)
                 return
-            self._update(job_id, status="succeeded", progress=100, message="Complete", result=result)
+            self._update(job_id, status="succeeded", progress=100, message="Complete", result=result, _target=None)
         except JobCanceled:
-            self._update(job_id, status="canceled", message="Canceled")
+            self._update(job_id, status="canceled", message="Canceled", _target=None)
         except Exception as exc:
             job = self.get(job_id)
             if job and job.get("cancelRequested"):
-                self._update(job_id, status="canceled", message="Canceled")
+                self._update(job_id, status="canceled", message="Canceled", _target=None)
                 return
             self._update(
                 job_id,
@@ -163,12 +173,10 @@ class JobManager:
             job["updatedAt"] = now
             if previous_status not in TERMINAL_STATUSES and job.get("status") in TERMINAL_STATUSES:
                 job["completedAt"] = now
-            message = patch.get("message")
-            log = patch.get("log")
-            if message:
-                self._append_log_locked(job, now, message)
-            if log:
-                self._append_log_locked(job, now, log)
+            if patch.get("message"):
+                self._append_log_locked(job, now, patch["message"])
+            if patch.get("log"):
+                self._append_log_locked(job, now, patch["log"])
 
     @staticmethod
     def _public_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -193,7 +201,8 @@ class JobManager:
         expired_ids = [
             job_id
             for job_id, job in self._jobs.items()
-            if job.get("status") in TERMINAL_STATUSES and _parse_time(job.get("completedAt") or job.get("updatedAt")) < now - TERMINAL_JOB_TTL
+            if job.get("status") in TERMINAL_STATUSES
+            and _parse_time(job.get("completedAt") or job.get("updatedAt")) < now - TERMINAL_JOB_TTL
         ]
         for job_id in expired_ids:
             self._jobs.pop(job_id, None)
@@ -201,7 +210,6 @@ class JobManager:
         overflow = len(self._jobs) - MAX_RETAINED_JOBS
         if overflow <= 0:
             return
-
         removable = sorted(
             (
                 (job_id, _parse_time(job.get("completedAt") or job.get("updatedAt")))
