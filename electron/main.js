@@ -1,5 +1,4 @@
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('electron');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { PythonBackend } = require('./python-bridge');
@@ -13,46 +12,14 @@ const BACKEND_PORT = 8642;
 const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 const MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024;
 const PROJECT_EXTENSIONS = new Set(['.scriptcut', '.aive', '.cutscript']);
-const MEDIA_EXTENSIONS = new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4a', '.wav', '.mp3', '.flac']);
-const authorizedPaths = new Set();
 
 function fileExtension(filePath) {
   return typeof filePath === 'string' ? path.extname(filePath).toLowerCase() : '';
 }
 
-function normalizePath(filePath) {
-  return path.resolve(filePath);
-}
-
-function authorizePath(filePath) {
-  const normalized = normalizePath(filePath);
-  authorizedPaths.add(normalized);
-  return normalized;
-}
-
-function isAuthorizedPath(filePath) {
-  return typeof filePath === 'string' && authorizedPaths.has(normalizePath(filePath));
-}
-
-function createFileToken(filePath) {
-  const secret = pythonBackend?.apiToken;
-  if (!secret) throw new Error('The local backend is not ready.');
-  return crypto.createHmac('sha256', secret).update(normalizePath(filePath), 'utf8').digest('hex');
-}
-
-function assertTrustedSender(event) {
-  const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
-  if (!isTrustedAppUrl(senderUrl)) {
-    throw new Error('IPC request came from an untrusted frame.');
-  }
-}
-
 function assertProjectPath(filePath) {
   if (typeof filePath !== 'string' || !PROJECT_EXTENSIONS.has(fileExtension(filePath))) {
     throw new Error('Only ScriptCut project files can be read or written.');
-  }
-  if (!isAuthorizedPath(filePath)) {
-    throw new Error('This project path was not authorized by a native file dialog.');
   }
   assertSafeFilePath(filePath);
 }
@@ -68,26 +35,27 @@ function assertClipManifestPath(filePath) {
   if (!/^scriptcut_clip_manifest_[a-zA-Z0-9-]+\.json$/.test(basename)) {
     throw new Error('Only ScriptCut clip manifests can be written.');
   }
-  if (!isAuthorizedPath(path.dirname(filePath))) {
-    throw new Error('This destination folder was not authorized by a native dialog.');
-  }
   assertSafeFilePath(filePath);
 }
 
 function assertSafeFilePath(filePath) {
-  const resolved = normalizePath(filePath);
-  const directory = path.dirname(resolved);
+  const directory = path.dirname(path.resolve(filePath));
   if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
     throw new Error('The destination folder does not exist.');
   }
-  if (fs.existsSync(resolved) && fs.lstatSync(resolved).isSymbolicLink()) {
-    throw new Error('Symbolic links are not supported.');
+  if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
+    throw new Error('Symbolic links are not supported for project files.');
   }
 }
 
 function isTrustedAppUrl(url) {
-  if (isDev) return url === 'http://localhost:5173/' || url.startsWith('http://localhost:5173/');
+  if (isDev) return url.startsWith('http://localhost:5173/');
   return url.startsWith('file://');
+}
+
+function assertTrustedSender(event) {
+  const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
+  if (!isTrustedAppUrl(senderUrl)) throw new Error('IPC request came from an untrusted frame.');
 }
 
 function openExternalUrl(url) {
@@ -164,22 +132,20 @@ ipcMain.handle('dialog:openFile', async (event, options) => {
     filters: [
       { name: 'Video Files', extensions: ['mp4', 'avi', 'mov', 'mkv', 'webm'] },
       { name: 'Audio Files', extensions: ['m4a', 'wav', 'mp3', 'flac'] },
+      { name: 'All Files', extensions: ['*'] },
     ],
-    ...(options && typeof options === 'object' ? options : {}),
+    ...options,
   });
-  if (result.canceled) return null;
-  const selected = authorizePath(result.filePaths[0]);
-  if (!MEDIA_EXTENSIONS.has(fileExtension(selected))) throw new Error('Unsupported media file type.');
-  return { path: selected, token: createFileToken(selected) };
+  return result.canceled ? null : result.filePaths[0];
 });
 
 ipcMain.handle('dialog:openDirectory', async (event, options) => {
   assertTrustedSender(event);
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory', 'createDirectory'],
-    ...(options && typeof options === 'object' ? options : {}),
+    ...options,
   });
-  return result.canceled ? null : authorizePath(result.filePaths[0]);
+  return result.canceled ? null : result.filePaths[0];
 });
 
 ipcMain.handle('dialog:saveFile', async (event, options) => {
@@ -189,9 +155,9 @@ ipcMain.handle('dialog:saveFile', async (event, options) => {
       { name: 'Video Files', extensions: ['mp4', 'mov', 'webm'] },
       { name: 'Project Files', extensions: ['scriptcut', 'aive', 'cutscript'] },
     ],
-    ...(options && typeof options === 'object' ? options : {}),
+    ...options,
   });
-  return result.canceled ? null : authorizePath(result.filePath);
+  return result.canceled ? null : result.filePath;
 });
 
 ipcMain.handle('dialog:openProject', async (event) => {
@@ -200,30 +166,21 @@ ipcMain.handle('dialog:openProject', async (event) => {
     properties: ['openFile'],
     filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
   });
-  return result.canceled ? null : authorizePath(result.filePaths[0]);
+  return result.canceled ? null : result.filePaths[0];
 });
 
 ipcMain.handle('safe-storage:encrypt', (event, data) => {
   assertTrustedSender(event);
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.');
-  if (typeof data !== 'string') throw new Error('Credential must be text.');
   return safeStorage.encryptString(data).toString('base64');
 });
-
 ipcMain.handle('safe-storage:decrypt', (event, encrypted) => {
   assertTrustedSender(event);
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.');
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
 });
-
-ipcMain.handle('get-backend-url', (event) => {
-  assertTrustedSender(event);
-  return BACKEND_ORIGIN;
-});
-ipcMain.handle('app:getStartupStatus', (event) => {
-  assertTrustedSender(event);
-  return { backendError: backendStartupError };
-});
+ipcMain.handle('get-backend-url', (event) => { assertTrustedSender(event); return BACKEND_ORIGIN; });
+ipcMain.handle('app:getStartupStatus', (event) => { assertTrustedSender(event); return { backendError: backendStartupError }; });
 ipcMain.handle('app:getInfo', (event) => {
   assertTrustedSender(event);
   return { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, electron: process.versions.electron };
@@ -252,13 +209,11 @@ ipcMain.handle('clip-manifest:write', async (event, filePath, content) => {
 });
 ipcMain.handle('shell:revealPath', async (event, filePath) => {
   assertTrustedSender(event);
-  if (!isAuthorizedPath(filePath)) throw new Error('Path is not authorized.');
   shell.showItemInFolder(filePath);
   return true;
 });
 ipcMain.handle('shell:openPath', async (event, filePath) => {
   assertTrustedSender(event);
-  if (!isAuthorizedPath(filePath)) throw new Error('Path is not authorized.');
   const error = await shell.openPath(filePath);
   return error || true;
 });
