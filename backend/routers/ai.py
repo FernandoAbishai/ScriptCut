@@ -6,6 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from network_security import validate_provider_url
 from services.ai_provider import AIProvider, detect_filler_words, create_clip_suggestion, create_clip_metadata, create_edit_plan
 
 logger = logging.getLogger(__name__)
@@ -69,10 +70,20 @@ class ModelListRequest(BaseModel):
     api_key: Optional[str] = None
 
 
+def _safe_base_url(provider: str, value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    if provider not in {"ollama", "9router"}:
+        raise ValueError(f"Custom base URLs are not supported for provider: {provider}")
+    return validate_provider_url(value, allow_loopback=True)
+
+
 @router.post("/ai/filler-removal")
 async def filler_removal(req: FillerRequest):
     try:
         return run_filler_removal(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Filler detection failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -82,6 +93,8 @@ async def filler_removal(req: FillerRequest):
 async def create_clip(req: ClipRequest):
     try:
         return run_create_clip(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Clip creation failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -91,6 +104,8 @@ async def create_clip(req: ClipRequest):
 async def clip_metadata(req: ClipMetadataRequest):
     try:
         return run_clip_metadata(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Clip metadata failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -100,6 +115,8 @@ async def clip_metadata(req: ClipMetadataRequest):
 async def edit_plan(req: EditPlanRequest):
     try:
         return run_edit_plan(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Edit plan failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -115,7 +132,7 @@ def run_filler_removal(req: FillerRequest, progress_callback=None):
         provider=req.provider,
         model=req.model,
         api_key=req.api_key,
-        base_url=req.base_url,
+        base_url=_safe_base_url(req.provider, req.base_url),
         custom_filler_words=req.custom_filler_words,
     )
     _progress(progress_callback, 100, "Filler detection complete")
@@ -137,7 +154,7 @@ def run_create_clip(req: ClipRequest, progress_callback=None):
         provider=req.provider,
         model=req.model,
         api_key=req.api_key,
-        base_url=req.base_url,
+        base_url=_safe_base_url(req.provider, req.base_url),
     )
     _progress(progress_callback, 100, "Clip discovery complete")
     return result
@@ -151,7 +168,7 @@ def run_clip_metadata(req: ClipMetadataRequest, progress_callback=None):
         provider=req.provider,
         model=req.model,
         api_key=req.api_key,
-        base_url=req.base_url,
+        base_url=_safe_base_url(req.provider, req.base_url),
     )
     _progress(progress_callback, 100, "Clip package complete")
     return result
@@ -168,7 +185,7 @@ def run_edit_plan(req: EditPlanRequest, progress_callback=None):
         provider=req.provider,
         model=req.model,
         api_key=req.api_key,
-        base_url=req.base_url,
+        base_url=_safe_base_url(req.provider, req.base_url),
         mode=req.mode,
         platform=req.platform,
         target_duration=req.target_duration,
@@ -184,16 +201,26 @@ def _progress(progress_callback, percent: int, message: str):
 
 @router.get("/ai/ollama-models")
 async def ollama_models(base_url: str = "http://localhost:11434"):
-    models = AIProvider.list_ollama_models(base_url)
-    return {"models": models}
+    try:
+        models = AIProvider.list_ollama_models(validate_provider_url(base_url, allow_loopback=True) or base_url)
+        return {"models": models}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/ai/ollama-status")
 async def ollama_status(base_url: str = "http://localhost:11434"):
-    return AIProvider.check_ollama(base_url)
+    try:
+        return AIProvider.check_ollama(validate_provider_url(base_url, allow_loopback=True) or base_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/ai/9router-models")
 async def nine_router_models(req: ModelListRequest):
-    models = AIProvider.list_9router_models(req.base_url or "http://localhost:20128/v1", req.api_key)
-    return {"models": models}
+    try:
+        base_url = validate_provider_url(req.base_url or "http://localhost:20128/v1", allow_loopback=True)
+        models = AIProvider.list_9router_models(base_url or "http://localhost:20128/v1", req.api_key)
+        return {"models": models}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
