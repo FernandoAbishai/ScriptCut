@@ -19,47 +19,45 @@ from services.job_manager import job_manager
 router = APIRouter()
 
 
+def _create_job(kind, target):
+    try:
+        return {"job_id": job_manager.create(kind, target)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+
 @router.post("/jobs/export")
 async def create_export_job(req: ExportRequest):
-    job_id = job_manager.create("export", lambda progress: run_export(req, progress))
-    return {"job_id": job_id}
+    return _create_job("export", lambda progress: run_export(req, progress))
 
 
 @router.post("/jobs/transcribe")
 async def create_transcription_job(req: TranscribeRequest):
-    job_id = job_manager.create("transcribe", lambda progress: run_transcription(req, progress))
-    return {"job_id": job_id}
+    return _create_job("transcribe", lambda progress: run_transcription(req, progress))
 
 
 @router.post("/jobs/ai/filler-removal")
 async def create_filler_removal_job(req: FillerRequest):
-    job_id = job_manager.create("ai:filler-removal", lambda progress: run_filler_removal(req, progress))
-    return {"job_id": job_id}
+    return _create_job("ai:filler-removal", lambda progress: run_filler_removal(req, progress))
 
 
 @router.post("/jobs/ai/create-clip")
 async def create_clip_job(req: ClipRequest):
-    job_id = job_manager.create("ai:create-clip", lambda progress: run_create_clip(req, progress))
-    return {"job_id": job_id}
+    return _create_job("ai:create-clip", lambda progress: run_create_clip(req, progress))
 
 
 @router.post("/jobs/ai/clip-metadata")
 async def create_clip_metadata_job(req: ClipMetadataRequest):
-    job_id = job_manager.create("ai:clip-metadata", lambda progress: run_clip_metadata(req, progress))
-    return {"job_id": job_id}
+    return _create_job("ai:clip-metadata", lambda progress: run_clip_metadata(req, progress))
 
 
 @router.post("/jobs/ai/edit-plan")
 async def create_edit_plan_job(req: EditPlanRequest):
-    job_id = job_manager.create("ai:edit-plan", lambda progress: run_edit_plan(req, progress))
-    return {"job_id": job_id}
+    return _create_job("ai:edit-plan", lambda progress: run_edit_plan(req, progress))
 
 
 @router.get("/jobs/recent")
-async def get_recent_jobs(
-    kind: str | None = None,
-    limit: int = Query(default=3, ge=1, le=10),
-):
+async def get_recent_jobs(kind: str | None = None, limit: int = Query(default=3, ge=1, le=10)):
     return {"jobs": job_manager.recent(kind=kind, limit=limit)}
 
 
@@ -86,8 +84,10 @@ async def retry_job(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     if job.get("status") not in {"failed", "canceled"}:
         raise HTTPException(status_code=409, detail="Only failed or canceled jobs can be retried")
-
-    retry_job_id = job_manager.retry(job_id)
+    try:
+        retry_job_id = job_manager.retry(job_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
     if not retry_job_id:
         raise HTTPException(status_code=409, detail="Job cannot be retried")
     return {"job_id": retry_job_id}

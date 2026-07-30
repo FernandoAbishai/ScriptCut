@@ -9,6 +9,7 @@ let backendStartupError = '';
 
 const isDev = !app.isPackaged;
 const BACKEND_PORT = 8642;
+const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 const MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024;
 const PROJECT_EXTENSIONS = new Set(['.scriptcut', '.aive', '.cutscript']);
 
@@ -48,16 +49,17 @@ function assertSafeFilePath(filePath) {
 }
 
 function isTrustedAppUrl(url) {
-  if (isDev) {
-    return url.startsWith('http://localhost:5173/');
-  }
+  if (isDev) return url.startsWith('http://localhost:5173/');
   return url.startsWith('file://');
 }
 
+function assertTrustedSender(event) {
+  const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
+  if (!isTrustedAppUrl(senderUrl)) throw new Error('IPC request came from an untrusted frame.');
+}
+
 function openExternalUrl(url) {
-  if (url.startsWith('https://')) {
-    void shell.openExternal(url);
-  }
+  if (url.startsWith('https://')) void shell.openExternal(url);
 }
 
 function createWindow() {
@@ -71,81 +73,60 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: isDev ? false : true,
+      sandbox: true,
+      webSecurity: true,
     },
     show: false,
   });
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    if (process.env.SCRIPTCUT_OPEN_DEVTOOLS === '1') {
-      mainWindow.webContents.openDevTools();
-    }
+    if (process.env.SCRIPTCUT_OPEN_DEVTOOLS === '1') mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'));
   }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
-
+  mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
     return { action: 'deny' };
   });
-
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (isTrustedAppUrl(url)) return;
     event.preventDefault();
     openExternalUrl(url);
   });
-
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
     const token = pythonBackend?.apiToken;
-    if (token && details.url.startsWith(`http://127.0.0.1:${BACKEND_PORT}/`)) {
+    if (token && details.url.startsWith(`${BACKEND_ORIGIN}/`)) {
       details.requestHeaders['X-ScriptCut-Token'] = token;
     }
     callback({ requestHeaders: details.requestHeaders });
   });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 app.whenReady().then(async () => {
-  pythonBackend = new PythonBackend(BACKEND_PORT, isDev);
+  pythonBackend = new PythonBackend(BACKEND_PORT, isDev, process.env.SCRIPTCUT_API_TOKEN || null);
   try {
     await pythonBackend.start();
   } catch (error) {
     backendStartupError = error instanceof Error ? error.message : String(error);
     console.error('[backend] Startup failed:', backendStartupError);
   }
-
   createWindow();
-
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
+app.on('before-quit', () => pythonBackend?.stop());
 
-app.on('before-quit', () => {
-  if (pythonBackend) {
-    pythonBackend.stop();
-  }
-});
-
-// IPC Handlers
-
-ipcMain.handle('dialog:openFile', async (_event, options) => {
+ipcMain.handle('dialog:openFile', async (event, options) => {
+  assertTrustedSender(event);
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
@@ -158,7 +139,8 @@ ipcMain.handle('dialog:openFile', async (_event, options) => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('dialog:openDirectory', async (_event, options) => {
+ipcMain.handle('dialog:openDirectory', async (event, options) => {
+  assertTrustedSender(event);
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory', 'createDirectory'],
     ...options,
@@ -166,7 +148,8 @@ ipcMain.handle('dialog:openDirectory', async (_event, options) => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('dialog:saveFile', async (_event, options) => {
+ipcMain.handle('dialog:saveFile', async (event, options) => {
+  assertTrustedSender(event);
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [
       { name: 'Video Files', extensions: ['mp4', 'mov', 'webm'] },
@@ -177,79 +160,60 @@ ipcMain.handle('dialog:saveFile', async (_event, options) => {
   return result.canceled ? null : result.filePath;
 });
 
-ipcMain.handle('dialog:openProject', async () => {
+ipcMain.handle('dialog:openProject', async (event) => {
+  assertTrustedSender(event);
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
-    filters: [
-      { name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] },
-    ],
+    filters: [{ name: 'ScriptCut Project', extensions: ['scriptcut', 'aive', 'cutscript'] }],
   });
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('safe-storage:encrypt', (_event, data) => {
-  if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.encryptString(data).toString('base64');
-  }
-  return data;
+ipcMain.handle('safe-storage:encrypt', (event, data) => {
+  assertTrustedSender(event);
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.');
+  return safeStorage.encryptString(data).toString('base64');
 });
-
-ipcMain.handle('safe-storage:decrypt', (_event, encrypted) => {
-  if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
-  }
-  return encrypted;
+ipcMain.handle('safe-storage:decrypt', (event, encrypted) => {
+  assertTrustedSender(event);
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.');
+  return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
 });
-
-ipcMain.handle('get-backend-url', () => {
-  return `http://localhost:${BACKEND_PORT}`;
+ipcMain.handle('get-backend-url', (event) => { assertTrustedSender(event); return BACKEND_ORIGIN; });
+ipcMain.handle('app:getStartupStatus', (event) => { assertTrustedSender(event); return { backendError: backendStartupError }; });
+ipcMain.handle('app:getInfo', (event) => {
+  assertTrustedSender(event);
+  return { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, electron: process.versions.electron };
 });
+ipcMain.handle('app:quit', (event) => { assertTrustedSender(event); app.quit(); return true; });
 
-ipcMain.handle('app:getStartupStatus', () => ({
-  backendError: backendStartupError,
-}));
-
-ipcMain.handle('app:getInfo', () => ({
-  version: app.getVersion(),
-  platform: process.platform,
-  arch: process.arch,
-  packaged: app.isPackaged,
-  electron: process.versions.electron,
-}));
-
-ipcMain.handle('app:quit', () => {
-  app.quit();
-  return true;
-});
-
-ipcMain.handle('project:read', async (_event, filePath) => {
+ipcMain.handle('project:read', async (event, filePath) => {
+  assertTrustedSender(event);
   assertProjectPath(filePath);
-  if (fs.statSync(filePath).size > MAX_PROJECT_FILE_BYTES) {
-    throw new Error('Project file is larger than 50 MB.');
-  }
+  if (fs.statSync(filePath).size > MAX_PROJECT_FILE_BYTES) throw new Error('Project file is larger than 50 MB.');
   return fs.readFileSync(filePath, 'utf-8');
 });
-
-ipcMain.handle('project:write', async (_event, filePath, content) => {
+ipcMain.handle('project:write', async (event, filePath, content) => {
+  assertTrustedSender(event);
   assertProjectPath(filePath);
   assertTextContent(content);
-  fs.writeFileSync(filePath, content, 'utf-8');
+  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
   return true;
 });
-
-ipcMain.handle('clip-manifest:write', async (_event, filePath, content) => {
+ipcMain.handle('clip-manifest:write', async (event, filePath, content) => {
+  assertTrustedSender(event);
   assertClipManifestPath(filePath);
   assertTextContent(content);
-  fs.writeFileSync(filePath, content, 'utf-8');
+  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
   return true;
 });
-
-ipcMain.handle('shell:revealPath', async (_event, filePath) => {
+ipcMain.handle('shell:revealPath', async (event, filePath) => {
+  assertTrustedSender(event);
   shell.showItemInFolder(filePath);
   return true;
 });
-
-ipcMain.handle('shell:openPath', async (_event, filePath) => {
+ipcMain.handle('shell:openPath', async (event, filePath) => {
+  assertTrustedSender(event);
   const error = await shell.openPath(filePath);
   return error || true;
 });

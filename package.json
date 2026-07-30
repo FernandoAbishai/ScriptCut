@@ -4,26 +4,10 @@
   "private": true,
   "author": "Fernando Abishai",
   "description": "ScriptCut — Open-source AI-powered text-based video editor",
-  "keywords": [
-    "video-editor",
-    "text-based-video-editing",
-    "descript-alternative",
-    "transcript-editor",
-    "youtube-shorts",
-    "tiktok",
-    "reels",
-    "shorts-editor",
-    "social-video",
-    "video-transcription",
-    "creator-tools",
-    "captions",
-    "ffmpeg",
-    "local-first",
-    "electron"
-  ],
+  "keywords": ["video-editor", "text-based-video-editing", "descript-alternative", "transcript-editor", "youtube-shorts", "tiktok", "reels", "shorts-editor", "social-video", "video-transcription", "creator-tools", "captions", "ffmpeg", "local-first", "electron"],
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
+    "dev": "concurrently \"npm run dev:frontend\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:electron": "electron .",
     "dev:backend": "node electron/run-backend.js --reload --port 8642",
@@ -48,48 +32,20 @@
     "release:alpha": "node scripts/release-alpha.js",
     "release:trust": "node scripts/check-release-trust.js",
     "lint": "cd frontend && npm run lint",
-    "smoke:backend": "cd backend && (../.venv311/bin/python scripts/smoke_backend.py || ../.venv/bin/python scripts/smoke_backend.py || python scripts/smoke_backend.py)"
+    "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)"
   },
-  "devDependencies": {
-    "concurrently": "^9.1.0",
-    "electron": "^43.1.0",
-    "electron-builder": "^26.15.3",
-    "wait-on": "^8.0.0"
-  },
-  "dependencies": {
-    "python-shell": "^5.0.0"
-  },
+  "devDependencies": {"concurrently": "^9.1.0", "electron": "^43.1.0", "electron-builder": "^26.15.3", "wait-on": "^8.0.0"},
+  "dependencies": {"python-shell": "^5.0.0"},
   "build": {
     "appId": "com.fernandoabishai.scriptcut",
     "productName": "ScriptCut",
-    "files": [
-      "electron/**/*",
-      "frontend/dist/**/*",
-      "backend/**/*",
-      "shared/**/*"
-    ],
+    "files": ["electron/**/*", "frontend/dist/**/*", "shared/**/*"],
     "extraResources": [
-      {
-        "from": "backend",
-        "to": "backend"
-      },
-      {
-        "from": "build/bin",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
-      }
+      {"from": "backend", "to": "backend"},
+      {"from": "build/bin", "to": "bin", "filter": ["**/*"]}
     ],
-    "win": {
-      "target": "nsis"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "build/icon.icns"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
+    "win": {"target": "nsis"},
+    "mac": {"target": "dmg", "icon": "build/icon.icns"},
+    "linux": {"target": "AppImage"}
   }
 }
