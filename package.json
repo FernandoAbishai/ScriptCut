@@ -23,7 +23,7 @@
   ],
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
+    "dev": "concurrently \"npm run dev:frontend\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:electron": "electron .",
     "dev:backend": "node electron/run-backend.js --reload --port 8642",
@@ -65,7 +65,6 @@
     "files": [
       "electron/**/*",
       "frontend/dist/**/*",
-      "backend/**/*",
       "shared/**/*"
     ],
     "extraResources": [
