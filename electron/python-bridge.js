@@ -6,11 +6,11 @@ const { resolvePythonRuntime } = require('./python-runtime');
 const { bundledToolEnv } = require('./bundled-tools');
 
 class PythonBackend {
-  constructor(port, isDev) {
+  constructor(port, isDev, apiToken = null) {
     this.port = port;
     this.isDev = isDev;
     this.process = null;
-    this.apiToken = null;
+    this.apiToken = apiToken || crypto.randomBytes(32).toString('hex');
     this.lastBackendError = '';
     this.backendExitReason = '';
   }
@@ -18,11 +18,13 @@ class PythonBackend {
   async start() {
     this.lastBackendError = '';
     this.backendExitReason = '';
-    // In dev mode, check if a backend is already running (e.g. from `npm run dev:backend`)
-    // If so, reuse it instead of spawning a duplicate.
     if (this.isDev) {
       const alreadyRunning = await this._isPortOpen(2000);
       if (alreadyRunning) {
+        const authorized = await this._isAuthorizedBackend(2000);
+        if (!authorized) {
+          throw new Error(`Port ${this.port} is occupied by a backend that does not accept this ScriptCut session token.`);
+        }
         console.log(`[backend] Dev backend already running on port ${this.port} — reusing it.`);
         return;
       }
@@ -31,12 +33,7 @@ class PythonBackend {
     const backendDir = this.isDev
       ? path.join(__dirname, '..', 'backend')
       : path.join(process.resourcesPath, 'backend');
-
     const { command, argsPrefix } = resolvePythonRuntime();
-
-    // Packaged builds use a per-launch token so another local process cannot
-    // call the backend or stream arbitrary local files through it.
-    this.apiToken = this.isDev ? null : crypto.randomBytes(32).toString('hex');
 
     this.process = spawn(command, [
       ...argsPrefix,
@@ -49,15 +46,13 @@ class PythonBackend {
       env: {
         ...process.env,
         ...bundledToolEnv(this.isDev),
-        ...(this.apiToken ? { SCRIPTCUT_API_TOKEN: this.apiToken } : {}),
+        SCRIPTCUT_API_TOKEN: this.apiToken,
+        SCRIPTCUT_FILE_TOKEN_SECRET: this.apiToken,
         PYTHONUNBUFFERED: '1',
       },
     });
 
-    this.process.stdout.on('data', (data) => {
-      console.log(`[backend] ${data.toString().trim()}`);
-    });
-
+    this.process.stdout.on('data', (data) => console.log(`[backend] ${data.toString().trim()}`));
     this.process.stderr.on('data', (data) => {
       const output = data.toString().trim();
       if (output) {
@@ -65,13 +60,11 @@ class PythonBackend {
         console.error(`[backend] ${output}`);
       }
     });
-
     this.process.on('error', (err) => {
       this.backendExitReason = `Local backend could not start: ${err.message}`;
       this.lastBackendError = this.backendExitReason;
       console.error('[backend] Failed to start Python backend:', err.message);
     });
-
     this.process.on('exit', (code, signal) => {
       this.backendExitReason = signal
         ? `Local backend exited with signal ${signal}.`
@@ -84,15 +77,29 @@ class PythonBackend {
     console.log(`[backend] Ready on port ${this.port}`);
   }
 
-  _isPortOpen(timeoutMs) {
+  _request(pathname, timeoutMs, includeToken = false) {
     return new Promise((resolve) => {
-      const req = http.get(`http://127.0.0.1:${this.port}/health`, (res) => {
-        resolve(res.statusCode === 200);
+      const req = http.get({
+        hostname: '127.0.0.1',
+        port: this.port,
+        path: pathname,
+        headers: includeToken ? { 'X-ScriptCut-Token': this.apiToken } : {},
+      }, (res) => {
+        res.resume();
+        resolve(res.statusCode || 0);
       });
-      req.on('error', () => resolve(false));
-      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(false); });
+      req.on('error', () => resolve(0));
+      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(0); });
       req.end();
     });
+  }
+
+  async _isPortOpen(timeoutMs) {
+    return (await this._request('/health', timeoutMs)) === 200;
+  }
+
+  async _isAuthorizedBackend(timeoutMs) {
+    return (await this._request('/system/diagnostics', timeoutMs, true)) === 200;
   }
 
   stop() {
@@ -110,7 +117,7 @@ class PythonBackend {
   _waitForReady(timeoutMs) {
     const startTime = Date.now();
     return new Promise((resolve, reject) => {
-      const check = () => {
+      const check = async () => {
         if (this.backendExitReason) {
           const detail = this.lastBackendError ? ` ${this.lastBackendError}` : '';
           reject(new Error(`${this.backendExitReason}${detail}`));
@@ -121,28 +128,12 @@ class PythonBackend {
           reject(new Error(`Backend startup timed out.${detail}`));
           return;
         }
-        const remainingMs = timeoutMs - (Date.now() - startTime);
-        let completed = false;
-        const retry = () => {
-          if (completed) return;
-          completed = true;
-          setTimeout(check, 500);
-        };
-        const req = http.get(`http://127.0.0.1:${this.port}/health`, (res) => {
-          res.resume();
-          if (res.statusCode === 200) {
-            completed = true;
-            resolve();
-          } else {
-            retry();
-          }
-        });
-        req.on('error', retry);
-        req.setTimeout(Math.max(1, Math.min(2000, remainingMs)), () => {
-          req.destroy();
-          retry();
-        });
-        req.end();
+        const status = await this._request('/health', 2000);
+        if (status === 200) {
+          resolve();
+          return;
+        }
+        setTimeout(check, 500);
       };
       setTimeout(check, 1000);
     });
