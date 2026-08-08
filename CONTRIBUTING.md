@@ -47,6 +47,14 @@ That starts the backend, Vite frontend, and Electron shell. The backend should b
 - Preserve support for legacy project files such as `.aive` and `.cutscript`.
 - Do not remove original-project attribution from the license or acknowledgements.
 
+## Licensing contributions
+
+Public contributions are expected to be compatible with `AGPL-3.0-or-later`. Contributors must have the right to submit their work and must preserve applicable third-party notices and licenses.
+
+ScriptCut intends to preserve the ability to offer alternative commercial licensing for rights controlled by the ScriptCut licensor. AGPL-compatible public contributions do not automatically grant commercial relicensing rights. This guidance does not create a copyright assignment or contributor license agreement.
+
+An external contribution may require a separate, reviewed contributor agreement before merge if rights beyond AGPL-3.0-or-later are needed for that contribution, including inclusion in an alternatively licensed distribution. Before accepting external code that ScriptCut expects to include in an alternatively licensed distribution, the required contributor rights must be resolved explicitly. No separate CLA currently exists, and none is being created by this phase.
+
 ## Report Bugs
 
 When filing an issue, include:
