@@ -7,6 +7,7 @@ import WaveformTimeline from './components/WaveformTimeline';
 import AIPanel from './components/AIPanel';
 import ExportDialog from './components/ExportDialog';
 import SettingsPanel from './components/SettingsPanel';
+import EditorTaskHeader from './components/EditorTaskHeader';
 import HomeScreen, {
   type SystemChecksResponse,
   type WorkflowIntent,
@@ -45,11 +46,17 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { getCoreReadiness } from './utils/homeReadiness';
+import {
+  getEditorTaskPresentation,
+  getPostTranscriptionPanel,
+  type EditorPanel,
+  type EditorWorkflow,
+} from './utils/editorTask';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
 
-type Panel = 'ai' | 'settings' | 'export' | null;
+type Panel = EditorPanel;
 
 interface BackendJob<T> {
   status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
@@ -64,6 +71,8 @@ export default function App() {
   const {
     videoPath,
     words,
+    deletedRanges,
+    editOperations,
     isTranscribing,
     transcriptionProgress,
     loadVideo,
@@ -76,6 +85,7 @@ export default function App() {
   } = useEditorStore();
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
+  const [editorWorkflow, setEditorWorkflow] = useState<EditorWorkflow>('full-video');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
   const [transcriptionModel, setTranscriptionModel] = useState(AUTOMATIC_TRANSCRIPTION_MODEL);
@@ -191,6 +201,7 @@ export default function App() {
       const content = await window.electronAPI!.readProjectFile(projectPath);
       const data = parseProjectFile(content);
       loadProjectState(data);
+      setEditorWorkflow('project');
       rememberProject(projectPath, data, 'project');
     } catch (err) {
       console.error('Failed to load project:', err);
@@ -206,6 +217,7 @@ export default function App() {
       const content = await window.electronAPI!.readProjectFile(path);
       const data = parseProjectFile(content);
       loadProjectState(data);
+      setEditorWorkflow('project');
       rememberProject(path, data, 'autosave');
     } catch (err) {
       console.error('Failed to recover autosave:', err);
@@ -240,6 +252,7 @@ export default function App() {
       const content = await window.electronAPI!.readProjectFile(project.path);
       const data = parseProjectFile(content);
       loadProjectState(data);
+      setEditorWorkflow('project');
       rememberProject(project.path, data, project.source);
     } catch (err) {
       removeRecentProject(project.path);
@@ -289,10 +302,11 @@ export default function App() {
   }, [setExportOptions, setPreviewAspectRatio]);
 
   const handleOpenFile = async (intent: WorkflowIntent = 'full-video') => {
-    applyWorkflowIntent(intent);
     if (IS_ELECTRON) {
       const path = await window.electronAPI!.openFile();
       if (path) {
+        setEditorWorkflow(intent);
+        applyWorkflowIntent(intent);
         const restored = await tryRestoreAutosave(path);
         if (restored) return;
 
@@ -300,6 +314,7 @@ export default function App() {
         await transcribeVideo(path, intent);
       }
     } else {
+      applyWorkflowIntent(intent);
       setBrowserWorkflowIntent(intent);
       fileInputRef.current?.click();
     }
@@ -309,6 +324,7 @@ export default function App() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setEditorWorkflow(browserWorkflowIntent);
     await uploadBrowserFile(file, browserWorkflowIntent);
   };
 
@@ -316,6 +332,7 @@ export default function App() {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
+    setEditorWorkflow('full-video');
     applyWorkflowIntent('full-video');
     await uploadBrowserFile(file, 'full-video');
   };
@@ -386,7 +403,7 @@ export default function App() {
   ) => {
     setTranscription(data);
     const resolvedIntent = intent ?? transcriptionIntentRef.current;
-    if (resolvedIntent) setActivePanel(resolvedIntent === 'short' ? 'ai' : 'export');
+    setActivePanel(getPostTranscriptionPanel(resolvedIntent));
   };
 
   const transcribeVideo = async (path: string, intent?: WorkflowIntent) => {
@@ -506,6 +523,18 @@ export default function App() {
     await handleOpenFile(intent);
   };
 
+  const taskPresentation = getEditorTaskPresentation({
+    workflow: editorWorkflow,
+    isTranscribing,
+    hasTranscriptionError: Boolean(transcriptionError),
+    wordCount: words.length,
+    cutCount: deletedRanges.length,
+    layerCount: editOperations.filter((operation) => operation.kind !== 'delete').length,
+    activePanel,
+  });
+
+  const sidePanelLabel = activePanel === 'ai' ? 'AI tools' : activePanel === 'export' ? 'Export' : 'Settings';
+
   if (!videoPath) {
     return (
       <HomeScreen
@@ -589,6 +618,8 @@ export default function App() {
             active={activePanel === 'ai'}
             onClick={() => togglePanel('ai')}
             disabled={words.length === 0}
+            controls="editor-side-panel"
+            expanded={activePanel === 'ai'}
           />
           <ToolbarButton
             icon={<Download className="w-4 h-4" />}
@@ -596,12 +627,16 @@ export default function App() {
             active={activePanel === 'export'}
             onClick={() => togglePanel('export')}
             disabled={words.length === 0}
+            controls="editor-side-panel"
+            expanded={activePanel === 'export'}
           />
           <div className="relative">
             <button
               type="button"
               onClick={() => setShowMoreMenu((current) => !current)}
               title="More tools"
+              aria-expanded={showMoreMenu}
+              aria-controls="editor-more-menu"
               className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
                 showMoreMenu || activePanel === 'settings'
                   ? 'bg-editor-accent text-white'
@@ -611,13 +646,15 @@ export default function App() {
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {showMoreMenu && (
-              <div className="absolute right-0 top-10 z-30 w-40 rounded-md border border-editor-border bg-editor-panel p-1 shadow-xl">
+              <div id="editor-more-menu" className="absolute right-0 top-10 z-30 w-40 rounded-md border border-editor-border bg-editor-panel p-1 shadow-xl">
                 <button
                   type="button"
                   onClick={() => {
                     togglePanel('settings');
                     setShowMoreMenu(false);
                   }}
+                  aria-expanded={activePanel === 'settings'}
+                  aria-controls="editor-side-panel"
                   className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
                 >
                   <Settings className="h-3.5 w-3.5" /> Settings
@@ -646,6 +683,8 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      <EditorTaskHeader presentation={taskPresentation} />
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
@@ -720,11 +759,16 @@ export default function App() {
 
         {/* Right panel (AI / Export / Settings) */}
         {activePanel && (
-          <div className="w-80 border-l border-editor-border overflow-y-auto shrink-0">
+          <aside
+            id="editor-side-panel"
+            role="region"
+            aria-label={sidePanelLabel}
+            className="w-80 border-l border-editor-border overflow-y-auto shrink-0"
+          >
             {activePanel === 'ai' && <AIPanel />}
             {activePanel === 'export' && <ExportDialog />}
             {activePanel === 'settings' && <SettingsPanel />}
-          </div>
+          </aside>
         )}
       </div>
     </div>
@@ -771,18 +815,24 @@ function ToolbarButton({
   active,
   onClick,
   disabled,
+  controls,
+  expanded,
 }: {
   icon: React.ReactNode;
   label: string;
   active?: boolean;
   onClick: () => void;
   disabled?: boolean;
+  controls?: string;
+  expanded?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       title={label}
+      aria-expanded={controls ? expanded ?? active ?? false : undefined}
+      aria-controls={controls}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
         active
           ? 'bg-editor-accent text-white'

@@ -29,6 +29,8 @@ assert.match(appSource, /transcribeVideo\(lastTranscriptionPath, transcriptionIn
 assert.match(appSource, /const completeTranscription =/);
 assert.match(appSource, /completeTranscription\(data, intent\)/);
 assert.match(appSource, /completeTranscription\(data, transcriptionIntentRef\.current\)/);
+assert.match(appSource, /getPostTranscriptionPanel/);
+assert.doesNotMatch(appSource, /setActivePanel\(resolvedIntent === 'short' \? 'ai' : 'export'\)/);
 
 assert.match(homeSource, /Advanced transcription/);
 assert.match(homeSource, /<TranscriptionOptions/);
