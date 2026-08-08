@@ -4,109 +4,77 @@
   <img src="frontend/public/brand/scriptcut-wordmark.svg" width="360" alt="ScriptCut" />
 </p>
 
-ScriptCut is an open-source, local-first video editor for creators. It lets you edit a video by editing the transcript, then package clips for Shorts, TikTok, Reels, podcasts, and social posts.
+> Edit videos like documents. Turn long-form recordings into polished videos and social clips, locally on your machine.
 
-Think of it as a creator-owned, Descript-style workflow:
+ScriptCut is an open-source, local-first desktop video production tool for YouTube creators, podcasters, educators, founders, interview creators, streamers, and anyone repurposing spoken recordings.
 
-- delete words in the transcript to cut the video
-- remove filler words and awkward pauses
-- search, trim, and review clips from the transcript
-- design captions and export vertical shorts
-- package each clip with titles, captions, descriptions, hashtags, and hook-frame notes
-- use AI helpers when you want them, but still edit and export without AI
+Its creator workflow is simple:
 
-ScriptCut runs best as the desktop app. The browser page at `localhost:5173` is the development frontend; it is useful for testing, but it does not have the same native file access as the desktop app.
+```text
+Choose a video → edit the transcript → review → export
+```
+
+ScriptCut is different from a cloud-first editor because local processing is the default path, AI helpers are optional, and project files stay creator-owned. The current product is a desktop alpha: it already supports the core editing and export workflow, while installation and platform support continue to mature.
+
+See [the Product Vision](docs/PRODUCT_VISION.md) for the canonical product direction.
 
 <img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
 
 ## Start Here
 
-The fastest creator path is:
+The intended creator path is the **ScriptCut desktop app**:
 
-1. Download the **ScriptCut desktop alpha** for macOS Apple Silicon.
-2. Choose **Edit full video** or **Create a short**, then select a local video file.
-3. Review the transcript and press **Export** when the preflight panel is ready.
+1. Download the [latest GitHub Release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
+2. Download the macOS Apple Silicon `.dmg`.
+3. Launch ScriptCut and follow the first-run setup assistant.
+4. Choose **Edit full video** or **Create a short**, then select local media.
+5. Review the transcript and export when the preflight panel is ready.
 
-Use the [First Export Guide](docs/FIRST_EXPORT.md) for a short, non-technical walkthrough. It includes what to expect from captions and where to get help if export is blocked.
+For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST_EXPORT.md).
 
-## Download ScriptCut
+If a release asset is not available, ScriptCut can be run from source using the contributor setup below. The complete release process is documented in [docs/RELEASE.md](docs/RELEASE.md).
 
-The intended user version is the **ScriptCut desktop app**.
+## The two primary workflows
 
-For the public alpha:
+### Edit a Video
 
-1. Open the [latest GitHub Release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
-2. Download the macOS `.dmg`.
-3. Open the DMG and launch ScriptCut.
-4. Let the first-run setup assistant check your local tools.
-5. Open a video and start editing from the transcript.
+Open a video or audio file, transcribe it locally, edit the word-level transcript, preview the result, and export. You can delete, restore, mute, or hide selected words from captions. AI edit plans and filler-word suggestions are reviewable helpers; they do not replace editorial approval.
 
-If no release asset is available yet, ScriptCut can still be run from source using the contributor setup below. The release flow is documented in [docs/RELEASE.md](docs/RELEASE.md).
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the detailed creator walkthrough.
 
-## Alpha Compatibility
+### Create Clips
 
-The current downloadable alpha is verified for **macOS Apple Silicon (arm64)**. It includes a portable FFmpeg/FFprobe bundle for local export.
+Open a long-form recording, find or create candidate moments, review and trim drafts, package metadata and hook-frame notes, then export approved clips. The current app supports AI clip suggestions, editable drafts, social metadata, vertical/square output, captions, readiness checks, and batch export. Discovery and packaging still depend on review, local setup, and—when selected—an available AI provider.
 
-This alpha is not yet a fully self-contained installer: it uses a compatible local Python 3.10-3.12 runtime and backend dependency set for editing. The setup assistant reports what is missing at launch and links to the simplest recovery path. See [Platform Support](docs/PLATFORM_SUPPORT.md) for the current support matrix before downloading.
+## Current alpha support
 
-## Which Version Should I Use?
+The current downloadable alpha is verified for **macOS Apple Silicon (arm64)**. A matching desktop release includes portable FFmpeg/FFprobe for local export.
 
-Use the **desktop app** for real editing work. It gives ScriptCut direct access to local files, native open/save dialogs, project autosave, and the bundled local backend.
+This is not yet a fully self-contained installer: editing and transcription still use a compatible local Python 3.10–3.12 runtime and the ScriptCut backend dependency set. Python 3.11 is the recommended option on Apple Silicon. The setup assistant reports missing requirements at launch.
 
-Use the **browser version** only for development or quick testing. Browser mode can upload media to the local backend and download exports, but the desktop app is the intended user experience.
+See [Platform Support](docs/PLATFORM_SUPPORT.md) for the current support matrix. macOS Intel preparation is available for maintainers, while Windows and Linux are source-development paths rather than verified public installers. The browser page at `localhost:5173` is for development and testing; it does not provide the desktop app’s native file access or the same autosave workflow.
 
-Use the **source/dev setup** only if you are contributing, testing unreleased changes, or building a release candidate.
+In browser mode, media is uploaded to the local backend for transcription and export, and finished files are offered as downloads. Use the desktop app for native file access, persistent export folders, autosave, and Finder reveal actions.
 
-## What You Can Do
+## What is available today
 
-- Open a video or audio file and get a word-level transcript.
-- Edit the video by deleting, restoring, muting, or caption-hiding transcript words.
-- Preview edited playback before exporting.
-- Generate AI edit plans, filler-word suggestions, and short clip drafts.
-- Review clip drafts, package social metadata, choose hook frames, and batch export.
-- Export source, square, or vertical videos with optional burned-in captions.
-- Work locally first, with optional providers like Ollama, OpenAI, Claude, and 9Router.
+- Word-level transcription through Parakeet TDT v3, WhisperX, or Whisper when the selected local engine is installed.
+- Transcript-based editing with edited playback, undo/redo, waveform/timeline synchronization, and speaker-aware operations when speaker labels are available.
+- AI-assisted edit plans, filler-word detection with review decisions, clip suggestions, editable clip drafts, clip readiness scoring, and generated clip metadata.
+- Source, vertical, and square exports with creator presets, reframe controls, optional Studio Sound audio cleanup, and optional background removal.
+- Word-level captions with caption styling. Depending on the FFmpeg build, captions are burned into the video or delivered as a matching `.srt` sidecar file; the export preflight shows the actual result.
+- Approved-clip batch export with per-draft progress, retry state, and a batch manifest in the desktop workflow.
+- `.scriptcut` project save/load, recent projects, autosave, recovery snapshots, and compatibility with legacy `.aive` and `.cutscript` files.
 
-## Relationship to CutScript
+Some capabilities depend on optional local packages, model downloads, provider configuration, or the capabilities of the packaged FFmpeg build. The setup assistant and export preflight are the source of truth for a particular machine.
 
-ScriptCut began as a fork/continuation of DataAnts-AI/CutScript.
+## Local-first and AI behavior
 
-This version focuses on:
+The desktop app runs an Electron shell with a local React interface, a local FastAPI backend, and FFmpeg for media work. Transcription and export use local tools by default where available.
 
-- Apple Silicon macOS setup
-- Python 3.10-3.12 compatibility
-- 9Router support
-- improved backend startup
-- creator-oriented local-first workflows
+AI features can use local Ollama or configured OpenAI, Claude, or 9Router providers. Selecting an external provider can send the requested transcript or prompt context to that provider. ScriptCut does not require AI for core transcript editing or export, and this README does not make a blanket privacy claim beyond the configured workflow.
 
-## First Edit
-
-Goal: get from a local video to a finished export in a few minutes.
-
-1. Download and open the desktop app from the latest release.
-2. Open a local video or audio file.
-3. Choose the transcription engine. Auto/Parakeet is recommended when available.
-4. Wait for the word-level transcript.
-5. Delete transcript words to cut the video, or mute/hide words when needed.
-6. Preview the edited playback.
-7. Choose a creator export template such as Shorts Batch or Podcast Clip.
-8. Export a source-frame video or a vertical Short.
-
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a creator-focused walkthrough.
-
-## Shorts Workflow
-
-Use the Clips tab when you want ScriptCut to work like a shorts production queue:
-
-1. Click **Find Best Clips**.
-2. Approve the suggestions worth reviewing.
-3. Trim in/out points and preview each draft.
-4. Package hook, title, caption, description, hashtags, and hook-frame notes.
-5. Export approved drafts as a batch.
-
-Each draft keeps its status, export path, and retry state so one failed clip does not block the rest of the batch.
-
-## Contributor Quick Start
+## Contributor quick start
 
 These steps are for running ScriptCut from the repository.
 
@@ -117,7 +85,9 @@ These steps are for running ScriptCut from the repository.
 - FFmpeg in `PATH` for source development. Desktop release builds include a bundled FFmpeg when prepared with `npm run release:ffmpeg`.
 - Optional: Ollama for local AI features
 
-### macOS Setup
+Python 3.11 is recommended on Apple Silicon. Python 3.13 is not supported by the current transcription dependency stack.
+
+### macOS setup
 
 ```bash
 brew install ffmpeg
@@ -125,7 +95,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 
-If you want to force a specific interpreter, set:
+To force a specific interpreter:
 
 ```bash
 export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
@@ -133,38 +103,23 @@ export SCRIPTCUT_PYTHON_PATH=/absolute/path/to/python
 
 `CUTSCRIPT_PYTHON_PATH` is still supported for legacy setups, but `SCRIPTCUT_PYTHON_PATH` is preferred.
 
-### Install Dependencies
+### Install and run
 
 ```bash
 npm run setup
 npm run doctor
-```
-
-Release maintainers can prepare local FFmpeg binaries for packaging with:
-
-```bash
-npm run release:ffmpeg
-```
-
-### Run the Desktop App
-
-```bash
 npm run dev
 ```
 
-That starts the local backend, the frontend, and the Electron desktop app together.
-
-### Build a Desktop App
-
-For local desktop packaging:
+This starts the local backend, Vite frontend, and Electron desktop app together. For local desktop packaging, run:
 
 ```bash
 npm run dist:mac
 ```
 
-That creates a macOS DMG under `dist/`. See [docs/RELEASE.md](docs/RELEASE.md) for the full release checklist.
+That creates a macOS DMG under `dist/`. See [docs/INSTALL.md](docs/INSTALL.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [CONTRIBUTING.md](CONTRIBUTING.md) for technical setup and contribution guidance.
 
-If you want to verify the backend separately:
+To verify the backend separately:
 
 ```bash
 npm run dev:backend
@@ -177,73 +132,46 @@ Expected response:
 {"status":"ok"}
 ```
 
-## Browser Mode
-
-If you open `http://localhost:5173` directly, you are using the development browser frontend. Browser mode can select files, transcribe, and export through the local backend, but exported files are saved in a backend temp folder and then offered as downloads.
-
-For the normal creator workflow, use the Electron desktop window opened by `npm run dev`.
-
-## Apple Silicon Notes
-
-This version has been verified on Apple Silicon macOS for backend startup, frontend builds, health checks, exports, and transcription requests on CPU/MPS paths.
-
-Important runtime notes:
-
-- Use Python `3.10` to `3.12`.
-- Python `3.11` is the recommended Apple Silicon setup.
-- Python `3.13` is not a supported runtime for the current transcription dependency stack.
-- The backend launcher auto-selects a compatible local virtualenv or interpreter.
-
-## Project Structure
+## Project structure and technical reference
 
 ```text
 scriptcut/
-├── electron/
-├── frontend/
-├── backend/
-└── shared/
+├── electron/   # desktop shell, IPC, and local backend lifecycle
+├── frontend/   # React/Vite creator interface
+├── backend/    # FastAPI transcription, AI, caption, audio, and export services
+└── shared/     # project schema and shared contracts
 ```
 
-## Features
+The main technical pieces are Electron + React, a local FastAPI backend, Parakeet/WhisperX/Whisper transcription, and FFmpeg export. The local API includes health, transcription, export, job lifecycle, AI helper, caption, audio, and background-capability endpoints. See the backend routers for the current endpoint contract.
 
-| Feature | Status |
-|---------|--------|
-| Word-level transcription | Done |
-| Text-based video editing | Done |
-| Undo/redo | Done |
-| Waveform timeline | Done |
-| Edited playback preview | Done |
-| Project autosave and startup recovery | Done |
-| Non-destructive edit layers | Done |
-| FFmpeg stream-copy export | Done |
-| FFmpeg re-encode export | Done |
-| Job progress, cancellation, logs, retry | Done |
-| AI edit plans with review/apply queue | Done |
-| AI filler review queue | Done |
-| Editable AI clip drafts | Done |
-| Clip readiness scoring | Done |
-| Creator export templates | Done |
-| Ollama + OpenAI + Claude + 9router | Done |
-| Word-level captions | Done |
-| Caption designer and burn-in export | Done |
-| Social presets and reframe controls | Done |
-| Studio Sound | Done |
-| Speaker diarization | Done |
-| Speaker-aware transcript editing | Done |
-| Project save/load (`.scriptcut`, legacy `.aive`/`.cutscript`) | Done |
-| AI background removal | Done |
+Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `version: 1`. Manual saves and autosaves use the same serializer, with compatibility for legacy `.aive` and `.cutscript` files.
 
-Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `version: 1`. Manual saves and autosaves use the same serializer so recovery files are deterministic and migration-ready.
+### Local API surface
 
-## How It Works
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/transcribe` | Transcribe media |
+| POST | `/jobs/transcribe` | Start a transcription job |
+| POST | `/export` | Export edited video |
+| POST | `/jobs/export` | Start an export job |
+| GET | `/jobs/{job_id}` | Read job progress, logs, result, or error |
+| POST | `/jobs/{job_id}/cancel` | Request job cancellation |
+| POST | `/jobs/{job_id}/retry` | Retry a failed or canceled job |
+| POST | `/ai/filler-removal` | Detect filler words |
+| POST | `/ai/create-clip` | Suggest clips |
+| POST | `/ai/clip-metadata` | Suggest title, hook, caption, and hashtags |
+| POST | `/ai/edit-plan` | Create a reviewable AI edit plan |
+| GET | `/ai/ollama-models` | List local Ollama models |
+| POST | `/ai/9router-models` | List models exposed by 9Router |
+| POST | `/captions` | Generate captions |
+| POST | `/audio/clean` | Noise reduction |
+| GET | `/audio/capabilities` | Audio processing availability |
+| GET | `/background/capabilities` | Background removal availability |
 
-- **Desktop app:** Electron + React.
-- **Local backend:** FastAPI.
-- **Transcription:** Parakeet TDT v3, WhisperX, or Whisper.
-- **Export engine:** FFmpeg.
-- **Optional AI:** Ollama, OpenAI, Claude, or 9Router.
+Long-running jobs use `queued`, `running`, `canceling`, `succeeded`, `failed`, and `canceled` states. A canceled job is retryable after it reaches final `canceled` state.
 
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
@@ -257,45 +185,25 @@ Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `vers
 | Ctrl+E / Cmd+E | Export |
 | ? | Shortcut cheatsheet |
 
-## API Endpoints
+## Quality checks
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| POST | `/transcribe` | Transcribe media |
-| POST | `/jobs/transcribe` | Start transcription job |
-| POST | `/export` | Export edited video |
-| POST | `/jobs/export` | Start export job |
-| GET | `/jobs/{job_id}` | Read job progress, logs, result, or error |
-| POST | `/jobs/{job_id}/cancel` | Request job cancellation |
-| POST | `/jobs/{job_id}/retry` | Retry a failed or canceled job |
-| POST | `/ai/filler-removal` | Detect filler words |
-| POST | `/jobs/ai/filler-removal` | Detect filler words as a job |
-| POST | `/ai/create-clip` | Suggest clips |
-| POST | `/jobs/ai/create-clip` | Suggest clips as a job |
-| POST | `/ai/clip-metadata` | Suggest title, hook, caption, and hashtags |
-| POST | `/jobs/ai/clip-metadata` | Suggest clip metadata as a job |
-| POST | `/ai/edit-plan` | Create a reviewable AI edit plan from an instruction |
-| POST | `/jobs/ai/edit-plan` | Create an AI edit plan as a job |
-| GET | `/ai/ollama-models` | List local Ollama models |
-| POST | `/ai/9router-models` | List models exposed by 9Router |
-| POST | `/captions` | Generate captions |
-| POST | `/audio/clean` | Noise reduction |
-| GET | `/audio/capabilities` | Audio processing availability |
-| GET | `/background/capabilities` | Background removal availability |
+For release-oriented changes, run the checks appropriate to the affected area:
 
-Job statuses are `queued`, `running`, `canceling`, `succeeded`, `failed`, and `canceled`. A canceled job is retryable only after it leaves `canceling` and reaches final `canceled`.
+```bash
+npm run lint
+npm run build
+npm run smoke:backend
+python -m compileall -q backend
+```
 
-## QA
-
-Run `npm run smoke:backend` for fast backend smoke checks covering sidecar caption export settings, deleted-word caption filtering, and job cancellation lifecycle behavior. Run it alongside `npm run lint`, `npm run build`, and `python -m compileall -q backend` before release-oriented changes.
+Use [docs/DESKTOP_QA.md](docs/DESKTOP_QA.md) for the creator workflow checklist and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) when setup or runtime checks fail.
 
 ## Contributing
 
-Start with [docs/INSTALL.md](docs/INSTALL.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [CONTRIBUTING.md](CONTRIBUTING.md). Use [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) when setup or runtime checks fail.
+Start with [docs/INSTALL.md](docs/INSTALL.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [CONTRIBUTING.md](CONTRIBUTING.md). Keep changes focused on creator workflows, preserve support for legacy project files, and retain the original CutScript attribution.
 
-## License
+## License and attribution
 
-MIT License. See [LICENSE](LICENSE).
+ScriptCut is released under the MIT License. See [LICENSE](LICENSE).
 
-See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for original CutScript attribution.
+ScriptCut began as a fork and continuation of [DataAnts-AI/CutScript](https://github.com/DataAnts-AI/CutScript). See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for the original-project attribution.
