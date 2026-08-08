@@ -202,8 +202,14 @@ Use [docs/DESKTOP_QA.md](docs/DESKTOP_QA.md) for the creator workflow checklist 
 
 Start with [docs/INSTALL.md](docs/INSTALL.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [CONTRIBUTING.md](CONTRIBUTING.md). Keep changes focused on creator workflows, preserve support for legacy project files, and retain the original CutScript attribution.
 
-## License and attribution
+## License
 
-ScriptCut is released under the MIT License. See [LICENSE](LICENSE).
+ScriptCut is open-source software licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+
+Portions derived from DataAnts-AI/CutScript retain their original MIT notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSES/CutScript-MIT.txt](LICENSES/CutScript-MIT.txt).
+
+Organizations that need different licensing terms can see [COMMERCIAL-LICENSING.md](COMMERCIAL-LICENSING.md).
+
+The software license does not grant rights to ScriptCut branding. See [TRADEMARKS.md](TRADEMARKS.md).
 
 ScriptCut began as a fork and continuation of [DataAnts-AI/CutScript](https://github.com/DataAnts-AI/CutScript). See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for the original-project attribution.
