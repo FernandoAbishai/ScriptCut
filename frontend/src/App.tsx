@@ -9,10 +9,14 @@ import ExportDialog from './components/ExportDialog';
 import SettingsPanel from './components/SettingsPanel';
 import HomeScreen, {
   type SystemChecksResponse,
-  type TranscriptionEngine,
-  type TranscriptionEngineStatus,
   type WorkflowIntent,
 } from './components/HomeScreen';
+import TranscriptionStatus from './components/TranscriptionStatus';
+import {
+  AUTOMATIC_TRANSCRIPTION_MODEL,
+  type TranscriptionEngine,
+  type TranscriptionEngineStatus,
+} from './utils/transcriptionModels';
 import { saveProject, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import {
   getAutosaveCandidatePaths,
@@ -74,7 +78,7 @@ export default function App() {
   const [activePanel, setActivePanel] = useState<Panel>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
-  const [transcriptionModel, setTranscriptionModel] = useState('nvidia/parakeet-tdt-0.6b-v3');
+  const [transcriptionModel, setTranscriptionModel] = useState(AUTOMATIC_TRANSCRIPTION_MODEL);
   const [transcriptionEngineStatus, setTranscriptionEngineStatus] = useState<TranscriptionEngineStatus | null>(null);
   const [transcriptionMessage, setTranscriptionMessage] = useState('');
   const [transcriptionError, setTranscriptionError] = useState('');
@@ -84,6 +88,8 @@ export default function App() {
   const [browserUploadError, setBrowserUploadError] = useState('');
   const [isBrowserUploading, setIsBrowserUploading] = useState(false);
   const [browserWorkflowIntent, setBrowserWorkflowIntent] = useState<WorkflowIntent>('full-video');
+  const transcriptionIntentRef = useRef<WorkflowIntent | null>(null);
+  const [lastTranscriptionPath, setLastTranscriptionPath] = useState('');
   const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
   const [recoveryError, setRecoveryError] = useState('');
@@ -118,10 +124,6 @@ export default function App() {
       .then((status: TranscriptionEngineStatus | null) => {
         if (canceled || !status) return;
         setTranscriptionEngineStatus(status);
-        if (status.default_engine && status.default_model) {
-          setTranscriptionEngine(status.default_engine);
-          setTranscriptionModel(status.default_model);
-        }
       })
       .catch(() => {
         if (!canceled) setTranscriptionEngineStatus(null);
@@ -378,9 +380,20 @@ export default function App() {
     return false;
   };
 
+  const completeTranscription = (
+    data: Parameters<typeof setTranscription>[0],
+    intent?: WorkflowIntent | null,
+  ) => {
+    setTranscription(data);
+    const resolvedIntent = intent ?? transcriptionIntentRef.current;
+    if (resolvedIntent) setActivePanel(resolvedIntent === 'short' ? 'ai' : 'export');
+  };
+
   const transcribeVideo = async (path: string, intent?: WorkflowIntent) => {
+    setLastTranscriptionPath(path);
+    if (intent) transcriptionIntentRef.current = intent;
     setTranscribing(true, 0);
-    setTranscriptionMessage('Starting transcription');
+    setTranscriptionMessage('Preparing your transcript');
     setTranscriptionError('');
     setTranscriptionLogs([]);
     setLastTranscriptionJobId('');
@@ -403,8 +416,7 @@ export default function App() {
       const { job_id: jobId } = await res.json();
       setLastTranscriptionJobId(jobId);
       const data = await pollTranscriptionJob(jobId);
-      setTranscription(data);
-      if (intent) setActivePanel(intent === 'short' ? 'ai' : 'export');
+      completeTranscription(data, intent);
     } catch (err) {
       console.error('Transcription error:', err);
       const message = err instanceof Error ? err.message : String(err);
@@ -438,7 +450,7 @@ export default function App() {
       const { job_id: jobId } = await res.json();
       setLastTranscriptionJobId(jobId);
       const data = await pollTranscriptionJob(jobId);
-      setTranscription(data);
+      completeTranscription(data, transcriptionIntentRef.current);
     } catch (err) {
       console.error('Transcription retry error:', err);
       setTranscriptionError(err instanceof Error ? err.message : String(err));
@@ -446,6 +458,11 @@ export default function App() {
       setTranscriptionMessage('');
       setTranscribing(false);
     }
+  };
+
+  const startTranscriptionWithSettings = async () => {
+    if (!lastTranscriptionPath) return;
+    await transcribeVideo(lastTranscriptionPath, transcriptionIntentRef.current ?? undefined);
   };
 
   const pollTranscriptionJob = async (jobId: string) => {
@@ -643,60 +660,47 @@ export default function App() {
             {/* Transcript */}
             <div className="w-1/2 border-l border-editor-border flex flex-col min-h-0">
               {isTranscribing ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-4">
-                  <Loader2 className="w-8 h-8 text-editor-accent animate-spin" />
-                  <p className="text-sm text-editor-text-muted">
-                    {transcriptionMessage || 'Transcribing'}... {Math.round(transcriptionProgress)}%
-                  </p>
-                  {lastTranscriptionJobId && (
-                    <button
-                      onClick={cancelTranscription}
-                      className="rounded bg-editor-border px-3 py-2 text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
-                    >
-                      Cancel transcription
-                    </button>
-                  )}
-                  {transcriptionLogs.length > 0 && (
-                    <details className="w-full max-w-md rounded border border-editor-border bg-editor-surface p-2 text-left text-[10px] text-editor-text-muted">
-                      <summary className="cursor-pointer text-editor-text">Job log</summary>
-                      <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
-                        {transcriptionLogs.slice(-8).map((entry, index) => (
-                          <div key={`${entry.time}-${index}`} className="break-words">
-                            {new Date(entry.time).toLocaleTimeString()} - {entry.message}
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </div>
+                <TranscriptionStatus
+                  isTranscribing
+                  progress={transcriptionProgress}
+                  message={transcriptionMessage}
+                  error={transcriptionError}
+                  logs={transcriptionLogs}
+                  lastJobId={lastTranscriptionJobId}
+                  transcriptionEngine={transcriptionEngine}
+                  onEngineChange={setTranscriptionEngine}
+                  transcriptionModel={transcriptionModel}
+                  onModelChange={setTranscriptionModel}
+                  transcriptionEngineStatus={transcriptionEngineStatus}
+                  onCancel={cancelTranscription}
+                  onUseAutomatic={() => {
+                    setTranscriptionEngine('auto');
+                    setTranscriptionModel(AUTOMATIC_TRANSCRIPTION_MODEL);
+                  }}
+                />
+              ) : transcriptionError ? (
+                <TranscriptionStatus
+                  isTranscribing={false}
+                  progress={transcriptionProgress}
+                  message={transcriptionMessage}
+                  error={transcriptionError}
+                  logs={transcriptionLogs}
+                  lastJobId={lastTranscriptionJobId}
+                  transcriptionEngine={transcriptionEngine}
+                  onEngineChange={setTranscriptionEngine}
+                  transcriptionModel={transcriptionModel}
+                  onModelChange={setTranscriptionModel}
+                  transcriptionEngineStatus={transcriptionEngineStatus}
+                  onCancel={cancelTranscription}
+                  onRetry={retryTranscription}
+                  onUseAutomatic={() => {
+                    setTranscriptionEngine('auto');
+                    setTranscriptionModel(AUTOMATIC_TRANSCRIPTION_MODEL);
+                  }}
+                  onStartWithSettings={startTranscriptionWithSettings}
+                />
               ) : words.length > 0 ? (
                 <TranscriptEditor />
-              ) : transcriptionError ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <div className="max-w-md rounded border border-editor-danger/30 bg-editor-danger/10 p-3 text-sm text-editor-danger">
-                    {transcriptionError}
-                  </div>
-                  {lastTranscriptionJobId && (
-                    <button
-                      onClick={retryTranscription}
-                      className="rounded bg-editor-accent px-3 py-2 text-sm font-medium hover:bg-editor-accent-hover"
-                    >
-                      Retry transcription
-                    </button>
-                  )}
-                  {transcriptionLogs.length > 0 && (
-                    <details className="w-full max-w-md rounded border border-editor-border bg-editor-surface p-2 text-left text-[10px] text-editor-text-muted">
-                      <summary className="cursor-pointer text-editor-text">Job log</summary>
-                      <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
-                        {transcriptionLogs.slice(-8).map((entry, index) => (
-                          <div key={`${entry.time}-${index}`} className="break-words">
-                            {new Date(entry.time).toLocaleTimeString()} - {entry.message}
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
                   <div className="text-sm font-medium text-editor-text">Transcript will appear here</div>

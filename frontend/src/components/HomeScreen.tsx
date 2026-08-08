@@ -18,21 +18,13 @@ import {
   type CoreReadiness,
 } from '../utils/homeReadiness';
 import { getAutosaveSnapshotPaths, type AutosaveCandidate, type RecentProject } from '../hooks/useProjectAutosave';
+import TranscriptionOptions, {
+  type TranscriptionEngine,
+  type TranscriptionEngineStatus,
+} from './TranscriptionOptions';
 
 export type WorkflowIntent = 'full-video' | 'short';
-export type TranscriptionEngine = 'auto' | 'whisperx' | 'whisper' | 'parakeet';
-export type TranscriptionEngineStatus = {
-  default_engine?: TranscriptionEngine | null;
-  default_model?: string;
-  engines?: Record<string, {
-    available: boolean;
-    default_model?: string;
-    label?: string;
-    first_class?: boolean;
-    languages?: number;
-    install_hint?: string;
-  }>;
-};
+export type { TranscriptionEngine, TranscriptionEngineStatus } from './TranscriptionOptions';
 export type SystemCheck = {
   ok: boolean;
   label: string;
@@ -41,32 +33,6 @@ export type SystemCheck = {
 export type SystemChecksResponse = {
   status: string;
   checks: Record<string, SystemCheck>;
-};
-
-export const TRANSCRIPTION_MODELS: Record<TranscriptionEngine, Array<{ value: string; label: string }>> = {
-  auto: [
-    { value: 'nvidia/parakeet-tdt-0.6b-v3', label: 'Auto best available' },
-    { value: 'base', label: 'base (~140 MB, Whisper fallback)' },
-    { value: 'small', label: 'small (~460 MB, better)' },
-    { value: 'medium', label: 'medium (~1.5 GB, high accuracy)' },
-  ],
-  whisperx: [
-    { value: 'tiny', label: 'tiny (~75 MB, fastest)' },
-    { value: 'base', label: 'base (~140 MB, fast)' },
-    { value: 'small', label: 'small (~460 MB, good)' },
-    { value: 'medium', label: 'medium (~1.5 GB, better)' },
-    { value: 'large', label: 'large (~2.9 GB, best)' },
-  ],
-  whisper: [
-    { value: 'tiny', label: 'tiny (~75 MB, fastest)' },
-    { value: 'base', label: 'base (~140 MB, fast)' },
-    { value: 'small', label: 'small (~460 MB, good)' },
-    { value: 'medium', label: 'medium (~1.5 GB, better)' },
-    { value: 'large', label: 'large (~2.9 GB, best)' },
-  ],
-  parakeet: [
-    { value: 'nvidia/parakeet-tdt-0.6b-v3', label: 'Parakeet TDT v3 multilingual' },
-  ],
 };
 
 type HomeScreenProps = {
@@ -600,47 +566,26 @@ function AdvancedTranscriptionSettings({
 }) {
   return (
     <details className="w-full max-w-xl rounded border border-editor-border bg-editor-surface px-3 py-2 text-xs text-editor-text-muted">
-      <summary className="cursor-pointer text-sm font-medium text-editor-text">Advanced transcription</summary>
+      <summary className="cursor-pointer text-sm font-medium text-editor-text">
+        Advanced transcription · {transcriptionEngine === 'auto' ? 'Automatic — Recommended' : 'Manual selection'}
+      </summary>
       <div className="mt-3 rounded bg-editor-bg px-3 py-2">
         <div className="text-xs font-medium text-editor-text">Automatic — Recommended</div>
-        <p className="mt-1 text-[11px] leading-4">ScriptCut chooses the best available local transcription engine. Manual engine and model choices are below.</p>
+        <p className="mt-1 text-[11px] leading-4">ScriptCut chooses the best available local transcription engine. Manual engine and model choices remain available below.</p>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-        <label className="sr-only" htmlFor="transcription-engine">Transcription engine</label>
-        <select
-          id="transcription-engine"
-          value={transcriptionEngine}
-          onChange={(event) => {
-            const engine = event.target.value as TranscriptionEngine;
-            setTranscriptionEngine(engine);
-            setTranscriptionModel(TRANSCRIPTION_MODELS[engine][0].value);
+      <div className="mt-3">
+        <TranscriptionOptions
+          transcriptionEngine={transcriptionEngine}
+          onEngineChange={setTranscriptionEngine}
+          transcriptionModel={transcriptionModel}
+          onModelChange={setTranscriptionModel}
+          transcriptionEngineStatus={transcriptionEngineStatus}
+          onUseAutomatic={() => {
+            setTranscriptionEngine('auto');
+            setTranscriptionModel('base');
           }}
-          className="rounded-md border border-editor-border bg-editor-bg px-3 py-1.5 text-xs text-editor-text focus:border-editor-accent focus:outline-none"
-        >
-          <option value="auto">Auto best available</option>
-          <option value="parakeet">Parakeet TDT v3 multilingual</option>
-          <option value="whisperx">WhisperX aligned</option>
-          <option value="whisper">Whisper fallback</option>
-        </select>
-        <label className="sr-only" htmlFor="transcription-model">Transcription model</label>
-        <select
-          id="transcription-model"
-          value={transcriptionModel}
-          onChange={(event) => setTranscriptionModel(event.target.value)}
-          className="rounded-md border border-editor-border bg-editor-bg px-3 py-1.5 text-xs text-editor-text focus:border-editor-accent focus:outline-none"
-        >
-          {TRANSCRIPTION_MODELS[transcriptionEngine].map((model) => (
-            <option key={model.value} value={model.value}>{model.label}</option>
-          ))}
-        </select>
+        />
       </div>
-      <p className="mt-2 text-center text-[10px] leading-4">
-        {transcriptionEngine === 'parakeet' && !transcriptionEngineStatus?.engines?.parakeet?.available
-          ? 'Parakeet needs its optional local package. Auto will choose the best available engine instead.'
-          : transcriptionEngine === 'auto'
-            ? 'Automatic selection keeps the normal workflow simple.'
-            : `${TRANSCRIPTION_MODELS[transcriptionEngine][0]?.label || 'Selected transcription engine'}.`}
-      </p>
     </details>
   );
 }
