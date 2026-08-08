@@ -35,6 +35,7 @@ import {
 } from './hooks/useProjectAutosave';
 import {
   FolderOpen,
+  Film,
   Settings,
   Sparkles,
   Download,
@@ -533,7 +534,9 @@ export default function App() {
     activePanel,
   });
 
-  const sidePanelLabel = activePanel === 'ai' ? 'AI tools' : activePanel === 'export' ? 'Export' : 'Settings';
+  const sidePanelLabel = activePanel === 'ai'
+    ? editorWorkflow === 'short' ? 'Create Clips' : 'AI tools'
+    : activePanel === 'export' ? 'Export' : 'Settings';
 
   if (!videoPath) {
     return (
@@ -613,8 +616,8 @@ export default function App() {
             disabled={words.length === 0 || manualSaveStatus === 'saving'}
           />
           <ToolbarButton
-            icon={<Sparkles className="w-4 h-4" />}
-            label="AI"
+            icon={editorWorkflow === 'short' ? <Film className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+            label={editorWorkflow === 'short' ? 'Create Clips' : 'AI'}
             active={activePanel === 'ai'}
             onClick={() => togglePanel('ai')}
             disabled={words.length === 0}
@@ -765,7 +768,7 @@ export default function App() {
             aria-label={sidePanelLabel}
             className="w-80 border-l border-editor-border overflow-y-auto shrink-0"
           >
-            {activePanel === 'ai' && <AIPanel />}
+            {activePanel === 'ai' && <AIPanel mode={editorWorkflow === 'short' ? 'clips' : 'general'} />}
             {activePanel === 'export' && <ExportDialog />}
             {activePanel === 'settings' && <SettingsPanel />}
           </aside>

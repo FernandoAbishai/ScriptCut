@@ -19,6 +19,15 @@ import {
   getSelectedHookFrame,
   type HookFrameCandidate,
 } from '../utils/hookFrames';
+import {
+  getInitialClipWorkspaceStage,
+  getPendingReviewCount,
+  getUnmatchedLegacyClipSuggestions,
+  isSameClipRange,
+  isClipDraftInStage,
+  removeMatchingClipSuggestions,
+  type ClipWorkspaceStage,
+} from '../utils/clipWorkspace';
 import CaptionPreview from './CaptionPreview';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
@@ -131,7 +140,9 @@ function getClipQueueSummary(drafts: ClipDraft[]) {
   };
 }
 
-export default function AIPanel() {
+export type AIPanelMode = 'general' | 'clips';
+
+export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const {
     words,
     videoPath,
@@ -171,13 +182,29 @@ export default function AIPanel() {
     setProcessing,
   } = useAIStore();
 
-  const [activeTab, setActiveTab] = useState<'edit' | 'filler' | 'clips'>('edit');
+  const [activeTab, setActiveTab] = useState<'edit' | 'filler' | 'clips'>(mode === 'clips' ? 'clips' : 'edit');
+  const [clipStage, setClipStage] = useState<ClipWorkspaceStage>(() =>
+    getInitialClipWorkspaceStage(clipDrafts, clipSuggestions),
+  );
   const [fillerQueueFilter, setFillerQueueFilter] = useState<FillerQueueFilter>('all');
   const [fillerReasonFilter, setFillerReasonFilter] = useState('all');
   const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
   const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
+
+  useEffect(() => {
+    setActiveTab(mode === 'clips' ? 'clips' : 'edit');
+  }, [mode]);
+
+  const unmatchedLegacySuggestions = useMemo(
+    () => getUnmatchedLegacyClipSuggestions(clipSuggestions, clipDrafts),
+    [clipDrafts, clipSuggestions],
+  );
+  const pendingReviewCount = useMemo(
+    () => getPendingReviewCount(clipDrafts, clipSuggestions),
+    [clipDrafts, clipSuggestions],
+  );
   const deletedWordMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const range of deletedRanges) {
@@ -492,6 +519,7 @@ export default function AIPanel() {
             source: 'ai-director',
           },
         ]);
+        setClipStage('prepare');
       }
     } catch (err) {
       console.error(err);
@@ -504,6 +532,7 @@ export default function AIPanel() {
     editPlanInstruction,
     providers,
     setClipDrafts,
+    setClipStage,
     setEditPlanResult,
     setProcessing,
     startAIJob,
@@ -579,17 +608,15 @@ export default function AIPanel() {
       );
       const clips = data.clips || [];
       setClipSuggestions(clips);
-      setClipDrafts((current) => [
-        ...current,
-        ...clips.map((clip, index) => createShortsClipDraft(clip, `suggested_clip_${Date.now()}_${current.length}_${index}`, 'suggested')),
-      ]);
+      setClipDrafts((current) => appendDiscoveredClipDrafts(current, clips, 'suggested_clip'));
+      setClipStage('review');
     } catch (err) {
       console.error(err);
       alert(`Clip creation failed.\n\n${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setProcessing(false);
     }
-  }, [words, defaultProvider, providers, setProcessing, setClipSuggestions, setClipDrafts, startAIJob]);
+  }, [words, defaultProvider, providers, setProcessing, setClipSuggestions, setClipDrafts, setClipStage, startAIJob]);
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
@@ -685,7 +712,6 @@ export default function AIPanel() {
     [requestSeek, setExportOptions, setPreviewAspectRatio, setSelectedWordIndices, words],
   );
 
-  const [exportingClipIndex, setExportingClipIndex] = useState<number | null>(null);
   const [exportingDraftId, setExportingDraftId] = useState<string | null>(null);
   const [clipExportJobs, setClipExportJobs] = useState<Record<string, ExportJob>>({});
   const [isBatchExporting, setBatchExporting] = useState(false);
@@ -701,6 +727,10 @@ export default function AIPanel() {
           validateClipDraftForExport(draft, words, videoPath).ready,
       ).length,
     [clipDrafts, videoPath, words],
+  );
+  const clipStageDrafts = useMemo(
+    () => clipDrafts.filter((draft) => isClipDraftInStage(draft, clipStage)),
+    [clipDrafts, clipStage],
   );
 
   const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
@@ -754,9 +784,13 @@ export default function AIPanel() {
   );
 
   const removeClipDraft = useCallback((id: string) => {
+    const removedDraft = clipDrafts.find((draft) => draft.id === id);
     setActiveClipDraftId((current) => (current === id ? null : current));
     setClipDrafts((current) => current.filter((draft) => draft.id !== id));
-  }, [setClipDrafts]);
+    if (removedDraft && (removedDraft.source === 'ai' || removedDraft.status === 'suggested')) {
+      setClipSuggestions(removeMatchingClipSuggestions(clipSuggestions, removedDraft));
+    }
+  }, [clipDrafts, clipSuggestions, setClipDrafts, setClipSuggestions]);
 
   const trimClipDraft = useCallback(
     (draft: ClipDraft, patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => {
@@ -901,8 +935,6 @@ export default function AIPanel() {
           alert(`Failed to export clip.\n\n${message}`);
         }
         throw err;
-      } finally {
-        setExportingClipIndex(null);
       }
     },
     [videoPath, clipExportDirectory, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob, updateClipDraft],
@@ -966,20 +998,8 @@ export default function AIPanel() {
     [backendUrl, clipExportJobs, pollClipExportJob, updateClipDraft],
   );
 
-  const handleExportSuggestedClip = useCallback(
-    async (clip: ClipSuggestion, index: number) => {
-      setExportingClipIndex(index);
-      try {
-        await handleExportClip(clip);
-      } finally {
-        setExportingClipIndex(null);
-      }
-    },
-    [handleExportClip],
-  );
-
   const createClipDraft = useCallback(
-    (clip: ClipSuggestion, source: ClipDraft['source'] = 'ai', speaker?: string) => {
+    (clip: ClipSuggestion, source: ClipDraft['source'] = 'ai', speaker?: string, navigateToPrepare = true) => {
       setClipDrafts((current) => [
         ...current,
         {
@@ -987,8 +1007,14 @@ export default function AIPanel() {
           exportDirectory: clipExportDirectory || undefined,
         },
       ]);
+      if (navigateToPrepare) setClipStage('prepare');
     },
-    [clipExportDirectory, setClipDrafts],
+    [clipExportDirectory, setClipDrafts, setClipStage],
+  );
+
+  const approveLegacySuggestion = useCallback(
+    (clip: ClipSuggestion) => createClipDraft(clip, 'ai', undefined, false),
+    [createClipDraft],
   );
 
   const createSpeakerTurnDrafts = useCallback(() => {
@@ -1003,7 +1029,8 @@ export default function AIPanel() {
         };
       }),
     ]);
-  }, [clipExportDirectory, setClipDrafts, speakerTurnClips, words]);
+    setClipStage('prepare');
+  }, [clipExportDirectory, setClipDrafts, setClipStage, speakerTurnClips, words]);
 
   const copyClipPackage = useCallback(
     async (draft: ClipDraft) => {
@@ -1194,10 +1221,8 @@ export default function AIPanel() {
         const clipResult = result as { clips?: ClipSuggestion[] };
         const clips = clipResult.clips || [];
         setClipSuggestions(clips);
-        setClipDrafts((current) => [
-          ...current,
-          ...clips.map((clip, index) => createShortsClipDraft(clip, `suggested_clip_retry_${Date.now()}_${current.length}_${index}`, 'suggested')),
-        ]);
+        setClipDrafts((current) => appendDiscoveredClipDrafts(current, clips, 'suggested_clip_retry'));
+        setClipStage('review');
       } else if (activeAIJob.kind === 'ai:edit-plan') {
         setEditPlanResult(result as EditPlanResult);
       } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
@@ -1225,6 +1250,7 @@ export default function AIPanel() {
     pollAIJob,
     setClipDrafts,
     setClipSuggestions,
+    setClipStage,
     setEditPlanResult,
     setFillerResult,
     setProcessing,
@@ -1234,6 +1260,14 @@ export default function AIPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex border-b border-editor-border shrink-0">
+        {mode === 'clips' && (
+          <TabButton
+            active={activeTab === 'clips'}
+            onClick={() => setActiveTab('clips')}
+            icon={<Film className="w-3.5 h-3.5" />}
+            label="Create Clips"
+          />
+        )}
         <TabButton
           active={activeTab === 'edit'}
           onClick={() => setActiveTab('edit')}
@@ -1246,12 +1280,14 @@ export default function AIPanel() {
           icon={<Scissors className="w-3.5 h-3.5" />}
           label="Filler Words"
         />
-        <TabButton
-          active={activeTab === 'clips'}
-          onClick={() => setActiveTab('clips')}
-          icon={<Film className="w-3.5 h-3.5" />}
-          label="Create Clips"
-        />
+        {mode === 'general' && (
+          <TabButton
+            active={activeTab === 'clips'}
+            onClick={() => setActiveTab('clips')}
+            icon={<Film className="w-3.5 h-3.5" />}
+            label="Create Clips"
+          />
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -1526,214 +1562,272 @@ export default function AIPanel() {
 
         {activeTab === 'clips' && (
           <div className="space-y-4">
-            <p className="text-xs text-editor-text-muted">
-              Build a shorts queue from the transcript, review each draft, package metadata, then export approved clips in batches.
-            </p>
-            <button
-              onClick={createClips}
-              disabled={isProcessing || words.length === 0}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {processingMessage}
-                </>
-              ) : (
-                <>
-                  <Film className="w-4 h-4" />
-                  Find Best Clips
-                </>
-              )}
-            </button>
+            <div>
+              <h2 className="text-sm font-semibold text-editor-text">Create Clips</h2>
+              <p className="mt-1 text-xs text-editor-text-muted">
+                Find moments, review suggestions, prepare approved clips, and export the ready results.
+              </p>
+            </div>
 
-            {speakerTurnClips.length > 0 && (
-              <button
-                onClick={createSpeakerTurnDrafts}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-border text-editor-text-muted hover:bg-editor-surface rounded-lg text-sm font-medium transition-colors"
-              >
-                <Users className="w-4 h-4" />
-                Draft {speakerTurnClips.length} Speaker Turns
-              </button>
-            )}
+            <div className="grid grid-cols-4 gap-1" aria-label="Clip workspace stages">
+              {([
+                { stage: 'find', label: 'Find' },
+                { stage: 'review', label: `Review ${pendingReviewCount}` },
+                { stage: 'prepare', label: `Prepare ${clipQueueSummary.approved}` },
+                { stage: 'export', label: `Export ${readyDraftCount} ready` },
+              ] as Array<{ stage: ClipWorkspaceStage; label: string }>).map(({ stage, label }) => (
+                <button
+                  key={stage}
+                  onClick={() => setClipStage(stage)}
+                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium capitalize ${
+                    clipStage === stage
+                      ? 'bg-editor-accent/20 text-editor-accent'
+                      : 'bg-editor-surface text-editor-text-muted hover:text-editor-text'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
             {clipDrafts.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Shorts Queue</span>
-                  <div className="flex items-center gap-1">
-                    {isBatchExporting && (
-                      <button
-                        onClick={stopBatchExport}
-                        className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface"
-                      >
-                        <X className="w-3 h-3" />
-                        {batchExportProgress.stopping ? 'Stopping' : 'Stop'}
-                      </button>
-                    )}
-                    <button
-                      onClick={handleExportAllDrafts}
-                      disabled={isBatchExporting || readyDraftCount === 0}
-                      className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
-                    >
-                      {isBatchExporting ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Download className="w-3 h-3" />
-                      )}
-                      Export Approved
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
-                  <QueueStat label="Suggested" value={clipQueueSummary.suggested} />
-                  <QueueStat label="Approved" value={clipQueueSummary.approved} />
-                  <QueueStat label="Packaged" value={clipQueueSummary.packaged} />
-                  <QueueStat label="Ready" value={readyDraftCount} />
-                  <QueueStat label="Failed" value={clipQueueSummary.failed} warning={clipQueueSummary.failed > 0} />
-                </div>
-                <div className="rounded bg-editor-surface px-2 py-1.5 text-[10px] leading-4 text-editor-text-muted">
-                  Batch export uses approved drafts by default. Failed drafts stay in the queue so they can be fixed and retried.
-                </div>
-                <div className="space-y-1 rounded bg-editor-surface p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-editor-text-muted">
-                      Export folder
-                    </span>
-                    {window.electronAPI?.openDirectory && (
-                      <button
-                        onClick={chooseClipExportDirectory}
-                        className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg"
-                      >
-                        Choose
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    value={clipExportDirectory}
-                    onChange={(event) => {
-                      const directory = event.target.value;
-                      setClipExportDirectory(directory);
-                      if (directory) {
-                        window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
-                      } else {
-                        window.localStorage.removeItem(CLIP_EXPORT_DIRECTORY_KEY);
-                      }
-                      setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory || undefined })));
-                    }}
-                    placeholder={videoPath ? getPathDirectory(videoPath) : 'Default export folder'}
-                    className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
-                  />
-                </div>
-                {isBatchExporting && (
-                  <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
-                    <div className="flex justify-between gap-2">
-                      <span>
-                        Exporting {batchExportProgress.completed + 1 > batchExportProgress.total ? batchExportProgress.total : batchExportProgress.completed + 1} of {batchExportProgress.total}
-                      </span>
-                      <span>{batchExportProgress.stopping ? 'Stopping after current clip' : `${batchExportProgress.completed}/${batchExportProgress.total} done`}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded bg-editor-border">
-                      <div
-                        className="h-full bg-editor-success"
-                        style={{
-                          width: `${Math.max(
-                            4,
-                            Math.min(
-                              100,
-                              batchExportProgress.total
-                                ? (batchExportProgress.completed / batchExportProgress.total) * 100
-                                : 0,
-                            ),
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  {clipDrafts.map((draft) => (
-                    <ClipDraftCard
-                      key={draft.id}
-                      draft={draft}
-                      isExporting={exportingDraftId === draft.id}
-                      exportJob={clipExportJobs[draft.id]}
-                      backendUrl={backendUrl}
-                      backgroundCapabilities={backgroundCapabilities}
-                      transcriptSnippet={getClipTranscript(words, draft)}
-                      clipWords={words.slice(draft.startWordIndex, draft.endWordIndex + 1)}
-                      activeWordIndex={activeWordIndex}
-                      isActive={activeClipDraftId === draft.id}
-                      exportValidation={validateClipDraftForExport(draft, words, videoPath)}
-                      readinessScore={getClipDraftReadinessScore(draft, words, videoPath)}
-                      onChange={(patch) => updateClipDraft(draft.id, patch)}
-                      onTrim={(patch) => trimClipDraft(draft, patch)}
-                      onApprove={() => approveClipDraft(draft.id)}
-                      onPreview={() => handlePreviewClip(draft)}
-                      onExport={() => handleExportDraft(draft)}
-                      onCancelExport={() => cancelDraftExport(draft.id)}
-                      onRetryExport={() => retryDraftExport(draft)}
-                      onPackage={() => packageClipDraft(draft)}
-                      onCopyPackage={() => copyClipPackage(draft)}
-                      onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
-                      onPreviewHookFrame={(time) => previewHookFrame(time)}
-                      onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
-                      onDuplicate={() => duplicateClipDraft(draft)}
-                      onRemove={() => removeClipDraft(draft.id)}
-                      isPackaging={packagingDraftId === draft.id}
-                    />
-                  ))}
-                </div>
+              <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
+                <QueueStat label="Suggested" value={clipQueueSummary.suggested} />
+                <QueueStat label="Approved" value={clipQueueSummary.approved} />
+                <QueueStat label="Packaged" value={clipQueueSummary.packaged} />
+                <QueueStat label="Ready" value={readyDraftCount} />
+                <QueueStat label="Failed" value={clipQueueSummary.failed} warning={clipQueueSummary.failed > 0} />
               </div>
             )}
 
-            {clipSuggestions.length > 0 && (
+            {clipStage === 'find' && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-medium text-editor-text">Find moments</h3>
+                <p className="text-xs leading-5 text-editor-text-muted">
+                  Start with AI discovery, or choose moments yourself from the transcript. AI suggestions are never approved or exported automatically.
+                </p>
+                <button
+                  onClick={createClips}
+                  disabled={isProcessing || words.length === 0}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
+                  {isProcessing ? processingMessage : 'Find moments with AI'}
+                </button>
+                <div className="rounded bg-editor-surface px-3 py-2 text-xs leading-5 text-editor-text-muted">
+                  <span className="font-medium text-editor-text">Choose moments yourself:</span> select transcript words, then choose <span className="text-editor-text">Draft clip</span>. Speaker turns are a secondary shortcut.
+                </div>
+                {speakerTurnClips.length > 0 && (
+                  <button
+                    onClick={createSpeakerTurnDrafts}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-editor-border text-editor-text-muted hover:bg-editor-surface rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    Draft {speakerTurnClips.length} Speaker Turns
+                  </button>
+                )}
+              </div>
+            )}
+
+            {clipStage === 'review' && (
+              <div className="space-y-3">
+                <p className="text-xs leading-5 text-editor-text-muted">
+                  Review each suggested moment. Preview, approve to create a draft, or remove it. Suggested moments cannot be exported until approved.
+                </p>
+                {clipStageDrafts.map((draft) => (
+                  <ClipSuggestionReviewCard
+                    key={draft.id}
+                    draft={draft}
+                    transcript={getClipTranscript(words, draft)}
+                    onPreview={() => handlePreviewClip(draft)}
+                    onApprove={() => approveClipDraft(draft.id)}
+                    onRemove={() => removeClipDraft(draft.id)}
+                  />
+                ))}
+                {unmatchedLegacySuggestions.map((clip, index) => (
+                  <ClipSuggestionReviewCard
+                    key={`legacy-${clip.startWordIndex}-${clip.endWordIndex}-${index}`}
+                    draft={{ ...createShortsClipDraft(clip, `legacy_${index}`, 'suggested') }}
+                    transcript={getClipTranscript(words, clip)}
+                    onPreview={() => handlePreviewClip(clip)}
+                    onApprove={() => approveLegacySuggestion(clip)}
+                    onRemove={() => setClipSuggestions(clipSuggestions.filter((candidate) => candidate !== clip))}
+                  />
+                ))}
+                {clipStageDrafts.length === 0 && unmatchedLegacySuggestions.length === 0 && (
+                  <div className="space-y-2 rounded bg-editor-surface px-3 py-3 text-xs text-editor-text-muted">
+                    <p>No moments are waiting for review.</p>
+                    <button
+                      onClick={() => setClipStage('prepare')}
+                      disabled={clipQueueSummary.approved === 0}
+                      className="rounded bg-editor-success/20 px-2 py-1.5 text-editor-success disabled:opacity-40"
+                    >
+                      Prepare approved clips
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(clipStage === 'prepare' || clipStage === 'export') && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium">AI Suggestions</span>
-                  <span className="text-[10px] text-editor-text-muted">Draft first, export after review</span>
-                </div>
-                {clipSuggestions.map((clip, i) => (
-                  <div key={i} className="p-3 bg-editor-surface rounded-lg space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold">{clip.title}</span>
-                      <span className="text-[10px] text-editor-text-muted">
-                        {Math.round(clip.endTime - clip.startTime)}s
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-editor-text-muted">{clip.reason}</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        onClick={() => handlePreviewClip(clip)}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-accent/20 text-editor-accent rounded hover:bg-editor-accent/30 transition-colors"
-                      >
-                        <Play className="w-3 h-3" /> Preview
-                      </button>
-                      <button
-                        onClick={() => createClipDraft(clip)}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-border text-editor-text-muted rounded hover:bg-editor-surface transition-colors"
-                      >
-                        <Plus className="w-3 h-3" /> Draft
-                      </button>
-                      <button
-                        onClick={() => handleExportSuggestedClip(clip, i)}
-                        disabled={exportingClipIndex === i}
-                        className="flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-editor-success/20 text-editor-success rounded hover:bg-editor-success/30 disabled:opacity-50 transition-colors"
-                      >
-                        {exportingClipIndex === i ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Download className="w-3 h-3" />
-                        )}
-                        Export
-                      </button>
-                    </div>
+                  <div>
+                    <h3 className="text-xs font-medium">Your clips</h3>
+                    <p className="mt-1 text-[10px] text-editor-text-muted">
+                      {clipStage === 'prepare' ? 'Trim, package, and check readiness before exporting.' : 'Export only clips that pass the existing readiness checks.'}
+                    </p>
                   </div>
-                ))}
+                  {clipStage === 'export' && (
+                    <div className="flex items-center gap-1">
+                      {isBatchExporting && (
+                        <button onClick={stopBatchExport} className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface">
+                          <X className="w-3 h-3" /> {batchExportProgress.stopping ? 'Stopping' : 'Stop'}
+                        </button>
+                      )}
+                      <button
+                        onClick={handleExportAllDrafts}
+                        disabled={isBatchExporting || readyDraftCount === 0}
+                        className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
+                      >
+                        {isBatchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                        Export Ready Clips
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {clipStage === 'prepare' && readyDraftCount > 0 && (
+                  <button
+                    onClick={() => setClipStage('export')}
+                    className="w-full rounded bg-editor-success/20 px-3 py-2 text-xs text-editor-success hover:bg-editor-success/30"
+                  >
+                    Review {readyDraftCount} ready {readyDraftCount === 1 ? 'clip' : 'clips'}
+                  </button>
+                )}
+                {clipStage === 'export' && (
+                  <>
+                    <div className="rounded bg-editor-surface px-2 py-1.5 text-[10px] leading-4 text-editor-text-muted">
+                      Ready clips are exported in order. Failed clips remain available for retry.
+                    </div>
+                    <div className="space-y-1 rounded bg-editor-surface p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-editor-text-muted">Export folder</span>
+                        {window.electronAPI?.openDirectory && (
+                          <button onClick={chooseClipExportDirectory} className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg">Choose</button>
+                        )}
+                      </div>
+                      <input
+                        value={clipExportDirectory}
+                        onChange={(event) => {
+                          const directory = event.target.value;
+                          setClipExportDirectory(directory);
+                          if (directory) window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
+                          else window.localStorage.removeItem(CLIP_EXPORT_DIRECTORY_KEY);
+                          setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory || undefined })));
+                        }}
+                        placeholder={videoPath ? getPathDirectory(videoPath) : 'Default export folder'}
+                        className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
+                      />
+                    </div>
+                    {isBatchExporting && (
+                      <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
+                        <div className="flex justify-between gap-2">
+                          <span>Exporting {Math.min(batchExportProgress.completed + 1, batchExportProgress.total)} of {batchExportProgress.total}</span>
+                          <span>{batchExportProgress.stopping ? 'Stopping after current clip' : `${batchExportProgress.completed}/${batchExportProgress.total} done`}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded bg-editor-border">
+                          <div className="h-full bg-editor-success" style={{ width: `${Math.max(4, Math.min(100, batchExportProgress.total ? (batchExportProgress.completed / batchExportProgress.total) * 100 : 0))}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {clipStageDrafts.length === 0 ? (
+                  <p className="rounded bg-editor-surface px-3 py-3 text-xs text-editor-text-muted">
+                    No approved clips are ready for this stage yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {clipStageDrafts.map((draft) => (
+                      <ClipDraftCard
+                        key={draft.id}
+                        draft={draft}
+                        isExporting={exportingDraftId === draft.id}
+                        exportJob={clipExportJobs[draft.id]}
+                        backendUrl={backendUrl}
+                        backgroundCapabilities={backgroundCapabilities}
+                        transcriptSnippet={getClipTranscript(words, draft)}
+                        clipWords={words.slice(draft.startWordIndex, draft.endWordIndex + 1)}
+                        activeWordIndex={activeWordIndex}
+                        isActive={activeClipDraftId === draft.id}
+                        exportValidation={validateClipDraftForExport(draft, words, videoPath)}
+                        readinessScore={getClipDraftReadinessScore(draft, words, videoPath)}
+                        onChange={(patch) => updateClipDraft(draft.id, patch)}
+                        onTrim={(patch) => trimClipDraft(draft, patch)}
+                        onApprove={() => approveClipDraft(draft.id)}
+                        onPreview={() => handlePreviewClip(draft)}
+                        onExport={() => handleExportDraft(draft)}
+                        onCancelExport={() => cancelDraftExport(draft.id)}
+                        onRetryExport={() => retryDraftExport(draft)}
+                        onPackage={() => packageClipDraft(draft)}
+                        onCopyPackage={() => copyClipPackage(draft)}
+                        onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
+                        onPreviewHookFrame={(time) => previewHookFrame(time)}
+                        onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
+                        onDuplicate={() => duplicateClipDraft(draft)}
+                        onRemove={() => removeClipDraft(draft.id)}
+                        isPackaging={packagingDraftId === draft.id}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ClipSuggestionReviewCard({
+  draft,
+  transcript,
+  onPreview,
+  onApprove,
+  onRemove,
+}: {
+  draft: ClipDraft;
+  transcript: string;
+  onPreview: () => void;
+  onApprove: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="space-y-2 rounded bg-editor-surface px-3 py-3 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-editor-text">{draft.title}</div>
+          <div className="mt-1 text-[10px] text-editor-text-muted">
+            {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)} · {Math.round(draft.endTime - draft.startTime)}s
+          </div>
+        </div>
+        <ClipStatusBadge status="suggested" />
+      </div>
+      <p className="text-[11px] leading-snug text-editor-text-muted">{draft.reason}</p>
+      <p className="line-clamp-3 rounded bg-editor-bg px-2 py-1.5 text-[11px] leading-snug text-editor-text-muted">
+        {transcript || 'No transcript text available for this moment.'}
+      </p>
+      <div className="grid grid-cols-3 gap-1">
+        <button onClick={onPreview} className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-[11px] text-editor-accent hover:bg-editor-accent/30">
+          <Play className="w-3 h-3" /> Preview
+        </button>
+        <button onClick={onApprove} className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-[11px] text-editor-success hover:bg-editor-success/30">
+          <Check className="w-3 h-3" /> Approve
+        </button>
+        <button onClick={onRemove} className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-[11px] text-editor-text-muted hover:bg-editor-bg">
+          <X className="w-3 h-3" /> Remove
+        </button>
       </div>
     </div>
   );
@@ -2579,6 +2673,19 @@ function createShortsClipDraft(
     source,
     speaker,
   };
+}
+
+function appendDiscoveredClipDrafts(
+  current: ClipDraft[],
+  clips: ClipSuggestion[],
+  idPrefix: string,
+) {
+  const next = [...current];
+  for (const clip of clips) {
+    if (next.some((draft) => isSameClipRange(draft, clip))) continue;
+    next.push(createShortsClipDraft(clip, `${idPrefix}_${Date.now()}_${next.length}`, 'suggested'));
+  }
+  return next;
 }
 
 function ClipReframeControls({
