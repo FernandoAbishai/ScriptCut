@@ -36,8 +36,11 @@
     "dist:mac:arm64:self-contained": "npm run build:frontend && npm run runtime:prepare:mac-arm64 && electron-builder --config electron-builder.self-contained.cjs --mac dmg --arm64 && npm run check:packaged-runtime && npm run smoke:packaged-backend",
     "check:packaged-runtime": "node scripts/check-packaged-runtime.js --arch arm64",
     "smoke:packaged-backend": "node scripts/smoke-packaged-backend.js --arch arm64",
+    "smoke:packaged-transcription": "node scripts/smoke-packaged-transcription.js --arch arm64",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)",
+    "smoke:model-manager": "cd backend && (../.venv311/bin/python -m unittest scripts/smoke_model_manager.py -v || ../.venv/bin/python -m unittest scripts/smoke_model_manager.py -v || python -m unittest scripts/smoke_model_manager.py -v)",
+    "smoke:transcription": "cd backend && (../.venv311/bin/python -m unittest scripts/smoke_transcription.py -v || ../.venv/bin/python -m unittest scripts/smoke_transcription.py -v || python -m unittest scripts/smoke_transcription.py -v)",
     "smoke:runtime-contract": "node scripts/smoke-runtime-contract.js",
     "smoke:runtime-artifacts": "node scripts/smoke-runtime-artifacts.js"
   },
@@ -49,7 +52,8 @@
     "files": ["electron/**/*", "frontend/dist/**/*", "shared/**/*"],
     "extraResources": [
       {"from": "backend", "to": "backend"},
-      {"from": "build/bin", "to": "bin", "filter": ["**/*"]}
+      {"from": "build/bin", "to": "bin", "filter": ["**/*"]},
+      {"from": "runtime/models/whisper-base.json", "to": "manifests/model-manifest.json"}
     ],
     "win": {"target": "nsis"},
     "mac": {"target": "dmg", "icon": "build/icon.icns"},

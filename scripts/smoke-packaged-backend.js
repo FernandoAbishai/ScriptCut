@@ -21,10 +21,10 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function request(port, pathname, token) {
+function request(port, pathname, token, method = 'GET') {
   return new Promise((resolve) => {
     const headers = token ? { 'X-ScriptCut-Token': token } : {};
-    const req = http.get({ hostname: '127.0.0.1', port, path: pathname, headers }, (response) => {
+    const req = http.request({ hostname: '127.0.0.1', port, path: pathname, method, headers }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => resolve({
@@ -37,6 +37,7 @@ function request(port, pathname, token) {
       req.destroy();
       resolve({ status: 0, body: '' });
     });
+    req.end();
   });
 }
 
@@ -77,11 +78,20 @@ function restrictedEnvironment(plan, corePackRoot, binRoot, token) {
 
 async function stopWorker(child) {
   if (child.exitCode !== null) return;
-  child.kill('SIGTERM');
-  const deadline = Date.now() + 5000;
-  while (child.exitCode === null && Date.now() < deadline) await sleep(100);
-  if (child.exitCode === null) child.kill('SIGKILL');
-  while (child.exitCode === null) await sleep(50);
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    child.once('exit', finish);
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (child.exitCode === null) child.kill('SIGKILL');
+      setTimeout(finish, 1000);
+    }, 5000);
+  });
 }
 
 async function main() {
@@ -119,6 +129,20 @@ async function main() {
     const health = await request(port, '/health');
     if (health.status !== 200) fail(`/health returned ${health.status}`);
 
+    const enginesResponse = await request(port, '/transcription/engines', token);
+    if (enginesResponse.status !== 200) fail(`/transcription/engines returned ${enginesResponse.status}`);
+    let engines;
+    try {
+      engines = JSON.parse(enginesResponse.body);
+    } catch (error) {
+      fail(`/transcription/engines was not JSON: ${error.message}`);
+    }
+    if (!engines.engines?.whisper?.available) fail('packaged baseline Whisper engine is not available');
+    if (engines.default_engine !== 'whisper') fail(`packaged auto engine resolved to ${engines.default_engine}, expected whisper`);
+    const unauthenticatedModels = await request(port, '/transcription/models');
+    const unauthenticatedDelete = await request(port, '/transcription/models/whisper-base', undefined, 'DELETE');
+    if (unauthenticatedModels.status !== 401 || unauthenticatedDelete.status !== 401) fail('model management endpoints are not token-protected');
+
     const unauthenticated = await request(port, '/system/diagnostics');
     const wrongToken = await request(port, '/system/diagnostics', 'wrong-token');
     const authenticated = await request(port, '/system/diagnostics', token);
@@ -147,6 +171,7 @@ async function main() {
     }
 
     console.log('Packaged backend /health: 200');
+    console.log('Packaged /transcription/engines: whisper available, auto resolves to whisper');
     console.log('Unauthenticated diagnostics: 401');
     console.log('Wrong-token diagnostics: 401');
     console.log('Authenticated diagnostics: 200');

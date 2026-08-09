@@ -9,3 +9,4 @@ requests==2.34.2
 moviepy==2.2.1
 numpy==1.26.4
 torch==2.12.1
+openai-whisper==20250625

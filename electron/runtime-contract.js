@@ -64,6 +64,9 @@ function createRuntimeContract(options = {}) {
       : path.join(resourcesPath, 'backend'),
   );
   const runtimeRoot = path.join(resourcesPath, 'runtime');
+  const modelManifestPath = runtimeMode === 'development'
+    ? path.join(projectRoot, 'runtime', 'models', 'whisper-base.json')
+    : path.join(resourcesPath, 'manifests', 'model-manifest.json');
   const writableRoots = {
     modelRoot: path.join(userDataPath, 'models'),
     cacheRoot: path.join(userDataPath, 'cache'),
@@ -86,6 +89,7 @@ function createRuntimeContract(options = {}) {
     embeddedCodePackRoot: path.join(runtimeRoot, 'packs'),
     runtimeManifestPath: path.join(resourcesPath, 'manifests', 'runtime-manifest.json'),
     futureRuntimeManifestPath: path.join(resourcesPath, 'manifests', 'runtime-manifest.json'),
+    modelManifestPath,
     bundledBinRoot: path.join(resourcesPath, 'bin'),
     modelRoot: writableRoots.modelRoot,
     cacheRoot: writableRoots.cacheRoot,
@@ -257,6 +261,7 @@ function resolveBackendLaunchPlan(options = {}) {
         SCRIPTCUT_MODEL_ROOT: contract.modelRoot,
         SCRIPTCUT_CACHE_ROOT: contract.cacheRoot,
         SCRIPTCUT_LOG_ROOT: contract.logRoot,
+        SCRIPTCUT_MODEL_MANIFEST_PATH: contract.modelManifestPath,
         PYTHONNOUSERSITE: '1',
         PYTHONPATH: corePackRoot,
       },
@@ -287,6 +292,7 @@ function resolveBackendLaunchPlan(options = {}) {
       SCRIPTCUT_MODEL_ROOT: contract.modelRoot,
       SCRIPTCUT_CACHE_ROOT: contract.cacheRoot,
       SCRIPTCUT_LOG_ROOT: contract.logRoot,
+      SCRIPTCUT_MODEL_MANIFEST_PATH: contract.modelManifestPath,
     },
   };
 }
