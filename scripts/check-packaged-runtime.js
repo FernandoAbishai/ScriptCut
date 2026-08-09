@@ -167,8 +167,12 @@ function inspectPackage(appPath) {
   if (!versionOutput.includes(normalized.python.version)) {
     fail(`Python version ${versionOutput} does not match manifest ${normalized.python.version}`);
   }
-  run(pythonPath, ['-c', 'import fastapi, uvicorn, pydantic, requests, moviepy, torch, whisper; from importlib.metadata import version; assert version("openai-whisper") == "20250625"'], { cwd: backendRoot, env: environment });
-  run(pythonPath, ['-c', 'import main'], { cwd: backendRoot, env: environment });
+  run(pythonPath, ['-c', [
+    'import fastapi, uvicorn, pydantic, requests, torch, whisper',
+    'from importlib.metadata import version, distributions; assert version("openai-whisper") == "20250625"',
+    'import main, sys; forbidden = ("whisperx", "nemo", "pyannote.audio", "df", "mediapipe", "cv2", "openai", "anthropic", "moviepy"); assert all(name not in sys.modules for name in forbidden)',
+    'installed = {(d.metadata.get("Name") or "").lower() for d in distributions()}; assert not installed.intersection({"whisperx", "nemo-toolkit", "pyannote.audio", "deepfilternet", "mediapipe", "opencv-python", "openai", "anthropic", "moviepy"})',
+  ].join('; ')], { cwd: backendRoot, env: environment });
 
   const architecture = run('file', [pythonPath]).stdout || '';
   if (!/arm64/i.test(architecture)) fail(`bundled Python architecture is not arm64: ${architecture.trim()}`);
@@ -190,7 +194,8 @@ function inspectPackage(appPath) {
   console.log(`FFmpeg/bin: ${binSize} bytes`);
   console.log(`Manifest: ${normalized.schema}, ${normalized.target.id}, Python ${normalized.python.version}`);
   console.log(`Model manifest: ${modelManifest.id}, ${modelManifest.revision}, ${modelManifest.expectedBytes} bytes`);
-  console.log('Core imports: fastapi, uvicorn, pydantic, requests, moviepy, torch, whisper==20250625');
+  console.log('Core imports: fastapi, uvicorn, pydantic, requests, torch, whisper==20250625');
+  console.log('Optional packages bundled: No');
   console.log('Backend import: passed');
   console.log('Model weight in Resources: No');
   console.log('Packaged runtime check passed.');

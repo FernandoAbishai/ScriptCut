@@ -273,9 +273,11 @@ class BackendSmokeTests(unittest.TestCase):
         transcription = self._load_transcription_service_or_skip()
         original_nemo = transcription.NEMO_AVAILABLE
         original_whisperx = transcription.WHISPERX_AVAILABLE
+        original_loader = transcription._load_nemo
         try:
             transcription.NEMO_AVAILABLE = True
             transcription.WHISPERX_AVAILABLE = True
+            transcription._load_nemo = lambda: object()
             self.assertEqual(transcription._resolve_engine("auto"), "parakeet")
             self.assertEqual(
                 transcription._normalize_model_for_engine("base", "parakeet"),
@@ -288,6 +290,7 @@ class BackendSmokeTests(unittest.TestCase):
         finally:
             transcription.NEMO_AVAILABLE = original_nemo
             transcription.WHISPERX_AVAILABLE = original_whisperx
+            transcription._load_nemo = original_loader
 
     def test_transcription_engine_status_includes_parakeet(self) -> None:
         transcription = self._load_transcription_service_or_skip()

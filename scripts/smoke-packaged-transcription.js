@@ -160,13 +160,21 @@ async function runJob(worker, token, audioPath, useGpu) {
   fail('transcription job did not finish within 12 minutes');
 }
 
-function createAudioFixture(packageInfo, directory) {
+function createVideoFixture(packageInfo, directory) {
   const source = path.join(directory, 'spoken.aiff');
-  const output = path.join(directory, 'spoken.wav');
+  const output = path.join(directory, 'spoken.mp4');
   const spoken = spawnSync('/usr/bin/say', ['-o', source, 'ScriptCut local transcription test'], { encoding: 'utf8' });
   if (spoken.status !== 0) fail(`could not generate repository-safe speech fixture: ${spoken.stderr || spoken.stdout}`);
   const ffmpeg = path.join(packageInfo.resourcesPath, 'bin', 'darwin-arm64', 'ffmpeg');
-  const converted = spawnSync(ffmpeg, ['-y', '-i', source, '-ar', '16000', '-ac', '1', output], { encoding: 'utf8' });
+  const converted = spawnSync(ffmpeg, [
+    '-y',
+    '-f', 'lavfi', '-i', 'color=c=black:s=320x180:r=10',
+    '-i', source,
+    '-shortest',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-ar', '16000', '-ac', '1',
+    output,
+  ], { encoding: 'utf8' });
   if (converted.status !== 0) fail(`could not convert speech fixture: ${converted.stderr || converted.stdout}`);
   return output;
 }
@@ -181,7 +189,7 @@ async function realModelSmoke(packageInfo) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-phase-3b3-audio-'));
   const modelManifest = JSON.parse(fs.readFileSync(path.join(packageInfo.resourcesPath, 'manifests', 'model-manifest.json'), 'utf8'));
   const modelPath = path.join(modelRoot, 'whisper', 'base', modelManifest.revision, modelManifest.filename);
-  const audioPath = createAudioFixture(packageInfo, fixtureRoot);
+  const audioPath = createVideoFixture(packageInfo, fixtureRoot);
   let worker;
   try {
     worker = await startWorker(packageInfo, modelRoot, token, false);

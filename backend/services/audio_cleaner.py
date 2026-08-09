@@ -4,19 +4,25 @@ Falls back to a basic FFmpeg noise filter if DeepFilterNet is not installed.
 """
 
 import logging
+import importlib
+import importlib.util
 import subprocess
-import tempfile
 from pathlib import Path
 
 from utils.ffmpeg import find_ffmpeg
 
 logger = logging.getLogger(__name__)
 
-try:
-    from df.enhance import enhance, init_df, load_audio, save_audio
-    DEEPFILTER_AVAILABLE = True
-except ImportError:
-    DEEPFILTER_AVAILABLE = False
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
+
+
+DEEPFILTER_AVAILABLE = _module_available("df")
+_deepfilter_failure: Exception | None = None
+enhance = init_df = load_audio = save_audio = None
 
 
 _df_model = None
@@ -24,11 +30,30 @@ _df_state = None
 
 
 def _init_deepfilter():
-    global _df_model, _df_state
+    global _df_model, _df_state, DEEPFILTER_AVAILABLE, _deepfilter_failure
+    _load_deepfilter()
     if _df_model is None:
         logger.info("Initializing DeepFilterNet model")
         _df_model, _df_state, _ = init_df()
     return _df_model, _df_state
+
+
+def _load_deepfilter() -> None:
+    global enhance, init_df, load_audio, save_audio, DEEPFILTER_AVAILABLE, _deepfilter_failure
+    if not DEEPFILTER_AVAILABLE:
+        raise RuntimeError("DeepFilterNet capability is unavailable in this build")
+    if enhance is not None:
+        return
+    try:
+        module = importlib.import_module("df.enhance")
+        enhance = module.enhance
+        init_df = module.init_df
+        load_audio = module.load_audio
+        save_audio = module.save_audio
+    except Exception as exc:
+        _deepfilter_failure = exc
+        DEEPFILTER_AVAILABLE = False
+        raise RuntimeError("DeepFilterNet capability could not be loaded") from exc
 
 
 def clean_audio(
@@ -48,9 +73,11 @@ def clean_audio(
         output_path = str(input_path.with_stem(input_path.stem + "_clean"))
 
     if DEEPFILTER_AVAILABLE:
-        return _clean_with_deepfilter(str(input_path), output_path)
-    else:
-        return _clean_with_ffmpeg(str(input_path), output_path)
+        try:
+            return _clean_with_deepfilter(str(input_path), output_path)
+        except Exception as exc:
+            logger.warning("DeepFilterNet unavailable; using FFmpeg fallback: %s", exc)
+    return _clean_with_ffmpeg(str(input_path), output_path)
 
 
 def _clean_with_deepfilter(input_path: str, output_path: str) -> str:
