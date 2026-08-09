@@ -7,10 +7,9 @@ const { spawnSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
 const distDir = path.join(root, 'dist');
-const releaseDir = path.join(distDir, 'release-alpha');
-const cacheRoot = path.join(root, '.cache');
-const electronCache = path.join(cacheRoot, 'electron');
-const electronBuilderCache = path.join(cacheRoot, 'electron-builder');
+const releaseDir = path.join(distDir, 'release-candidate');
+const packageOutputDir = path.join(releaseDir, 'app');
+const releaseMetadataDir = releaseDir;
 
 function readPackage() {
   return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -23,77 +22,43 @@ function runStep(name, command, args, options = {}) {
     stdio: 'inherit',
     env: options.env || process.env,
   });
-
-  if (result.error) {
-    console.error(`\n${name} failed: ${result.error.message}`);
-    process.exit(1);
-  }
-
-  if (result.status !== 0) {
-    console.error(`\n${name} failed with exit code ${result.status}.`);
-    process.exit(result.status || 1);
-  }
+  if (result.error) throw new Error(`${name} failed: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(`${name} failed with exit code ${result.status}.`);
 }
 
 function ensureReleaseDirs() {
   fs.rmSync(releaseDir, { recursive: true, force: true });
-  fs.mkdirSync(releaseDir, { recursive: true });
-  fs.mkdirSync(electronCache, { recursive: true });
-  fs.mkdirSync(electronBuilderCache, { recursive: true });
+  fs.mkdirSync(packageOutputDir, { recursive: true });
 }
 
 function releaseEnv() {
   const env = {
     ...process.env,
-    ELECTRON_CACHE: electronCache,
-    ELECTRON_BUILDER_CACHE: electronBuilderCache,
+    ELECTRON_CACHE: path.join(root, '.cache', 'electron'),
+    ELECTRON_BUILDER_CACHE: path.join(root, '.cache', 'electron-builder'),
+    CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+    SCRIPTCUT_RELEASE_MODE: 'candidate',
+    SCRIPTCUT_RELEASE_ARCH: 'arm64',
+    SCRIPTCUT_BUILD_ARCH: 'arm64',
   };
-  if (!env.CSC_LINK && !env.CSC_NAME && !env.CSC_IDENTITY_AUTO_DISCOVERY) {
-    // Avoid accidentally selecting a local Apple Development certificate for an unsigned alpha.
-    env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
-  }
+  for (const name of [
+    'CSC_LINK',
+    'CSC_KEY_PASSWORD',
+    'CSC_NAME',
+    'APPLE_API_KEY',
+    'APPLE_API_KEY_ID',
+    'APPLE_API_ISSUER',
+    'APPLE_ID',
+    'APPLE_APP_SPECIFIC_PASSWORD',
+    'APPLE_TEAM_ID',
+    'APPLE_KEYCHAIN',
+    'APPLE_KEYCHAIN_PROFILE',
+  ]) delete env[name];
   return env;
 }
 
-function releaseArchitecture() {
-  const arch = process.env.SCRIPTCUT_RELEASE_ARCH?.trim() || process.arch;
-  if (!['arm64', 'x64'].includes(arch)) {
-    throw new Error(`Unsupported macOS release architecture: ${arch}. Expected arm64 or x64.`);
-  }
-  return arch;
-}
-
-function releasePlatformLabel(arch) {
-  return arch === 'arm64' ? 'macOS Apple Silicon (arm64)' : 'macOS Intel (x64)';
-}
-
-function findArtifacts() {
-  if (!fs.existsSync(distDir)) return [];
-  return fs.readdirSync(distDir)
-    .filter((name) => /\.(dmg|zip|AppImage|exe)$/i.test(name))
-    .map((name) => path.join(distDir, name))
-    .filter((filePath) => fs.statSync(filePath).isFile());
-}
-
-function snapshotArtifacts() {
-  return new Map(findArtifacts().map((filePath) => {
-    const stat = fs.statSync(filePath);
-    return [filePath, { bytes: stat.size, modifiedAt: stat.mtimeMs }];
-  }));
-}
-
-function findFreshArtifacts(before) {
-  return findArtifacts().filter((filePath) => {
-    const stat = fs.statSync(filePath);
-    const previous = before.get(filePath);
-    return !previous || previous.bytes !== stat.size || previous.modifiedAt !== stat.mtimeMs;
-  });
-}
-
-function checksumFile(filePath) {
-  const hash = crypto.createHash('sha256');
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest('hex');
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
 function currentGitCommit() {
@@ -102,152 +67,220 @@ function currentGitCommit() {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });
-  return result.status === 0 ? result.stdout.trim() : '';
+  if (result.status !== 0) throw new Error('Could not determine the candidate commit.');
+  return result.stdout.trim();
 }
 
-function readFfmpegBundleManifest(arch) {
-  const manifestPath = path.join(root, 'build', 'bin', `darwin-${arch}`, 'bundle-manifest.json');
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error('FFmpeg bundle manifest is missing. Run npm run release:ffmpeg before preparing a release.');
+function findFiles(directory, predicate, found = []) {
+  if (!fs.existsSync(directory)) return found;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (predicate(entryPath, entry)) found.push(entryPath);
+    if (entry.isDirectory()) findFiles(entryPath, predicate, found);
   }
-  return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  return found;
 }
 
-function releaseTag(pkg) {
-  const tag = process.env.RELEASE_TAG?.trim() || `v${pkg.version}-alpha`;
-  const expectedPrefix = `v${pkg.version}-alpha`;
-  if (!tag.startsWith(expectedPrefix)) {
-    console.error(`\nRELEASE_TAG must start with ${expectedPrefix}. Received: ${tag}`);
-    process.exit(1);
+function candidateOutputs(pkg) {
+  const expectedDmg = `ScriptCut-${pkg.version}-arm64.dmg`;
+  const dmgs = findFiles(packageOutputDir, (filePath, entry) => entry.isFile() && path.basename(filePath) === expectedDmg);
+  if (dmgs.length !== 1) throw new Error(`Expected exactly one current candidate DMG ${expectedDmg}; found ${dmgs.length}.`);
+  const apps = findFiles(packageOutputDir, (filePath, entry) => entry.isDirectory() && entry.name === 'ScriptCut.app');
+  if (apps.length !== 1) throw new Error(`Expected exactly one current candidate ScriptCut.app; found ${apps.length}.`);
+  return { dmgPath: dmgs[0], appPath: apps[0] };
+}
+
+function stageCandidateArtifact(dmgPath) {
+  const stagedPath = path.join(releaseMetadataDir, path.basename(dmgPath));
+  fs.copyFileSync(dmgPath, stagedPath);
+  return stagedPath;
+}
+
+function checksumFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+async function writeChecksums(artifact) {
+  const sha256 = await checksumFile(artifact.path);
+  const checksumPath = path.join(releaseMetadataDir, 'SHA256SUMS.txt');
+  fs.writeFileSync(checksumPath, `${sha256}  ${artifact.filename}\n`, 'utf8');
+  return { checksumPath, sha256 };
+}
+
+function readProvenance() {
+  const runtimeManifestPath = path.join(root, 'build', 'manifests', 'runtime-manifest.json');
+  const coreInventoryPath = path.join(root, 'build', 'manifests', 'core-installed-distributions.txt');
+  const ffmpegManifestPath = path.join(root, 'build', 'bin', 'darwin-arm64', 'bundle-manifest.json');
+  const modelManifestPath = path.join(root, 'runtime', 'models', 'whisper-base.json');
+  for (const filePath of [runtimeManifestPath, coreInventoryPath, ffmpegManifestPath, modelManifestPath]) {
+    if (!fs.existsSync(filePath)) throw new Error(`Missing generated provenance input: ${path.relative(root, filePath)}`);
   }
-  return tag;
+  return {
+    runtimeManifestPath,
+    coreInventoryPath,
+    ffmpegManifestPath,
+    modelManifestPath,
+    runtime: readJson(runtimeManifestPath),
+    ffmpeg: readJson(ffmpegManifestPath),
+    model: readJson(modelManifestPath),
+  };
 }
 
-function writeChecksums(artifacts) {
-  const lines = artifacts.map((filePath) => `${checksumFile(filePath)}  ${path.basename(filePath)}`);
-  const checksumPath = path.join(releaseDir, 'SHA256SUMS.txt');
-  fs.writeFileSync(checksumPath, `${lines.join('\n')}\n`, 'utf8');
-  return checksumPath;
-}
-
-function writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch) {
-  const manifestPath = path.join(releaseDir, 'release-manifest.json');
+async function createReleaseManifest(pkg, artifact, checksums, provenance) {
   const manifest = {
-    name: pkg.name,
+    schema: 'scriptcut.release.v1',
     productName: pkg.build?.productName || pkg.name,
     version: pkg.version,
-    channel: 'alpha',
-    tag,
+    channel: 'internal-release-candidate',
+    tagCandidate: null,
+    tagExists: false,
     platform: 'darwin',
-    architecture: arch,
-    compatibility: releasePlatformLabel(arch),
+    architecture: 'arm64',
     commit: currentGitCommit(),
     generatedAt: new Date().toISOString(),
-    ffmpegBundle,
-    checksums: path.relative(root, checksumPath),
-    assets: artifacts.map((filePath) => ({
-      file: path.basename(filePath),
-      path: path.relative(root, filePath),
-      bytes: fs.statSync(filePath).size,
-      sha256: checksumFile(filePath),
-    })),
+    artifact: {
+      filename: artifact.filename,
+      bytes: artifact.bytes,
+      sha256: checksums.sha256,
+    },
+    checksums: 'SHA256SUMS.txt',
+    runtime: {
+      mode: 'packaged-bundled',
+      pythonSource: 'bundled',
+      target: provenance.runtime.target,
+      schema: provenance.runtime.schema,
+      pythonVersion: provenance.runtime.python.version,
+      pythonBuild: provenance.runtime.python.build,
+      manifestSha256: await checksumFile(provenance.runtimeManifestPath),
+    },
+    coreInventorySha256: await checksumFile(provenance.coreInventoryPath),
+    ffmpeg: {
+      platform: provenance.ffmpeg.platform,
+      architecture: provenance.ffmpeg.arch,
+      manifestSha256: await checksumFile(provenance.ffmpegManifestPath),
+    },
+    model: {
+      id: provenance.model.id,
+      revision: provenance.model.revision,
+      expectedBytes: provenance.model.expectedBytes,
+      sha256: provenance.model.sha256,
+      manifestSha256: await checksumFile(provenance.modelManifestPath),
+      embedded: false,
+    },
+    signed: false,
+    notarized: false,
+    reproducible: false,
+    reproducibilityNote: 'Transitive runtime wheel hashes are not fully locked in this phase.',
   };
+  const manifestPath = path.join(releaseMetadataDir, 'release-manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  return manifestPath;
+  return { manifestPath, manifest };
 }
 
-function writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch) {
-  const notesPath = path.join(releaseDir, 'RELEASE_NOTES.md');
-  const artifactList = artifacts
-    .map((filePath) => `- ${path.basename(filePath)}`)
-    .concat(`- ${path.relative(root, checksumPath)}`)
-    .join('\n');
+function writeReleaseNotes(pkg, artifact, checksums, manifest) {
+  const notesPath = path.join(releaseMetadataDir, 'RELEASE_NOTES.md');
+  fs.writeFileSync(notesPath, `# ScriptCut ${pkg.version} internal release candidate
 
-  const captionNote = ffmpegBundle.capabilities?.assSubtitles
-    ? 'Burn in creator captions directly into exported video.'
-    : 'Export a matching `.srt` caption file when burn-in captions are selected.';
+This is an internal release candidate for native macOS arm64 validation. It is not for public distribution.
 
-  fs.writeFileSync(notesPath, `# ScriptCut ${tag}
+## Creator install path
 
-ScriptCut is an open-source, local-first desktop video editor for creators.
+1. Download the candidate DMG.
+2. Install and open ScriptCut.
+3. Select a video.
 
-## Highlights
+The candidate includes its application runtime and bundled FFmpeg/FFprobe. Baseline local transcription is included. The verified baseline Whisper model downloads into app-managed storage on first transcription; after that verified model is installed, baseline transcription can run locally without model-network access. Optional capabilities may not be included in this build.
 
-- Edit video by editing transcript text.
-- Export source, square, and vertical shorts clips.
-- ${captionNote}
-- Package clip titles, captions, descriptions, hashtags, and hook-frame notes.
-- Use optional AI helpers while keeping media local.
+Creators do not need to install Python, run pip, download FFmpeg, configure PATH, or create a virtual environment for this candidate path.
 
-## Install
+## Trust status
 
-1. Download the ${releasePlatformLabel(arch)} DMG attached to this release.
-2. Open ScriptCut.
-3. Run the first-launch checks and follow any setup prompts.
+- Candidate signing state: unsigned.
+- Notarization state: not notarized.
+- This candidate is not Gatekeeper-approved and is not ready for public distribution.
+- No tag or GitHub Release was created by this preparation.
 
-## Compatibility
+## Artifacts
 
-- This package is for ${releasePlatformLabel(arch)}.
-- It includes portable FFmpeg and FFprobe for local export.
-- This developer alpha still uses a compatible local Python runtime and ScriptCut backend dependency set. See the install guide before downloading.
+- ${artifact.filename}
+- SHA256SUMS.txt
+- release-manifest.json
 
-## Alpha Status
-
-This is a developer alpha build. Keep original media and project backups.
-
-## Assets
-
-${artifactList}
-
-## Verify Download
-
-Compare the downloaded file against \`SHA256SUMS.txt\`.
+Artifact SHA-256: \`${checksums.sha256}\`
+Runtime mode: \`${manifest.runtime.mode}\`; Python source: \`${manifest.runtime.pythonSource}\`; target: \`${manifest.runtime.target.platform}-${manifest.runtime.target.arch}\`.
 `, 'utf8');
   return notesPath;
 }
 
-function main() {
-  if (process.platform !== 'darwin') {
-    throw new Error('ScriptCut macOS releases must be prepared on macOS.');
-  }
-  const pkg = readPackage();
-  const tag = releaseTag(pkg);
-  const arch = releaseArchitecture();
-  ensureReleaseDirs();
-
-  const env = {
-    ...releaseEnv(),
-    SCRIPTCUT_RELEASE_ARCH: arch,
-    SCRIPTCUT_BUILD_ARCH: arch,
-  };
-
-  runStep('Release trust readiness', 'node', ['scripts/check-release-trust.js']);
-  runStep('Prepare bundled FFmpeg', 'npm', ['run', 'release:ffmpeg']);
-  runStep('Validate macOS release platform', 'node', ['scripts/release-platform.js', '--arch', arch], { env });
-  const ffmpegBundle = readFfmpegBundleManifest(arch);
-  runStep('Desktop package QA', 'npm', ['run', 'qa:desktop:package'], { env });
-  const beforeBuild = snapshotArtifacts();
-  runStep(`Build ${releasePlatformLabel(arch)} DMG`, 'npm', ['run', `dist:mac:${arch}`], { env });
-
-  const artifacts = findFreshArtifacts(beforeBuild);
-  if (artifacts.length === 0) {
-    console.error('\nNo release artifacts found in dist/.');
-    process.exit(1);
-  }
-
-  const checksumPath = writeChecksums(artifacts);
-  const manifestPath = writeReleaseManifest(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch);
-  const notesPath = writeReleaseNotes(pkg, tag, artifacts, checksumPath, ffmpegBundle, arch);
-
-  console.log('\nAlpha release package prepared.');
-  console.log(`Release notes: ${path.relative(root, notesPath)}`);
-  console.log(`Release manifest: ${path.relative(root, manifestPath)}`);
-  console.log(`Checksums: ${path.relative(root, checksumPath)}`);
-  for (const artifact of artifacts) {
-    console.log(`Artifact: ${path.relative(root, artifact)}`);
-  }
-  console.log('\nDraft the GitHub release with:');
-  console.log(`gh release create ${tag} --draft --title "ScriptCut ${tag}" --notes-file ${path.relative(root, notesPath)} ${artifacts.map((artifact) => path.relative(root, artifact)).join(' ')} ${path.relative(root, checksumPath)} ${path.relative(root, manifestPath)}`);
+function runPackagedGate(name, script, args, env) {
+  runStep(name, 'node', [script, ...args], { env });
 }
 
-main();
+async function main() {
+  if (!process.argv.includes('--candidate')) {
+    throw new Error('Phase 3B.5A only prepares an explicit unsigned candidate. Use --candidate; signed distribution is reserved for Phase 3B.5B.');
+  }
+  if (process.platform !== 'darwin' || process.arch !== 'arm64') {
+    throw new Error(`Release candidates require native macOS arm64, received ${process.platform}-${process.arch}.`);
+  }
+
+  const pkg = readPackage();
+  const env = releaseEnv();
+  const realModel = process.argv.includes('--real-model');
+  ensureReleaseDirs();
+
+  runStep('Release candidate trust readiness', 'node', ['scripts/check-release-trust.js', '--candidate'], { env });
+  runStep('Prepare bundled FFmpeg', 'npm', ['run', 'release:ffmpeg'], { env });
+  runStep('Prepare portable Python and core pack', 'npm', ['run', 'runtime:prepare:mac-arm64'], { env });
+  runStep('Validate native release platform', 'node', ['scripts/release-platform.js', '--arch', 'arm64'], { env });
+  runStep('Build frontend', 'npm', ['run', 'build:frontend'], { env });
+  runStep('Build unsigned self-contained arm64 DMG', 'node_modules/.bin/electron-builder', [
+    '--config', 'electron-builder.release.cjs',
+    '--arm64',
+    '--publish', 'never',
+  ], { env });
+
+  const outputs = candidateOutputs(pkg);
+  runPackagedGate('Packaged runtime gate', 'scripts/check-packaged-runtime.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
+  runPackagedGate('Packaged FFmpeg gate', 'scripts/check-packaged-ffmpeg.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
+  runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
+  runPackagedGate('Packaged optional-capability gate', 'scripts/smoke-packaged-optional-capabilities.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
+  runPackagedGate('Packaged transcription contract gate', 'scripts/smoke-packaged-transcription.js', ['--arch', 'arm64', '--app', outputs.appPath, ...(realModel ? ['--real-model'] : [])], env);
+  runPackagedGate('macOS signing-readiness inventory', 'scripts/check-macos-signing-readiness.js', ['--app', outputs.appPath], env);
+  runPackagedGate('Candidate DMG inspection', 'scripts/check-release-candidate.js', ['--app', outputs.appPath, '--dmg', outputs.dmgPath], env);
+
+  const stagedDmgPath = stageCandidateArtifact(outputs.dmgPath);
+  const artifact = {
+    path: stagedDmgPath,
+    filename: path.basename(stagedDmgPath),
+    bytes: fs.statSync(stagedDmgPath).size,
+  };
+  const checksums = await writeChecksums(artifact);
+  const provenance = readProvenance();
+  const { manifestPath, manifest } = await createReleaseManifest(pkg, artifact, checksums, provenance);
+  const notesPath = writeReleaseNotes(pkg, artifact, checksums, manifest);
+  runStep('Release metadata smoke', 'node', ['scripts/smoke-release-metadata.js', '--dir', releaseMetadataDir], { env });
+
+  console.log('\nUnsigned self-contained release candidate prepared.');
+  console.log(`Candidate app: ${path.relative(root, outputs.appPath)}`);
+  console.log(`Candidate DMG: ${path.relative(root, stagedDmgPath)}`);
+  console.log(`Release notes: ${path.relative(root, notesPath)}`);
+  console.log(`Release manifest: ${path.relative(root, manifestPath)}`);
+  console.log(`Checksums: ${path.relative(root, checksums.checksumPath)}`);
+  console.log('No tag, GitHub Release, Apple signing, or notarization was performed.');
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}
+
+module.exports = { checksumFile, createReleaseManifest, writeChecksums };

@@ -7,8 +7,13 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      package_desktop:
-        description: Build an unpacked macOS desktop app for release-candidate validation
+      release_candidate:
+        description: Build the unsigned self-contained macOS arm64 release candidate
+        required: false
+        default: false
+        type: boolean
+      real_model:
+        description: Run the extended packaged real-model transcription gate
         required: false
         default: false
         type: boolean
@@ -98,11 +103,11 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend
 
-  package-desktop:
-    name: Package macOS desktop app
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
+  release-candidate:
+    name: Build macOS arm64 release candidate
+    if: github.event_name == 'workflow_dispatch' && inputs.release_candidate
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -123,10 +128,28 @@ jobs:
       - name: Install FFmpeg
         run: brew install ffmpeg
 
-      - name: Prepare portable FFmpeg bundle
-        run: npm run release:ffmpeg
-
-      - name: Build and verify unpacked Apple Silicon desktop app
+      - name: Verify native runner architecture
         run: |
-          npm run dist:dir:arm64
-          npm run check:packaged-ffmpeg -- --arch arm64
+          echo "uname -m: $(uname -m)"
+          echo "node arch: $(node -p process.arch)"
+          test "$(uname -m)" = "arm64"
+          test "$(node -p process.arch)" = "arm64"
+
+      - name: Build and verify unsigned self-contained release candidate
+        run: |
+          if [ "${{ inputs.real_model }}" = "true" ]; then
+            npm run release:rc:arm64 -- --real-model
+          else
+            npm run release:rc:arm64
+          fi
+
+      - name: Upload intended candidate outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: scriptcut-release-candidate-arm64
+          if-no-files-found: error
+          path: |
+            dist/release-candidate/*.dmg
+            dist/release-candidate/SHA256SUMS.txt
+            dist/release-candidate/release-manifest.json
+            dist/release-candidate/RELEASE_NOTES.md

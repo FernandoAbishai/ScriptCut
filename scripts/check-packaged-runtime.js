@@ -11,6 +11,22 @@ const {
 const { readModelManifest } = require('./model-artifacts');
 
 const root = path.join(__dirname, '..');
+const FORBIDDEN_RUNTIME_ENTRIES = new Set([
+  '.venv',
+  '.venv311',
+  'runtime-cache',
+  'pip-cache',
+  'whisperx',
+  'nemo',
+  'pyannote',
+  'df',
+  'deepfilternet',
+  'mediapipe',
+  'cv2',
+  'openai',
+  'anthropic',
+  'moviepy',
+]);
 
 function optionValue(name) {
   const index = process.argv.indexOf(name);
@@ -78,9 +94,8 @@ function findForbiddenResourceEntry(directory, rootDirectory = directory) {
   if (!fs.existsSync(directory)) return null;
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const relativeEntry = path.relative(rootDirectory, path.join(directory, entry.name));
-    const forbiddenDeveloperData = new Set(['.venv', '.venv311', 'runtime-cache', 'pip-cache']);
     const isModelCache = entry.name === 'models' && !relativeEntry.split(path.sep).includes('site-packages');
-    if (forbiddenDeveloperData.has(entry.name) || isModelCache) {
+    if (FORBIDDEN_RUNTIME_ENTRIES.has(entry.name.toLowerCase()) || isModelCache) {
       return path.relative(directory, path.join(directory, entry.name));
     }
     if (entry.isDirectory()) {
