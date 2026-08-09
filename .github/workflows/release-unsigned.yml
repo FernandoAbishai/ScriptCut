@@ -213,13 +213,11 @@ jobs:
           DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
           gh attestation verify "$DMG" \
             --repo "$GITHUB_REPOSITORY" \
-            --signer-repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
             --source-digest "$GITHUB_SHA" \
             --format json > "$RUNNER_TEMP/dmg-attestation.json"
           gh attestation verify dist/public-release/release-manifest.json \
             --repo "$GITHUB_REPOSITORY" \
-            --signer-repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
             --source-digest "$GITHUB_SHA" \
             --format json > "$RUNNER_TEMP/manifest-attestation.json"
@@ -233,13 +231,11 @@ jobs:
           gh attestation verify "$DMG" \
             --bundle "dist/public-release/${DMG_BASENAME}.sigstore.json" \
             --repo "$GITHUB_REPOSITORY" \
-            --signer-repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
             --source-digest "$GITHUB_SHA"
           gh attestation verify dist/public-release/release-manifest.json \
             --bundle dist/public-release/release-manifest.sigstore.json \
             --repo "$GITHUB_REPOSITORY" \
-            --signer-repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
             --source-digest "$GITHUB_SHA"
 
