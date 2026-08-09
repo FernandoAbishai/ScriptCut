@@ -24,9 +24,9 @@ See [the Product Vision](docs/PRODUCT_VISION.md) for the canonical product direc
 
 The intended creator path is the **ScriptCut desktop app**:
 
-1. Download the [latest GitHub Release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
-2. Download the macOS Apple Silicon `.dmg`.
-3. Launch ScriptCut and follow the first-run setup assistant.
+1. Open the [ScriptCut GitHub Releases page](https://github.com/FernandoAbishai/ScriptCut/releases).
+2. Choose a release explicitly identified in its notes and manifest as a self-contained macOS arm64 prerelease, then download its tagged DMG.
+3. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt.
 4. Choose **Edit full video** or **Create a short**, then select local media.
 5. Review the transcript and export when the preflight panel is ready.
 
@@ -46,11 +46,11 @@ See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the detailed creator walkthroug
 
 Open a long-form recording, find or create candidate moments, review and trim drafts, package metadata and hook-frame notes, then export approved clips. The current app supports AI clip suggestions, editable drafts, social metadata, vertical/square output, captions, readiness checks, and batch export. Discovery and packaging still depend on review, local setup, and—when selected—an available AI provider.
 
-## Current alpha support
+## Self-contained public-alpha path
 
-The current downloadable alpha is verified for **macOS Apple Silicon (arm64)**. A matching desktop release includes portable FFmpeg/FFprobe for local export.
+ScriptCut's supported self-contained public-alpha path is **macOS Apple Silicon (arm64)**. Public alphas produced by the current release pipeline bundle the application runtime, portable Python, the core runtime pack, FFmpeg/FFprobe, and baseline Whisper transcription code. System Python and backend dependency installation are not required for that packaged baseline path.
 
-This is not yet a fully self-contained installer: editing and transcription still use a compatible local Python 3.10–3.12 runtime and the ScriptCut backend dependency set. Python 3.11 is the recommended option on Apple Silicon. The setup assistant reports missing requirements at launch.
+The trusted baseline model is downloaded and verified into app-managed storage on first transcription. Subsequent baseline transcription can reuse the verified local model without model-network access. A qualifying public alpha is unsigned and not notarized by Apple, so macOS first launch may require **System Settings → Privacy & Security → Open Anyway**. Use that approval only for a DMG downloaded from the official ScriptCut Releases page. Older alpha releases may predate this self-contained runtime; check each release's notes and manifest before downloading.
 
 See [Platform Support](docs/PLATFORM_SUPPORT.md) for the current support matrix. macOS Intel preparation is available for maintainers, while Windows and Linux are source-development paths rather than verified public installers. The browser page at `localhost:5173` is for development and testing; it does not provide the desktop app’s native file access or the same autosave workflow.
 

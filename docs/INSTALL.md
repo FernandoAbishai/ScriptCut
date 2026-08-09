@@ -4,15 +4,16 @@ ScriptCut is a local-first Electron app with a React frontend and FastAPI backen
 
 ## Recommended Alpha Install
 
-For non-technical use, install the desktop app from the latest GitHub Release:
+For non-technical use, install the desktop app from the official [GitHub Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases):
 
-1. Open the [latest release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
-2. Download the **macOS Apple Silicon (arm64)** `.dmg`.
-3. Open ScriptCut and follow the first-run setup assistant.
+1. Open the official ScriptCut Releases feed and choose a prerelease explicitly identified as self-contained for macOS Apple Silicon.
+2. Download that tagged **macOS Apple Silicon (arm64)** `.dmg`.
+3. Open the DMG, open ScriptCut, and select a video when the app is ready.
+4. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming that the DMG came from the official ScriptCut Releases feed.
 
-The desktop alpha includes portable FFmpeg and FFprobe for export. It still uses a compatible local Python 3.10-3.12 runtime and ScriptCut backend dependency set for editing, so the first-run assistant may ask you to install Python once. Use the [First Export Guide](./FIRST_EXPORT.md) for the shortest path, or install Python from [python.org for macOS](https://www.python.org/downloads/macos/).
+The supported self-contained public-alpha path bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe. ScriptCut manages the baseline transcription model on first use; creators do not install system Python, pip, FFmpeg, or a virtual environment for a qualifying packaged release. The DMG is unsigned and not notarized, so the macOS approval step above may be required. Older alpha releases may predate this runtime; check the individual release notes and manifest.
 
-Read [Platform Support](./PLATFORM_SUPPORT.md) before downloading. If a DMG is not attached yet, use the source setup below.
+Read [Platform Support](./PLATFORM_SUPPORT.md) before downloading. If no qualifying self-contained release is attached yet, use the source setup below.
 
 ## Source Development Requirements
 

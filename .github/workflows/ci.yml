@@ -52,6 +52,12 @@ jobs:
       - name: Install root dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Test public release metadata and documentation
+        run: npm run smoke:public-release
+
+      - name: Test public release workflow structure
+        run: npm run smoke:release-workflow
+
       - name: Test runtime contract
         run: npm run smoke:runtime-contract
 

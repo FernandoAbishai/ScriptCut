@@ -4,7 +4,7 @@ This guide is for preparing a desktop release from the repository.
 
 ## Current Release Status
 
-Phase 3B.5A prepares an internal, unsigned, self-contained macOS arm64 release candidate. It does not create a tag, GitHub Release, signed artifact, or notarized distribution. Source development is still supported with:
+Phase 3B.5C adds the controlled public unsigned macOS arm64 distribution path. This guide describes how qualifying public alphas are produced; it does not assert that every historical alpha already has the self-contained runtime. Inspect each release's notes and manifest. The workflow creates no tag or GitHub Release unless explicitly dispatched with publication gates. Apple Developer membership, Developer ID signing, and notarization are optional future enhancements, not prerequisites for the public unsigned alpha path. Source development is still supported with:
 
 ```bash
 npm run setup
@@ -45,7 +45,7 @@ Check unsigned candidate readiness:
 npm run release:trust:candidate
 ```
 
-Credentialed signed-mode checks are reserved for Phase 3B.5B and fail closed when credentials are absent:
+Credentialed signed-mode checks remain preserved as a future trust path and fail closed when credentials are absent:
 
 ```bash
 npm run release:trust:signed
@@ -92,14 +92,18 @@ The generated installer will be written under `dist/`.
 
 Use `npm run dist:dir` when you only need an unpacked app bundle for local QA.
 
-## Future GitHub Release
+## Public unsigned GitHub prerelease
 
-The candidate phase does not create or mutate a GitHub Release. A future signed/notarized alpha should be explicitly approved as a prerelease and must use the credentialed 3B.5B flow.
+The dedicated `.github/workflows/release-unsigned.yml` workflow is `workflow_dispatch` only. It builds on a native `macos-14` arm64 runner using the existing `npm run release:rc:arm64` candidate machinery, then stages the exact public DMG, public manifest, notes, checksum, and Sigstore attestation bundles.
+
+Required inputs are `release_tag`, `publish`, `real_model`, and `confirmation`. The tag must be `v<package.version>-alpha.<positive integer>` and must be greater than every existing alpha tag. `publish=false` is the safe dry-run mode: it may create attestations and a workflow artifact whose name includes `dry-run`, but it cannot create a tag, release, commit, or mutate `main`. Publication additionally requires `publish=true`, `real_model=true`, `confirmation=PUBLISH_UNSIGNED_ALPHA`, the workflow ref to be `main`, and a current `origin/main` equal to the dispatched commit. The publish job has contents write permission only, downloads the already verified artifact, creates a GitHub prerelease with `--prerelease --latest=false`, and verifies the exact tag, asset set, and digest after creation. It never rebuilds during publication.
+
+The post-merge closure procedure is a `publish=false` dry-run from current `main`. It is required before any separately authorized public publication and is not performed by this implementation PR.
 
 Title:
 
 ```text
-ScriptCut v0.1.0-alpha
+ScriptCut v0.1.0-alpha.<n>
 ```
 
 Description:
@@ -115,20 +119,24 @@ Highlights:
 - Use optional AI helpers while keeping media local
 
 Install:
-1. Download the macOS Apple Silicon (arm64) DMG attached to this release.
-2. Open ScriptCut.
-3. Run the first-launch checks and follow any dependency prompts.
+1. Download the macOS Apple Silicon (arm64) DMG from the official ScriptCut Releases feed.
+2. If macOS blocks the unsigned first launch, use System Settings → Privacy & Security → Open Anyway.
+3. Open ScriptCut and select a video; the baseline model is app-managed and downloaded on first transcription.
 
 Status:
-This is an alpha build. Keep original media and project backups.
+This is an unsigned, unnotarized prerelease alpha. Keep original media and project backups.
 ```
 
 Attach:
 
-- macOS `.dmg`
-- `dist/release-candidate/SHA256SUMS.txt`
-- `dist/release-candidate/release-manifest.json`
-- short demo video or screenshot, when available
+- `dist/public-release/ScriptCut-v<version>-alpha.<n>-arm64.dmg`
+- `dist/public-release/SHA256SUMS.txt`
+- `dist/public-release/release-manifest.json`
+- `dist/public-release/RELEASE_NOTES.md`
+- `dist/public-release/ScriptCut-v<version>-alpha.<n>-arm64.dmg.sigstore.json`
+- `dist/public-release/release-manifest.sigstore.json`
+
+The public release manifest uses schema `scriptcut.release.v2` and records the unsigned/notarized truth, bundled runtime/core/FFmpeg/model provenance, final DMG SHA-256, release tag, source commit, and the DMG attestation reference. The DMG and manifest are each attested with the official GitHub artifact-attestation action; the workflow artifact bundles are retained for independent verification.
 
 ## Signing And Notarization
 
@@ -151,7 +159,7 @@ Signed mode:
 npm run release:trust:signed
 ```
 
-Signed mode hard-fails without Developer ID and notarization credentials. The signed packaging path is reserved for Phase 3B.5B.
+Signed mode hard-fails without Developer ID and notarization credentials. The signed packaging path remains a future optional enhancement; this phase does not add credentials, signing keys, or notarization.
 
 Supported signing inputs:
 
@@ -174,4 +182,4 @@ Supported notarization inputs:
 - The bundle manifest records whether the selected FFmpeg supports ASS burn-in captions. Releases without that filter use the tested sidecar `.srt` fallback and must state that in their notes.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.
 - Browser mode at `localhost:5173` is for development. The desktop app is the intended user version.
-- Public macOS releases should be signed and notarized with Apple Developer credentials.
+- Public unsigned alpha releases are intentionally not Apple-signed or notarized. Apple trust may be added later without changing the public provenance and verification contract.

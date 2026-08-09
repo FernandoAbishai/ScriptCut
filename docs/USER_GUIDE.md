@@ -8,21 +8,21 @@ ScriptCut lets you edit spoken video by editing the transcript. Delete words to 
 
 ## Install the App
 
-1. Go to the [latest ScriptCut release](https://github.com/FernandoAbishai/ScriptCut/releases/latest).
-2. Download the macOS Apple Silicon (arm64) `.dmg`.
+1. Go to the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) and choose a prerelease explicitly identified as self-contained for macOS Apple Silicon.
+2. Download that tagged macOS Apple Silicon (arm64) `.dmg`.
 3. Open the DMG and launch ScriptCut.
-4. If macOS warns that the app is from an unidentified developer during alpha testing, open it from System Settings after confirming you trust the downloaded release.
+4. If macOS blocks the unsigned first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming the download came from the official Releases feed.
 
-The alpha includes FFmpeg for export but still uses a compatible local Python runtime and ScriptCut backend dependency set for editing. The setup assistant tells you whether anything is missing. If there is no release download yet, use the repository setup in [Install ScriptCut](./INSTALL.md).
+The supported self-contained public-alpha path bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe. ScriptCut downloads and verifies the baseline transcription model on first use; creators do not install system Python or FFmpeg for a qualifying packaged app. Older alpha releases may predate this path; check the individual release notes and manifest. If there is no qualifying public release yet, use the repository setup in [Install ScriptCut](./INSTALL.md).
 
 ## First Launch
 
-ScriptCut checks the local tools it needs before you edit:
+ScriptCut checks the packaged baseline readiness before you edit:
 
 - Desktop app access for opening and saving local files.
 - Local backend for transcription and exports.
-- Python runtime for the backend.
-- FFmpeg for video export.
+- Bundled Python runtime for the backend.
+- Bundled FFmpeg for video export.
 - Transcription engine availability.
 
 Green checks mean the core workflow is ready. Background removal is optional.
@@ -65,7 +65,7 @@ The browser page at `localhost:5173` is for development and quick testing. Use t
 
 ## Common Fixes
 
-If export is unavailable in a desktop release, update to the latest release and run the first-launch checks again. If you run from source, install FFmpeg or run `npm run release:ffmpeg` before packaging.
+If export is unavailable in a desktop release, choose the intended prerelease from the official Releases feed and run the first-launch checks again. If you run from source, install FFmpeg or run `npm run release:ffmpeg` before packaging.
 
 If transcription is unavailable, choose Auto or Whisper fallback, or install the optional Parakeet dependencies shown by the first-run setup assistant.
 

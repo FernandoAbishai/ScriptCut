@@ -1,0 +1,338 @@
+name: Release unsigned alpha
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Public alpha tag, for example v0.1.0-alpha.3
+        required: true
+        type: string
+      publish:
+        description: Create the public GitHub prerelease after every gate passes
+        required: true
+        default: false
+        type: boolean
+      real_model:
+        description: Run first-use, offline reuse, repair, and reacquisition transcription proof
+        required: true
+        default: false
+        type: boolean
+      confirmation:
+        description: Required only when publish is true
+        required: false
+        default: ''
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build and attest public unsigned alpha
+    runs-on: macos-14
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      bundle_name: ${{ steps.bundle-name.outputs.name }}
+
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Install FFmpeg build prerequisite
+        run: brew install ffmpeg
+
+      - name: Validate release intent and monotonic alpha tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH: ${{ inputs.publish }}
+          REAL_MODEL: ${{ inputs.real_model }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$(uname -m)" = "arm64"
+          test "$(node -p process.arch)" = "arm64"
+          git fetch --tags --force origin
+          git tag --list > "$RUNNER_TEMP/scriptcut-existing-tags.txt"
+          node scripts/prepare-public-release.js --validate-tag --tag "$RELEASE_TAG" --existing-tags-file "$RUNNER_TEMP/scriptcut-existing-tags.txt"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          if [ "$PUBLISH" = "true" ]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            test "$REAL_MODEL" = "true"
+            test "$CONFIRMATION" = "PUBLISH_UNSIGNED_ALPHA"
+          fi
+
+      - name: Build existing self-contained candidate
+        run: |
+          if [ "${{ inputs.real_model }}" = "true" ]; then
+            npm run release:rc:arm64 -- --real-model
+          else
+            npm run release:rc:arm64
+          fi
+
+      - name: Prepare public release bundle
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          node scripts/prepare-public-release.js \
+            --tag "$RELEASE_TAG" \
+            --candidate-dir dist/release-candidate \
+            --output-dir dist/public-release \
+            --commit "$GITHUB_SHA"
+
+      - name: Check public bundle before attestation
+        run: |
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          node scripts/check-public-release.js --dir dist/public-release --dmg "$DMG" --allow-pending-attestation
+
+      - name: Attest public DMG provenance
+        id: attest-dmg
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/public-release/ScriptCut-${{ inputs.release_tag }}-arm64.dmg
+
+      - name: Capture DMG attestation bundle and finalize manifest
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ATTESTATION_URL: ${{ steps.attest-dmg.outputs.attestation-url }}
+          ATTESTATION_ID: ${{ steps.attest-dmg.outputs.attestation-id }}
+        run: |
+          DMG="$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          cp "${{ steps.attest-dmg.outputs.bundle-path }}" "dist/public-release/${DMG}.sigstore.json"
+          node scripts/prepare-public-release.js \
+            --tag "$RELEASE_TAG" \
+            --candidate-dir dist/release-candidate \
+            --output-dir dist/public-release \
+            --preserve-output \
+            --commit "$GITHUB_SHA" \
+            --dmg-attestation-url "$ATTESTATION_URL" \
+            --dmg-attestation-id "$ATTESTATION_ID" \
+            --dmg-attestation-bundle "${DMG}.sigstore.json"
+          test "$(shasum -a 256 "dist/public-release/$DMG" | awk '{print $1}')" = "$(node -p "require('./dist/public-release/release-manifest.json').artifact.sha256")"
+
+      - name: Attest public manifest provenance
+        id: attest-manifest
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/public-release/release-manifest.json
+
+      - name: Capture manifest attestation bundle and verify final bundle
+        run: |
+          cp "${{ steps.attest-manifest.outputs.bundle-path }}" dist/public-release/release-manifest.sigstore.json
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          node scripts/check-public-release.js --dir dist/public-release --dmg "$DMG"
+
+      - name: Select workflow artifact name
+        id: bundle-name
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          if [ "$PUBLISH" = "true" ]; then
+            echo "name=scriptcut-${RELEASE_TAG}-arm64-public" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=scriptcut-${RELEASE_TAG}-arm64-dry-run" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload public release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.bundle-name.outputs.name }}
+          if-no-files-found: error
+          path: |
+            dist/public-release/*.dmg
+            dist/public-release/SHA256SUMS.txt
+            dist/public-release/release-manifest.json
+            dist/public-release/RELEASE_NOTES.md
+            dist/public-release/*.sigstore.json
+
+  clean-runner-verify:
+    name: Verify bundle on clean native arm64 runner
+    needs: build
+    runs-on: macos-14
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      attestations: read
+
+    steps:
+      - name: Check out verification code only
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download build release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.bundle_name }}
+          path: dist/public-release
+
+      - name: Verify clean runner architecture and exact bundle shape
+        run: |
+          test "$(uname -m)" = "arm64"
+          test "$(node -p process.arch)" = "arm64"
+          test "$(find dist/public-release -maxdepth 1 -type f | wc -l | tr -d ' ')" = "6"
+          test "$(find dist/public-release -maxdepth 1 -type d | wc -l | tr -d ' ')" = "1"
+
+      - name: Verify final DMG checksum and public contents
+        run: |
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          (cd dist/public-release && shasum -a 256 -c SHA256SUMS.txt)
+          node scripts/check-public-release.js --dir dist/public-release --dmg "$DMG"
+
+      - name: Verify DMG attestation against repository, workflow, and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          gh attestation verify "$DMG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
+            --source-digest "$GITHUB_SHA" \
+            --format json > "$RUNNER_TEMP/dmg-attestation.json"
+          gh attestation verify dist/public-release/release-manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
+            --source-digest "$GITHUB_SHA" \
+            --format json > "$RUNNER_TEMP/manifest-attestation.json"
+
+      - name: Verify exact local Sigstore bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG_BASENAME="$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          DMG="dist/public-release/$DMG_BASENAME"
+          gh attestation verify "$DMG" \
+            --bundle "dist/public-release/${DMG_BASENAME}.sigstore.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
+            --source-digest "$GITHUB_SHA"
+          gh attestation verify dist/public-release/release-manifest.json \
+            --bundle dist/public-release/release-manifest.sigstore.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-unsigned.yml" \
+            --source-digest "$GITHUB_SHA"
+
+      - name: Record non-destructive Gatekeeper assessment
+        run: |
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          MOUNT_POINT="$RUNNER_TEMP/scriptcut-gatekeeper-mount"
+          mkdir -p "$MOUNT_POINT"
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
+          set +e
+          spctl --assess --type execute --verbose=4 "$MOUNT_POINT/ScriptCut.app"
+          SPCTL_STATUS=$?
+          set -e
+          hdiutil detach "$MOUNT_POINT" -force >/dev/null
+          echo "gatekeeper_assessment_exit=$SPCTL_STATUS (diagnostic; unsigned public alpha is not expected to be Apple-accepted)"
+
+  publish:
+    name: Publish verified GitHub prerelease
+    if: ${{ inputs.publish == true }}
+    needs: [build, clean-runner-verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out current main for publication gate
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download verified public release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.bundle_name }}
+          path: dist/public-release
+
+      - name: Verify publication gates before mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$CONFIRMATION" = "PUBLISH_UNSIGNED_ALPHA"
+          test "${{ inputs.real_model }}" = "true"
+          git fetch origin main --tags --force
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git tag --list > "$RUNNER_TEMP/scriptcut-existing-tags.txt"
+          node scripts/prepare-public-release.js --validate-tag --tag "$RELEASE_TAG" --existing-tags-file "$RUNNER_TEMP/scriptcut-existing-tags.txt"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          node scripts/check-public-release.js --dir dist/public-release --dmg "$DMG"
+
+      - name: Create exact GitHub prerelease without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          git fetch origin main --force
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "ScriptCut $RELEASE_TAG" \
+            --notes-file dist/public-release/RELEASE_NOTES.md \
+            --prerelease \
+            --latest=false \
+            dist/public-release/ScriptCut-${RELEASE_TAG}-arm64.dmg \
+            dist/public-release/SHA256SUMS.txt \
+            dist/public-release/release-manifest.json \
+            dist/public-release/RELEASE_NOTES.md \
+            dist/public-release/ScriptCut-${RELEASE_TAG}-arm64.dmg.sigstore.json \
+            dist/public-release/release-manifest.sigstore.json
+
+      - name: Verify published tag, prerelease state, assets, and digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          git fetch origin "refs/tags/$RELEASE_TAG"
+          test "$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}" | tail -n 1 | awk '{print $1}')" = "$GITHUB_SHA"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,tagName,assets > "$RUNNER_TEMP/published-release.json"
+          node scripts/check-public-release.js --release-json "$RUNNER_TEMP/published-release.json" --dir dist/public-release
