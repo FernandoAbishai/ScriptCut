@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { resolvePythonRuntime } = require('./python-runtime');
@@ -73,6 +74,7 @@ function createRuntimeContract(options = {}) {
   return {
     schema: RUNTIME_SCHEMA,
     runtimeMode,
+    resourcesPath,
     target,
     targetPlatform: platform,
     targetArch: arch,
@@ -165,12 +167,106 @@ function validateRuntimeManifest(manifest, options = {}) {
   };
 }
 
+function resolveResourcePath(resourcesPath, relativePath, label = 'Runtime resource') {
+  const root = path.resolve(resourcesPath);
+  const safeRelativePath = assertManifestRelativePath(relativePath, label);
+  const resolved = path.resolve(root, safeRelativePath);
+  const relativeToRoot = path.relative(root, resolved);
+  if (path.isAbsolute(relativeToRoot) || relativeToRoot === '..' || relativeToRoot.startsWith(`..${path.sep}`)) {
+    throw new Error(`${label} escapes the packaged Resources root`);
+  }
+  return resolved;
+}
+
+function readPackagedRuntimeManifest(contract) {
+  if (!fs.existsSync(contract.runtimeManifestPath)) {
+    throw new Error(`Packaged-bundled runtime manifest is missing: ${contract.runtimeManifestPath}`);
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(contract.runtimeManifestPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Packaged-bundled runtime manifest could not be read: ${error.message}`);
+  }
+
+  return validateRuntimeManifest(manifest, { expectedTarget: contract.target });
+}
+
+function assertPackagedRuntimeArtifact(filePath, label, executable = false) {
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    throw new Error(`Packaged-bundled ${label} is missing: ${filePath}`);
+  }
+  if (executable && process.platform !== 'win32' && !(stat.mode & fs.constants.S_IXUSR)) {
+    throw new Error(`Packaged-bundled ${label} is not executable: ${filePath}`);
+  }
+  return stat;
+}
+
+function selectRuntimeMode(options = {}) {
+  if (options.isDev || options.packaged === false) return 'development';
+  const resourcesPath = normalizeAbsoluteRoot(
+    options.resourcesPath,
+    process.resourcesPath || path.join(__dirname, '..'),
+  );
+  const manifestPath = path.join(resourcesPath, 'manifests', 'runtime-manifest.json');
+  return fs.existsSync(manifestPath) ? 'packaged-bundled' : 'packaged-legacy';
+}
+
 function resolveBackendLaunchPlan(options = {}) {
   const runtimeMode = options.runtimeMode || 'development';
   const contract = options.contract || createRuntimeContract({ ...options, runtimeMode });
 
   if (runtimeMode === 'packaged-bundled') {
-    throw new Error('packaged-bundled runtime is not available in Phase 3B.1');
+    const manifest = readPackagedRuntimeManifest(contract);
+    const pythonPath = resolveResourcePath(
+      contract.resourcesPath,
+      manifest.python.executable,
+      'Runtime manifest Python executable',
+    );
+    const backendRoot = resolveResourcePath(
+      contract.resourcesPath,
+      manifest.backend.root,
+      'Runtime manifest backend root',
+    );
+    const corePackRoot = resolveResourcePath(
+      contract.resourcesPath,
+      manifest.packs.core,
+      'Runtime manifest core pack',
+    );
+
+    assertPackagedRuntimeArtifact(pythonPath, 'Python executable', true);
+    assertPackagedRuntimeArtifact(backendRoot, 'backend root');
+    assertPackagedRuntimeArtifact(corePackRoot, 'core pack root');
+
+    return {
+      ...contract,
+      command: pythonPath,
+      argsPrefix: [],
+      manifest,
+      pythonVersion: manifest.python.version,
+      corePackRoot,
+      environment: {
+        SCRIPTCUT_RUNTIME_MODE: contract.runtimeMode,
+        SCRIPTCUT_RUNTIME_TARGET: contract.target,
+        SCRIPTCUT_RUNTIME_PYTHON_SOURCE: 'bundled',
+        SCRIPTCUT_RUNTIME_MANIFEST_SCHEMA: contract.schema,
+        SCRIPTCUT_MODEL_ROOT: contract.modelRoot,
+        SCRIPTCUT_CACHE_ROOT: contract.cacheRoot,
+        SCRIPTCUT_LOG_ROOT: contract.logRoot,
+        PYTHONNOUSERSITE: '1',
+        PYTHONPATH: corePackRoot,
+      },
+      environmentKeysToRemove: [
+        'SCRIPTCUT_PYTHON_PATH',
+        'CUTSCRIPT_PYTHON_PATH',
+        'VIRTUAL_ENV',
+        'PYTHONHOME',
+      ],
+    };
   }
 
   const resolver = options.resolvePython || resolvePythonRuntime;
@@ -203,5 +299,7 @@ module.exports = {
   targetIdentity,
   createRuntimeContract,
   validateRuntimeManifest,
+  resolveResourcePath,
+  selectRuntimeMode,
   resolveBackendLaunchPlan,
 };

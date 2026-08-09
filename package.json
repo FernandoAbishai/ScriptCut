@@ -31,9 +31,15 @@
     "qa:desktop:package": "node scripts/desktop-qa.js --package",
     "release:alpha": "node scripts/release-alpha.js",
     "release:trust": "node scripts/check-release-trust.js",
+    "runtime:prepare:mac-arm64": "node scripts/prepare-python-runtime.js --target darwin-arm64",
+    "dist:dir:arm64:self-contained": "npm run build:frontend && npm run runtime:prepare:mac-arm64 && electron-builder --config electron-builder.self-contained.cjs --dir --arm64 && npm run check:packaged-runtime && npm run smoke:packaged-backend",
+    "dist:mac:arm64:self-contained": "npm run build:frontend && npm run runtime:prepare:mac-arm64 && electron-builder --config electron-builder.self-contained.cjs --mac dmg --arm64 && npm run check:packaged-runtime && npm run smoke:packaged-backend",
+    "check:packaged-runtime": "node scripts/check-packaged-runtime.js --arch arm64",
+    "smoke:packaged-backend": "node scripts/smoke-packaged-backend.js --arch arm64",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)",
-    "smoke:runtime-contract": "node scripts/smoke-runtime-contract.js"
+    "smoke:runtime-contract": "node scripts/smoke-runtime-contract.js",
+    "smoke:runtime-artifacts": "node scripts/smoke-runtime-artifacts.js"
   },
   "devDependencies": {"concurrently": "^9.1.0", "electron": "^43.1.0", "electron-builder": "^26.15.3", "wait-on": "^8.0.0"},
   "dependencies": {"python-shell": "^5.0.0"},

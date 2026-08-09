@@ -44,22 +44,27 @@ class PythonBackend {
       resolvePython: this.resolvePython,
     });
 
+    const workerEnv = {
+      ...process.env,
+      ...launchPlan.environment,
+      ...bundledToolEnv(this.isDev),
+      SCRIPTCUT_API_TOKEN: this.apiToken,
+      SCRIPTCUT_FILE_TOKEN_SECRET: this.apiToken,
+      PYTHONUNBUFFERED: '1',
+    };
+    for (const key of launchPlan.environmentKeysToRemove || []) {
+      delete workerEnv[key];
+    }
+
     this.process = spawn(launchPlan.command, [
       ...launchPlan.argsPrefix,
       '-m', 'uvicorn', 'main:app',
       '--host', '127.0.0.1',
       '--port', String(this.port),
     ], {
-      cwd: backendDir,
+      cwd: launchPlan.backendRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        ...launchPlan.environment,
-        ...bundledToolEnv(this.isDev),
-        SCRIPTCUT_API_TOKEN: this.apiToken,
-        SCRIPTCUT_FILE_TOKEN_SECRET: this.apiToken,
-        PYTHONUNBUFFERED: '1',
-      },
+      env: workerEnv,
     });
 
     this.process.stdout.on('data', (data) => console.log(`[backend] ${data.toString().trim()}`));
