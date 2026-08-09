@@ -1,11 +1,24 @@
 #!/usr/bin/env node
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const packageJson = require('../package.json');
 const {
   PYTHON_RUNTIME_ARTIFACT,
   RUNTIME_RELATIVE_ROOT,
   CORE_PACK_RELATIVE_ROOT,
 } = require('./runtime-artifacts');
+
+const commonModelMappings = (packageJson.build?.extraResources || []).filter((entry) => (
+  entry.from === 'runtime/models/whisper-base.json'
+  && entry.to === 'manifests/model-manifest.json'
+));
+assert.strictEqual(commonModelMappings.length, 1);
+assert.ok(!(packageJson.build?.extraResources || []).some((entry) => entry.from === 'build/manifests'));
+const coreRequirements = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.txt'), 'utf8');
+assert.ok(!coreRequirements.includes('model-manifest'));
+assert.ok(!coreRequirements.includes('base.pt'));
 
 assert.strictEqual(PYTHON_RUNTIME_ARTIFACT.provider, 'python-build-standalone');
 assert.strictEqual(PYTHON_RUNTIME_ARTIFACT.pythonVersion, '3.11.15');

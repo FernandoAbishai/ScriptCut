@@ -35,6 +35,7 @@ build/runtime/
 build/runtime-cache/
 build/manifests/runtime-manifest.json
 build/manifests/core-installed-distributions.txt
+build/manifests/model-manifest.json
 build/*.iconset/
 build/icon-*.png
 build/icon.tiff

@@ -11,6 +11,7 @@ const {
   RUNTIME_RELATIVE_ROOT,
   CORE_PACK_RELATIVE_ROOT,
 } = require('./runtime-artifacts');
+const { readModelManifest } = require('./model-artifacts');
 
 const root = path.join(__dirname, '..');
 const target = process.env.SCRIPTCUT_RUNTIME_TARGET || getOption('--target') || PYTHON_RUNTIME_ARTIFACT.target;
@@ -20,6 +21,8 @@ const archivePath = path.join(buildRoot, RUNTIME_ARCHIVE_RELATIVE_PATH);
 const runtimeRoot = path.join(buildRoot, RUNTIME_RELATIVE_ROOT);
 const corePackRoot = path.join(buildRoot, CORE_PACK_RELATIVE_ROOT);
 const manifestPath = path.join(buildRoot, 'manifests', 'runtime-manifest.json');
+const modelInputPath = path.join(root, 'runtime', 'models', 'whisper-base.json');
+const generatedModelManifestPath = path.join(buildRoot, 'manifests', 'model-manifest.json');
 const coreInputPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.txt');
 
 function getOption(name) {
@@ -208,7 +211,8 @@ function verifyCore(interpreterPath, relativeInterpreter) {
     SCRIPTCUT_RUNTIME_MANIFEST_SCHEMA: 'scriptcut.runtime.v1',
   });
   const probe = [
-    'import fastapi, uvicorn, pydantic, requests, moviepy, torch',
+    'import fastapi, uvicorn, pydantic, requests, moviepy, torch, whisper',
+    'from importlib.metadata import version; assert version("openai-whisper") == "20250625"',
     'import main',
   ].join('; ');
   run(interpreterPath, ['-c', probe], { cwd: path.join(root, 'backend'), env: environment, inherit: true });
@@ -223,6 +227,12 @@ function verifyCore(interpreterPath, relativeInterpreter) {
   fs.writeFileSync(inventoryPath, inventory.stdout || '', 'utf8');
   console.log(`Core distribution inventory: ${path.relative(root, inventoryPath)}`);
   return { relativeInterpreter, environment };
+}
+
+function validateTrustedModelManifest() {
+  const manifest = readModelManifest(modelInputPath);
+  fs.rmSync(generatedModelManifestPath, { force: true });
+  return manifest;
 }
 
 function writeManifest(relativeInterpreter, version) {
@@ -266,12 +276,14 @@ async function main() {
   const version = pythonVersion(interpreterPath, environment);
   installCorePack(interpreterPath);
   verifyCore(interpreterPath, relativeInterpreter);
+  const modelManifest = validateTrustedModelManifest();
   const manifest = writeManifest(relativeInterpreter, version);
 
   console.log(`Portable Python: ${path.relative(root, runtimeRoot)} (${directorySize(runtimeRoot)} bytes)`);
   console.log(`Core pack: ${path.relative(root, corePackRoot)} (${directorySize(corePackRoot)} bytes)`);
   console.log(`Backend: backend (${directorySize(path.join(root, 'backend'))} bytes)`);
   console.log(`Runtime manifest: ${path.relative(root, manifestPath)}`);
+  console.log(`Trusted model manifest: ${path.relative(root, modelInputPath)} (${modelManifest.id}, ${modelManifest.expectedBytes} bytes)`);
   console.log(`Runtime target: ${manifest.target.platform}-${manifest.target.arch}`);
   console.log(`Runtime Python: ${manifest.python.version}`);
 }

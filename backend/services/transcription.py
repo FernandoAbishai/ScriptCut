@@ -1,6 +1,9 @@
 """Transcription service with normalized word-level output."""
 
 import logging
+import math
+import os
+import threading
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -9,10 +12,12 @@ import torch
 from utils.gpu_utils import get_optimal_device, configure_gpu
 from utils.audio_processing import extract_audio
 from utils.cache import load_from_cache, save_to_cache
+from services.model_manager import ModelManagerError, get_model_manager
 
 logger = logging.getLogger(__name__)
 
 _model_cache: dict = {}
+_model_cache_lock = threading.Lock()
 TranscriptionEngine = Literal["whisperx", "whisper", "parakeet", "auto"]
 PARAKEET_DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 WHISPER_MODEL_NAMES = {"tiny", "base", "small", "medium", "large"}
@@ -52,30 +57,56 @@ def _get_device(use_gpu: bool = True) -> torch.device:
     return torch.device("cpu")
 
 
-def _load_model(model_name: str, device: torch.device, engine: TranscriptionEngine):
-    cache_key = f"{engine}_{model_name}_{device}"
-    if cache_key in _model_cache:
-        return _model_cache[cache_key]
+def _load_model(
+    model_name: str,
+    device: torch.device,
+    engine: TranscriptionEngine,
+    progress_callback=None,
+):
+    model_path = None
+    model_revision = "unmanaged"
+    if engine == "whisper":
+        manager = get_model_manager()
+        try:
+            model_path = manager.ensure_model(model_name, progress_callback)
+            model_revision = manager.manifest["revision"]
+        except ModelManagerError:
+            raise
 
-    logger.info(f"Loading {engine} model: {model_name} on {device}")
-    if engine == "parakeet":
-        model = _load_parakeet_model(model_name, device)
-    elif engine == "whisperx" and WHISPERX_AVAILABLE:
-        compute_type = "float16" if device.type == "cuda" else "int8"
-        model = whisperx.load_model(
-            model_name,
-            device=str(device),
-            compute_type=compute_type,
-        )
-    elif engine in {"whisper", "auto"} and WHISPER_AVAILABLE:
-        model = whisper.load_model(model_name, device=device)
-    else:
-        raise RuntimeError(
-            "No requested transcription backend is installed. Install whisperx, openai-whisper, or Parakeet dependencies."
-        )
+    model_stamp = model_path.stat().st_mtime_ns if model_path else "static"
+    cache_key = f"{engine}_{model_name}_{model_revision}_{model_stamp}_{device}"
+    with _model_cache_lock:
+        if cache_key in _model_cache:
+            return _model_cache[cache_key]
 
-    _model_cache[cache_key] = model
-    return model
+        logger.info("Loading %s model: %s on %s", engine, model_name, device)
+        if engine == "parakeet":
+            model = _load_parakeet_model(model_name, device)
+        elif engine == "whisperx" and WHISPERX_AVAILABLE:
+            compute_type = "float16" if device.type == "cuda" else "int8"
+            model = whisperx.load_model(
+                model_name,
+                device=str(device),
+                compute_type=compute_type,
+            )
+        elif engine == "whisper" and WHISPER_AVAILABLE:
+            if progress_callback:
+                progress_callback(35, "Loading transcription model")
+            model = whisper.load_model(str(model_path), device=device)
+        else:
+            raise RuntimeError(_missing_engine_message())
+
+        _model_cache[cache_key] = model
+        return model
+
+
+def _missing_engine_message(engine: str | None = None) -> str:
+    packaged = os.environ.get("SCRIPTCUT_RUNTIME_MODE") == "packaged-bundled"
+    if packaged:
+        return "Packaged baseline transcription capability is incomplete. Reinstall ScriptCut to repair it."
+    if engine == "whisper":
+        return "OpenAI Whisper is not installed. Install openai-whisper or choose another transcription engine."
+    return "No requested transcription backend is installed. Install whisperx, openai-whisper, or Parakeet dependencies."
 
 
 def _resolve_engine(engine: TranscriptionEngine) -> TranscriptionEngine:
@@ -89,7 +120,7 @@ def _resolve_engine(engine: TranscriptionEngine) -> TranscriptionEngine:
         if engine == "whisperx" and not WHISPERX_AVAILABLE:
             raise RuntimeError("WhisperX is not installed. Install whisperx or choose another transcription engine.")
         if engine == "whisper" and not WHISPER_AVAILABLE:
-            raise RuntimeError("OpenAI Whisper is not installed. Install openai-whisper or choose another transcription engine.")
+            raise RuntimeError(_missing_engine_message("whisper"))
         return engine
     if NEMO_AVAILABLE:
         return "parakeet"
@@ -116,6 +147,20 @@ def _load_parakeet_model(model_name: str, device: torch.device):
 
 
 def get_transcription_engine_status() -> dict:
+    model_status = get_model_manager().status() if WHISPER_AVAILABLE else {
+        "installed": False,
+        "verified": False,
+        "active": False,
+    }
+    whisper_status = {
+        "available": WHISPER_AVAILABLE,
+        "default_model": "base",
+        "label": "Whisper baseline",
+        "first_class": True,
+        "model": model_status,
+    }
+    if WHISPER_AVAILABLE and os.environ.get("SCRIPTCUT_RUNTIME_MODE") != "packaged-bundled":
+        whisper_status["install_hint"] = "Install the managed baseline model on first use."
     return {
         "default_engine": "parakeet" if NEMO_AVAILABLE else "whisperx" if WHISPERX_AVAILABLE else "whisper" if WHISPER_AVAILABLE else None,
         "default_model": PARAKEET_DEFAULT_MODEL if NEMO_AVAILABLE else "base",
@@ -134,12 +179,7 @@ def get_transcription_engine_status() -> dict:
                 "label": "WhisperX aligned",
                 "first_class": True,
             },
-            "whisper": {
-                "available": WHISPER_AVAILABLE,
-                "default_model": "base",
-                "label": "Whisper fallback",
-                "first_class": True,
-            },
+            "whisper": whisper_status,
         },
     }
 
@@ -157,6 +197,7 @@ def transcribe_audio(
     use_gpu: bool = True,
     use_cache: bool = True,
     language: Optional[str] = None,
+    progress_callback=None,
 ) -> dict:
     """
     Transcribe audio/video file and return word-level timestamps.
@@ -185,7 +226,9 @@ def transcribe_audio(
         audio_path = file_path
 
     device = _get_device(use_gpu)
-    model = _load_model(model_name, device, resolved_engine)
+    model = _load_model(model_name, device, resolved_engine, progress_callback)
+    if progress_callback:
+        progress_callback(45, "Transcribing locally")
 
     logger.info(f"Transcribing with {resolved_engine}: {file_path}")
 
@@ -199,10 +242,20 @@ def transcribe_audio(
     result["engine"] = resolved_engine
     result["model"] = model_name
 
+    if progress_callback:
+        progress_callback(95, "Finalizing transcript")
+
     if use_cache:
         save_to_cache(file_path, result, model_name, cache_operation)
 
     return result
+
+
+def evict_model_cache(engine: str = "whisper", model_name: str = "base") -> None:
+    with _model_cache_lock:
+        for key in list(_model_cache):
+            if key.startswith(f"{engine}_{model_name}_"):
+                _model_cache.pop(key, None)
 
 
 def _transcribe_parakeet(model_bundle, audio_path: str) -> dict:
@@ -320,13 +373,53 @@ def _transcribe_whisperx(model, audio_path: str, device: torch.device, language:
     }
 
 
+def _normalize_whisper_word(word: dict) -> dict | None:
+    text = str(word.get("word") or "").strip()
+    try:
+        start = float(word.get("start"))
+        end = float(word.get("end"))
+    except (TypeError, ValueError):
+        return None
+    if not text or not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < start:
+        return None
+    confidence_value = word.get("probability", word.get("score", word.get("confidence", 0.5)))
+    try:
+        confidence = float(confidence_value)
+    except (TypeError, ValueError):
+        confidence = 0.5
+    if not math.isfinite(confidence):
+        confidence = 0.5
+    return {
+        "word": text,
+        "start": round(start, 3),
+        "end": round(end, 3),
+        "confidence": round(max(0.0, min(1.0, confidence)), 3),
+    }
+
+
+def _synthesize_segment_words(text: str, seg_start: float, seg_end: float) -> list[dict]:
+    seg_words_text = text.split()
+    duration = max(0.0, seg_end - seg_start)
+    words = []
+    for index, word_text in enumerate(seg_words_text):
+        word_start = seg_start + (index / max(len(seg_words_text), 1)) * duration
+        word_end = seg_start + ((index + 1) / max(len(seg_words_text), 1)) * duration
+        words.append({
+            "word": word_text,
+            "start": round(max(0.0, word_start), 3),
+            "end": round(max(word_start, word_end), 3),
+            "confidence": 0.5,
+        })
+    return words
+
+
 def _transcribe_standard(model, audio_path: str, language: Optional[str]) -> dict:
-    """Fallback: standard Whisper (segment-level only, synthesized word timestamps)."""
+    """Use Whisper word timing when present and synthesize only missing segment timing."""
     opts = {}
     if language:
         opts["language"] = language
 
-    result = model.transcribe(audio_path, **opts)
+    result = model.transcribe(audio_path, word_timestamps=True, **opts)
     detected_language = result.get("language", "en")
 
     words = []
@@ -334,23 +427,21 @@ def _transcribe_standard(model, audio_path: str, language: Optional[str]) -> dic
 
     for i, seg in enumerate(result.get("segments", [])):
         text = seg.get("text", "").strip()
-        seg_start = seg.get("start", 0)
-        seg_end = seg.get("end", 0)
-        seg_words_text = text.split()
-        duration = seg_end - seg_start
+        try:
+            seg_start = max(0.0, float(seg.get("start", 0) or 0))
+            seg_end = max(seg_start, float(seg.get("end", seg_start) or seg_start))
+        except (TypeError, ValueError):
+            seg_start = 0.0
+            seg_end = 0.0
 
-        seg_words = []
-        for j, w_text in enumerate(seg_words_text):
-            w_start = seg_start + (j / max(len(seg_words_text), 1)) * duration
-            w_end = seg_start + ((j + 1) / max(len(seg_words_text), 1)) * duration
-            word_obj = {
-                "word": w_text,
-                "start": round(w_start, 3),
-                "end": round(w_end, 3),
-                "confidence": 0.5,
-            }
-            words.append(word_obj)
-            seg_words.append(word_obj)
+        real_words = []
+        for raw_word in seg.get("words", []) or []:
+            if isinstance(raw_word, dict):
+                normalized = _normalize_whisper_word(raw_word)
+                if normalized:
+                    real_words.append(normalized)
+        seg_words = sorted(real_words, key=lambda word: (word["start"], word["end"])) or _synthesize_segment_words(text, seg_start, seg_end)
+        words.extend(seg_words)
 
         segments.append({
             "id": i,

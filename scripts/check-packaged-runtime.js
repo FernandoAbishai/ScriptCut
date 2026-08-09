@@ -8,6 +8,7 @@ const {
   resolveResourcePath,
   validateRuntimeManifest,
 } = require('../electron/runtime-contract');
+const { readModelManifest } = require('./model-artifacts');
 
 const root = path.join(__dirname, '..');
 
@@ -90,6 +91,19 @@ function findForbiddenResourceEntry(directory, rootDirectory = directory) {
   return null;
 }
 
+function findResourceFile(directory, filename) {
+  if (!fs.existsSync(directory)) return null;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isFile() && entry.name === filename) return entryPath;
+    if (entry.isDirectory()) {
+      const found = findResourceFile(entryPath, filename);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function isolatedPythonEnvironment(corePackRoot) {
   const environment = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONPATH: corePackRoot };
   delete environment.PYTHONHOME;
@@ -103,7 +117,9 @@ function isolatedPythonEnvironment(corePackRoot) {
 function inspectPackage(appPath) {
   const resourcesPath = path.join(appPath, 'Contents', 'Resources');
   const manifestPath = path.join(resourcesPath, 'manifests', 'runtime-manifest.json');
+  const modelManifestPath = path.join(resourcesPath, 'manifests', 'model-manifest.json');
   if (!fs.existsSync(manifestPath)) fail('Resources/manifests/runtime-manifest.json is missing');
+  if (!fs.existsSync(modelManifestPath)) fail('Resources/manifests/model-manifest.json is missing');
 
   let manifest;
   try {
@@ -112,6 +128,12 @@ function inspectPackage(appPath) {
     fail(`runtime manifest is not valid JSON: ${error.message}`);
   }
   const normalized = validateRuntimeManifest(manifest, { expectedTarget: 'darwin-arm64' });
+  let modelManifest;
+  try {
+    modelManifest = readModelManifest(modelManifestPath);
+  } catch (error) {
+    fail(`model manifest is invalid: ${error.message}`);
+  }
   const serializedManifest = JSON.stringify(manifest);
   if (/\/Users\/|\/tmp\/|build\//.test(serializedManifest)) {
     fail('runtime manifest contains an absolute or build-local path');
@@ -145,13 +167,15 @@ function inspectPackage(appPath) {
   if (!versionOutput.includes(normalized.python.version)) {
     fail(`Python version ${versionOutput} does not match manifest ${normalized.python.version}`);
   }
-  run(pythonPath, ['-c', 'import fastapi, uvicorn, pydantic, requests, moviepy, torch'], { cwd: backendRoot, env: environment });
+  run(pythonPath, ['-c', 'import fastapi, uvicorn, pydantic, requests, moviepy, torch, whisper; from importlib.metadata import version; assert version("openai-whisper") == "20250625"'], { cwd: backendRoot, env: environment });
   run(pythonPath, ['-c', 'import main'], { cwd: backendRoot, env: environment });
 
   const architecture = run('file', [pythonPath]).stdout || '';
   if (!/arm64/i.test(architecture)) fail(`bundled Python architecture is not arm64: ${architecture.trim()}`);
   const forbidden = findForbiddenResourceEntry(resourcesPath);
   if (forbidden) fail(`packaged Resources contains forbidden developer/cache data: ${forbidden}`);
+  const bundledModel = findResourceFile(resourcesPath, 'base.pt');
+  if (bundledModel) fail(`packaged Resources contains the Whisper model weight: ${path.relative(resourcesPath, bundledModel)}`);
 
   const runtimePythonRoot = path.join(resourcesPath, 'runtime', 'python');
   const coreSize = directorySize(corePackRoot);
@@ -165,8 +189,10 @@ function inspectPackage(appPath) {
   console.log(`Backend: ${backendSize} bytes`);
   console.log(`FFmpeg/bin: ${binSize} bytes`);
   console.log(`Manifest: ${normalized.schema}, ${normalized.target.id}, Python ${normalized.python.version}`);
-  console.log('Core imports: fastapi, uvicorn, pydantic, requests, moviepy, torch');
+  console.log(`Model manifest: ${modelManifest.id}, ${modelManifest.revision}, ${modelManifest.expectedBytes} bytes`);
+  console.log('Core imports: fastapi, uvicorn, pydantic, requests, moviepy, torch, whisper==20250625');
   console.log('Backend import: passed');
+  console.log('Model weight in Resources: No');
   console.log('Packaged runtime check passed.');
 
   return { appPath, resourcesPath, manifest: normalized, pythonPath, backendRoot, corePackRoot, plan };

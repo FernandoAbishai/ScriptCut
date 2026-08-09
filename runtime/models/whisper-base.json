@@ -1,0 +1,14 @@
+{
+  "schema": "scriptcut.model.v1",
+  "id": "whisper-base",
+  "engine": "whisper",
+  "model": "base",
+  "revision": "ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e",
+  "filename": "base.pt",
+  "sourceUrl": "https://openaipublic.azureedge.net/main/whisper/models/ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e/base.pt",
+  "sha256": "ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e",
+  "expectedBytes": 145262807,
+  "license": "MIT",
+  "sourceProject": "openai/whisper",
+  "codeVersion": "20250625"
+}

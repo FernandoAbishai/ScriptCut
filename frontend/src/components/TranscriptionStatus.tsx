@@ -76,6 +76,9 @@ export default function TranscriptionStatus({
         <div>
           <h2 className="text-sm font-medium text-editor-text">Preparing your transcript</h2>
           <p className="mt-1 text-xs text-editor-text-muted">ScriptCut is transcribing your media locally.</p>
+          <p className="mt-2 text-xs text-editor-text" aria-live="polite">
+            {message || 'Preparing transcription'}
+          </p>
         </div>
         <div className="w-full max-w-md">
           <div className="mb-1 flex justify-between text-[11px] text-editor-text-muted">

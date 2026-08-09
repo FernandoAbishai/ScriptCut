@@ -75,6 +75,11 @@ def _runtime_metadata() -> dict:
 async def system_checks():
     transcription = _transcription_status()
     default_engine = transcription.get("default_engine")
+    model_status = transcription.get("engines", {}).get("whisper", {}).get("model", {})
+    if default_engine == "whisper":
+        transcription_detail = "engine ready; baseline model installed" if model_status.get("installed") else "engine ready; baseline model downloads on first use"
+    else:
+        transcription_detail = f"{default_engine or 'No engine'} selected by default"
     background = background_capabilities()
     return {
         "status": "ok",
@@ -98,7 +103,7 @@ async def system_checks():
             "transcription": {
                 "ok": bool(default_engine),
                 "label": "Transcription",
-                "detail": transcription.get("error") or f"{default_engine or 'No engine'} selected by default",
+                "detail": transcription.get("error") or transcription_detail,
                 "engines": transcription.get("engines", {}),
             },
             "audio": {
@@ -120,9 +125,19 @@ async def system_diagnostics():
     """Return runtime facts safe to include in a public support report."""
     ffmpeg = _ffmpeg_status()
     captions_available = supports_ass_subtitles() if ffmpeg["ok"] else False
+    transcription = _transcription_status()
+    whisper_status = transcription.get("engines", {}).get("whisper", {})
+    model_status = whisper_status.get("model", {})
     return {
         "backend": {"status": "ready"},
         "runtime": _runtime_metadata(),
+        "transcription": {
+            "baselineEngine": transcription.get("default_engine"),
+            "baselineModel": "base",
+            "modelInstalled": bool(model_status.get("installed")),
+            "modelVerified": bool(model_status.get("verified")),
+            "modelRevision": model_status.get("revision"),
+        },
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "platform": {
             "system": platform.system(),
