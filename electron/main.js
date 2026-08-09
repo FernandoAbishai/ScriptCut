@@ -107,7 +107,12 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  pythonBackend = new PythonBackend(BACKEND_PORT, isDev, process.env.SCRIPTCUT_API_TOKEN || null);
+  pythonBackend = new PythonBackend(BACKEND_PORT, isDev, process.env.SCRIPTCUT_API_TOKEN || null, {
+    runtimeMode: isDev ? 'development' : 'packaged-legacy',
+    resourcesPath: process.resourcesPath,
+    userDataPath: app.getPath('userData'),
+    projectRoot: path.join(__dirname, '..'),
+  });
   try {
     await pythonBackend.start();
   } catch (error) {

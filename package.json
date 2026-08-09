@@ -32,7 +32,8 @@
     "release:alpha": "node scripts/release-alpha.js",
     "release:trust": "node scripts/check-release-trust.js",
     "lint": "cd frontend && npm run lint",
-    "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)"
+    "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)",
+    "smoke:runtime-contract": "node scripts/smoke-runtime-contract.js"
   },
   "devDependencies": {"concurrently": "^9.1.0", "electron": "^43.1.0", "electron-builder": "^26.15.3", "wait-on": "^8.0.0"},
   "dependencies": {"python-shell": "^5.0.0"},
