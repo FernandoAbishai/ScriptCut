@@ -58,7 +58,8 @@ function validateWorkflowText(text) {
   assert(/runs-on:\s+macos-14/.test(clean), 'clean verification runner must be macos-14');
   assert(/actions\/download-artifact@v4/.test(clean), 'clean runner must download the build artifact');
   assert(/gh attestation verify/.test(clean), 'clean runner attestation verification is missing');
-  assert(/--signer-repo/.test(clean) && /--signer-workflow/.test(clean) && /--source-digest/.test(clean), 'clean runner does not constrain attestation identity enough');
+  assert(/--repo/.test(clean) && /--signer-workflow/.test(clean) && /--source-digest/.test(clean), 'clean runner does not constrain attestation identity enough');
+  assert(!/--signer-repo/.test(clean), 'clean runner must not combine signer-repo with signer-workflow');
   assert((clean.match(/--bundle/g) || []).length >= 2, 'clean runner must verify both downloaded local attestation bundles');
   assert(/DMG_BASENAME/.test(clean) && /release-manifest\.sigstore\.json/.test(clean), 'local DMG and manifest bundle paths are not both verified');
   assert(/hdiutil verify/.test(clean) || /hdiutil attach/.test(clean), 'clean runner DMG verification is missing');
