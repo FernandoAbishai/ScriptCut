@@ -4,7 +4,7 @@ This guide is for preparing a desktop release from the repository.
 
 ## Current Release Status
 
-ScriptCut has a draft alpha desktop release path. Source development is still supported with:
+Phase 3B.5A prepares an internal, unsigned, self-contained macOS arm64 release candidate. It does not create a tag, GitHub Release, signed artifact, or notarized distribution. Source development is still supported with:
 
 ```bash
 npm run setup
@@ -39,16 +39,16 @@ When packaging changes are included, run:
 npm run qa:desktop:package
 ```
 
-Check app identity, icon, signing, and notarization readiness:
+Check unsigned candidate readiness:
 
 ```bash
-npm run release:trust
+npm run release:trust:candidate
 ```
 
-Use strict mode on the machine that will publish the final public release:
+Credentialed signed-mode checks are reserved for Phase 3B.5B and fail closed when credentials are absent:
 
 ```bash
-npm run release:trust -- --strict
+npm run release:trust:signed
 ```
 
 Then verify the creator workflow manually:
@@ -66,31 +66,21 @@ Use the detailed checklist in [Desktop QA](./DESKTOP_QA.md) for release candidat
 
 ## macOS DMG Build
 
-Prepare a local alpha release package:
+Prepare the self-contained arm64 release candidate:
 
 ```bash
-npm run release:alpha
+npm run release:rc:arm64
 ```
 
-That command runs release trust checks, prepares a portable FFmpeg/FFprobe bundle, runs desktop package QA, builds the macOS DMG, writes `dist/release-alpha/SHA256SUMS.txt`, writes `dist/release-alpha/release-manifest.json`, and writes `dist/release-alpha/RELEASE_NOTES.md`.
+That command prepares portable Python, the pinned core pack, bundled FFmpeg/FFprobe, the frontend, and the release-configured Electron app. It runs the packaged runtime, backend, optional-capability, DMG, signing-readiness, and release-metadata gates, then writes `dist/release-candidate/SHA256SUMS.txt`, `dist/release-candidate/release-manifest.json`, and `dist/release-candidate/RELEASE_NOTES.md`.
 
-By default the package is prepared for `v0.1.0-alpha`. For follow-up alpha builds under the same app version, pass a more specific tag:
+Run the extended native model gate explicitly when requested:
 
 ```bash
-RELEASE_TAG=v0.1.0-alpha.1 npm run release:alpha
+npm run release:rc:arm64 -- --real-model
 ```
 
-The release script only creates a DMG for the architecture of the Mac preparing it. Verify the matching FFmpeg bundle before packaging:
-
-```bash
-npm run release:platform
-```
-
-On an Apple Silicon Mac this produces and verifies an arm64 DMG. An Intel build must be prepared and verified on a native Intel Mac with its own FFmpeg bundle; do not cross-package an unverified target.
-
-The command also runs `npm run release:trust`. Missing signing or notarization credentials are warnings for local alpha drafts, but should be resolved before publishing broadly.
-
-When no Developer ID credentials are configured, the alpha release flow deliberately disables Electron Builder's automatic certificate discovery. This prevents a random local Apple Development certificate from producing an inconsistent build. The resulting alpha is unsigned and is not a notarized public macOS release.
+The release-candidate command supports exactly native macOS arm64. It disables certificate auto-discovery and removes signing/notarization credentials from its build environment, so a local Apple Development certificate cannot be selected accidentally. The candidate is unsigned and not suitable for public distribution.
 
 Build a local macOS DMG:
 
@@ -102,9 +92,9 @@ The generated installer will be written under `dist/`.
 
 Use `npm run dist:dir` when you only need an unpacked app bundle for local QA.
 
-## GitHub Release Draft
+## Future GitHub Release
 
-Use this format for the first public alpha release:
+The candidate phase does not create or mutate a GitHub Release. A future signed/notarized alpha should be explicitly approved as a prerelease and must use the credentialed 3B.5B flow.
 
 Title:
 
@@ -136,36 +126,32 @@ This is an alpha build. Keep original media and project backups.
 Attach:
 
 - macOS `.dmg`
-- `dist/release-alpha/SHA256SUMS.txt`
-- `dist/release-alpha/release-manifest.json`
+- `dist/release-candidate/SHA256SUMS.txt`
+- `dist/release-candidate/release-manifest.json`
 - short demo video or screenshot, when available
-
-After `npm run release:alpha`, the script prints a `gh release create ... --draft` command using the active release tag. Review the generated release notes before publishing.
-
-Publish a verified public alpha as the repository's latest release, even though its title includes `alpha`. ScriptCut's in-app and README download links use `/releases/latest`; leave the alpha warning in the title and release notes rather than marking the release as a GitHub prerelease.
 
 ## Signing And Notarization
 
-The alpha release flow can prepare a draft DMG without Apple credentials, but public macOS distribution should be signed and notarized.
+Candidate mode requires no Apple credentials. It validates explicit Hardened Runtime configuration, minimal entitlements, and native Mach-O inventory without signing or contacting Apple.
 
 Run:
 
 ```bash
-npm run release:trust
+npm run release:trust:candidate
 ```
 
-Expected alpha-draft results:
+Expected candidate results:
 
 - App icon and package metadata should be `OK`.
-- Developer ID, signing certificate, and notarization entries may be `WARN` on machines without Apple Developer credentials.
+- Developer ID and notarization state are reported as safe booleans and are not required.
 
-Expected public-release results:
+Signed mode:
 
 ```bash
-npm run release:trust -- --strict
+npm run release:trust:signed
 ```
 
-Strict mode should pass on the release machine before publishing broadly.
+Signed mode hard-fails without Developer ID and notarization credentials. The signed packaging path is reserved for Phase 3B.5B.
 
 Supported signing inputs:
 
@@ -180,7 +166,10 @@ Supported notarization inputs:
 ## Notes
 
 - Python 3.11 is the recommended runtime for local development.
-- Current desktop alphas bundle FFmpeg/FFprobe but still use a compatible local Python runtime and backend dependency set. State this clearly in every release description until the backend runtime is bundled.
+- The supported arm64 release-candidate path includes its application runtime, core Python pack, and FFmpeg/FFprobe; creators do not install Python, pip, FFmpeg, or a virtual environment for that path.
+- Baseline transcription is included and the verified Whisper base model downloads into app-managed storage on first transcription. Once installed, baseline transcription can run without model-network access.
+- Optional capabilities may not be included. Do not claim all AI is offline or that all capabilities are bundled.
+- Candidate metadata records that transitive runtime wheel hashes are not fully locked; 3B.5A does not claim fully reproducible builds.
 - `npm run release:ffmpeg` verifies that FFmpeg/FFprobe execute from the release bundle and packages non-system macOS dylibs. Do not manually copy host FFmpeg executables into a release.
 - The bundle manifest records whether the selected FFmpeg supports ASS burn-in captions. Releases without that filter use the tested sidecar `.srt` fallback and must state that in their notes.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.

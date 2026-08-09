@@ -39,6 +39,8 @@ function findAppBundles(directory) {
 }
 
 function newestApp(arch) {
+  const explicit = optionValue('--app');
+  if (explicit) return path.resolve(explicit);
   const distDir = path.join(root, 'dist');
   const preferred = findAppBundles(path.join(distDir, `mac-${arch}`));
   const candidates = preferred.length > 0 ? preferred : findAppBundles(distDir);
