@@ -13,6 +13,7 @@ export function useKeyboardShortcuts() {
     const getVideo = (): HTMLVideoElement | null => document.querySelector('video');
 
     const handler = (e: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
 

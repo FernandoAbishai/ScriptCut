@@ -20,6 +20,7 @@
     "test:social-publishing": "node scripts/smoke-social-publishing.mjs",
     "test:hook-frames": "node scripts/smoke-hook-frames.mjs",
     "test:support-report": "node scripts/smoke-support-report.mjs",
+    "test:errors-accessibility": "node scripts/smoke-errors-accessibility.mjs",
     "test:playback-sync": "node scripts/smoke-playback-sync.mjs",
     "preview": "vite preview"
   },

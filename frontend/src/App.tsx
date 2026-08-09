@@ -13,6 +13,8 @@ import HomeScreen, {
   type WorkflowIntent,
 } from './components/HomeScreen';
 import TranscriptionStatus from './components/TranscriptionStatus';
+import CreatorDialog from './components/CreatorDialog';
+import CreatorNotice, { type CreatorNoticeData } from './components/CreatorNotice';
 import {
   AUTOMATIC_TRANSCRIPTION_MODEL,
   type TranscriptionEngine,
@@ -53,6 +55,7 @@ import {
   type EditorPanel,
   type EditorWorkflow,
 } from './utils/editorTask';
+import { getCreatorErrorPresentation } from './utils/creatorErrors';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
@@ -108,11 +111,17 @@ export default function App() {
   const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
   const [systemChecksError, setSystemChecksError] = useState('');
   const [backendStartupError, setBackendStartupError] = useState('');
+  const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
+  const [autosaveRestoreRequest, setAutosaveRestoreRequest] = useState<{
+    data: ReturnType<typeof parseProjectFile>;
+    resolve: (restore: boolean) => void;
+  } | null>(null);
   const [isCheckingSystem, setIsCheckingSystem] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => window.localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true',
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const moreToolsButtonRef = useRef<HTMLButtonElement>(null);
 
   useKeyboardShortcuts();
   const autosave = useProjectAutosave();
@@ -122,7 +131,7 @@ export default function App() {
       window.electronAPI!.getBackendUrl().then(setBackendUrl);
       window.electronAPI!.getStartupStatus().then(({ backendError }) => {
         if (!backendError) return;
-        setBackendStartupError(`The local editing backend could not start: ${backendError}. Fix the setup issue, then quit and reopen ScriptCut.`);
+        setBackendStartupError(String(backendError));
         setOnboardingDismissed(false);
       });
     }
@@ -182,6 +191,17 @@ export default function App() {
     setRecoveryError('');
   }, [videoPath]);
 
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setShowMoreMenu(false);
+      moreToolsButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [showMoreMenu]);
+
   const refreshRecentProjects = () => setRecentProjects(listRecentProjects());
 
   const rememberProject = (path: string, data: ReturnType<typeof parseProjectFile>, source: RecentProject['source']) => {
@@ -196,6 +216,7 @@ export default function App() {
 
   const handleLoadProject = async () => {
     if (!IS_ELECTRON) return;
+    setCreatorNotice(null);
     try {
       const projectPath = await window.electronAPI!.openProject();
       if (!projectPath) return;
@@ -206,7 +227,12 @@ export default function App() {
       rememberProject(projectPath, data, 'project');
     } catch (err) {
       console.error('Failed to load project:', err);
-      alert(`Failed to load project: ${err}`);
+      setCreatorNotice({
+        ...getCreatorErrorPresentation('project-load', err),
+        actionLabel: 'Try Again',
+        onAction: handleLoadProject,
+        onDismiss: () => setCreatorNotice(null),
+      });
     }
   };
 
@@ -231,6 +257,7 @@ export default function App() {
   };
 
   const handleSaveProject = async () => {
+    setCreatorNotice(null);
     setManualSaveStatus('saving');
     try {
       const savedPath = await saveProject();
@@ -243,12 +270,19 @@ export default function App() {
     } catch (err) {
       console.error('Failed to save project:', err);
       setManualSaveStatus('error');
+      setCreatorNotice({
+        ...getCreatorErrorPresentation('project-save', err),
+        actionLabel: 'Try Again',
+        onAction: handleSaveProject,
+        onDismiss: () => setCreatorNotice(null),
+      });
       window.setTimeout(() => setManualSaveStatus('idle'), 3000);
     }
   };
 
   const openRecentProject = async (project: RecentProject) => {
     if (!IS_ELECTRON) return;
+    setCreatorNotice(null);
     try {
       const content = await window.electronAPI!.readProjectFile(project.path);
       const data = parseProjectFile(content);
@@ -258,7 +292,10 @@ export default function App() {
     } catch (err) {
       removeRecentProject(project.path);
       refreshRecentProjects();
-      setRecoveryError(err instanceof Error ? `Could not open recent project: ${err.message}` : 'Could not open recent project.');
+      setCreatorNotice({
+        ...getCreatorErrorPresentation('recent-project', err),
+        onDismiss: () => setCreatorNotice(null),
+      });
     }
   };
 
@@ -383,9 +420,9 @@ export default function App() {
         const data = parseProjectFile(content);
         if (data.videoPath !== path || !Array.isArray(data.words)) continue;
 
-        const shouldRestore = window.confirm(
-          'An autosaved ScriptCut project exists for this media file. Restore it instead of starting a new transcription?',
-        );
+        const shouldRestore = await new Promise<boolean>((resolve) => {
+          setAutosaveRestoreRequest({ data, resolve });
+        });
         if (!shouldRestore) return false;
 
         loadProjectState(data);
@@ -538,9 +575,45 @@ export default function App() {
     ? editorWorkflow === 'short' ? 'Create Clips' : 'AI tools'
     : activePanel === 'export' ? 'Export' : 'Settings';
 
+  const resolveAutosaveRestore = (restore: boolean) => {
+    const request = autosaveRestoreRequest;
+    setAutosaveRestoreRequest(null);
+    request?.resolve(restore);
+  };
+
+  const appNotice = creatorNotice && (
+    <CreatorNotice notice={creatorNotice} className="fixed bottom-4 right-4 z-40 w-[min(28rem,calc(100vw-2rem))]" />
+  );
+  const autosaveRestoreDialog = (
+    <CreatorDialog
+      open={Boolean(autosaveRestoreRequest)}
+      title="Autosaved work found"
+      description="ScriptCut found saved work for this media. Restore it or start a new transcription."
+      onClose={() => resolveAutosaveRestore(false)}
+    >
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => resolveAutosaveRestore(false)}
+          className="rounded border border-editor-border px-3 py-2 text-xs text-editor-text-muted hover:bg-editor-surface"
+        >
+          Start new transcription
+        </button>
+        <button
+          type="button"
+          onClick={() => resolveAutosaveRestore(true)}
+          className="rounded bg-editor-accent px-3 py-2 text-xs font-medium text-white hover:bg-editor-accent-hover"
+        >
+          Restore autosave
+        </button>
+      </div>
+    </CreatorDialog>
+  );
+
   if (!videoPath) {
     return (
-      <HomeScreen
+      <>
+        <HomeScreen
         isElectron={IS_ELECTRON}
         fileInputRef={fileInputRef}
         onExit={handleExit}
@@ -570,7 +643,10 @@ export default function App() {
         isBrowserUploading={isBrowserUploading}
         onBrowserFileChange={handleBrowserFileChange}
         onBrowserDrop={handleBrowserDrop}
-      />
+        />
+        {appNotice}
+        {autosaveRestoreDialog}
+      </>
     );
   }
 
@@ -636,8 +712,10 @@ export default function App() {
           <div className="relative">
             <button
               type="button"
+              ref={moreToolsButtonRef}
               onClick={() => setShowMoreMenu((current) => !current)}
               title="More tools"
+              aria-label="More tools"
               aria-expanded={showMoreMenu}
               aria-controls="editor-more-menu"
               className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
@@ -774,6 +852,8 @@ export default function App() {
           </aside>
         )}
       </div>
+      {appNotice}
+      {autosaveRestoreDialog}
     </div>
   );
 }

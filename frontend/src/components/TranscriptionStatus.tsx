@@ -149,6 +149,8 @@ export default function TranscriptionStatus({
         <button
           type="button"
           onClick={() => setShowOptions((open) => !open)}
+          aria-expanded={showOptions}
+          aria-controls="transcription-options"
           className="rounded border border-editor-border px-3 py-2 text-sm text-editor-text hover:bg-editor-surface"
         >
           Transcription Options
@@ -156,7 +158,10 @@ export default function TranscriptionStatus({
       </div>
 
       {showOptions && (
-        <div className="w-full max-w-md rounded border border-editor-border bg-editor-surface p-3 text-left">
+        <div
+          id="transcription-options"
+          className="w-full max-w-md rounded border border-editor-border bg-editor-surface p-3 text-left"
+        >
           <TranscriptionOptions
             transcriptionEngine={transcriptionEngine}
             onEngineChange={handleEngineChange}

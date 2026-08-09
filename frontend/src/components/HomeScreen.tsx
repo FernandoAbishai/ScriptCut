@@ -22,6 +22,8 @@ import TranscriptionOptions, {
   type TranscriptionEngine,
   type TranscriptionEngineStatus,
 } from './TranscriptionOptions';
+import CreatorNotice from './CreatorNotice';
+import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 
 export type WorkflowIntent = 'full-video' | 'short';
 export type { TranscriptionEngine, TranscriptionEngineStatus } from './TranscriptionOptions';
@@ -225,9 +227,7 @@ export default function HomeScreen({
             )}
           </div>
           {browserUploadError && (
-            <div className="rounded border border-editor-danger/30 bg-editor-danger/10 px-3 py-2 text-xs text-editor-danger" role="alert">
-              {browserUploadError}
-            </div>
+            <CreatorNotice notice={getCreatorErrorPresentation('media-upload', browserUploadError)} />
           )}
           <p className="text-center text-[11px] text-editor-text-muted">
             Use the desktop app for native file access, autosave and direct exports. Supported: MP4, AVI, MOV, MKV, WebM, M4A, MP3, WAV, FLAC.
@@ -247,7 +247,7 @@ export default function HomeScreen({
                   <div className="mt-1 truncate text-[11px] text-editor-text-muted" title={recoveryCandidate.videoPath}>
                     {recoveryCandidate.videoPath.split(/[\\/]/).pop()} · Autosaved {new Date(recoveryCandidate.modifiedAt).toLocaleString()}
                   </div>
-                  {recoveryError && <div className="mt-1 text-[11px] text-editor-warning" role="alert">{recoveryError}</div>}
+                  {recoveryError && <CreatorNotice className="mt-2" notice={getCreatorErrorPresentation('recovery', recoveryError)} />}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -357,7 +357,7 @@ function SetupStatusCard({
   const isBlocked = readiness === 'needs-setup';
   const title = readiness === 'ready' ? '✓ Ready to edit' : readiness === 'needs-setup' ? '⚠ Setup needs attention' : 'Checking setup';
   const detail = backendStartupError
-    ? 'ScriptCut cannot start local editing yet.'
+    ? 'ScriptCut couldn’t start its editing service. Open Setup Check to see what needs attention, then restart ScriptCut.'
     : blockers.includes('backend') || blockers.includes('python')
       ? 'Local editing needs setup before you can start.'
       : blockers.includes('transcription')
@@ -473,13 +473,7 @@ function FirstRunChecklist({
         </div>
       </div>
       {error && (
-        <div className="mt-3 rounded border border-editor-danger/30 bg-editor-danger/10 px-2 py-2 text-[11px] text-editor-danger" role="alert">
-          <div>{getSetupErrorSummary(error)}</div>
-          <details className="mt-1">
-            <summary className="cursor-pointer">Technical detail</summary>
-            <div className="mt-1 break-words text-editor-text-muted">{error}</div>
-          </details>
-        </div>
+        <CreatorNotice className="mt-3" notice={getCreatorErrorPresentation('setup', error)} />
       )}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {rows.map((row) => {
@@ -642,12 +636,6 @@ function getCreatorCheckLabel(row: SystemCheck) {
   if (row.label === 'Transcription') return 'Transcription';
   if (row.label === 'Audio') return 'Audio enhancement';
   return row.label;
-}
-
-function getSetupErrorSummary(error: string) {
-  if (error.toLowerCase().includes('backend')) return 'Local editing could not start.';
-  if (error.toLowerCase().includes('transcription')) return 'Transcription setup needs attention.';
-  return 'Setup checks need attention.';
 }
 
 function getSetupGuidance(row: SystemCheck) {
