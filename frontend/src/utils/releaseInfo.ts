@@ -10,4 +10,10 @@ export const RELEASE_LINKS = {
   platformSupport: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/docs/PLATFORM_SUPPORT.md',
   pythonDownloads: 'https://www.python.org/downloads/macos/',
   troubleshooting: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/docs/TROUBLESHOOTING.md',
+  sourceCode: 'https://github.com/FernandoAbishai/ScriptCut',
+  license: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/LICENSE',
+  licensing: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/docs/LICENSING.md',
+  thirdPartyNotices: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/THIRD_PARTY_NOTICES.md',
+  trademarks: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/TRADEMARKS.md',
+  commercialLicensing: 'https://github.com/FernandoAbishai/ScriptCut/blob/main/COMMERCIAL-LICENSING.md',
 };

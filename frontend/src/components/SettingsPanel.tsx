@@ -5,6 +5,7 @@ import { useEditorStore } from '../store/editorStore';
 import { Bot, Cloud, Brain, RefreshCw, Route, ShieldCheck, Copy, CheckCircle2, AlertCircle, Download, ExternalLink, MonitorCheck } from 'lucide-react';
 import { RELEASE_LINKS, SCRIPTCUT_VERSION } from '../utils/releaseInfo';
 import { buildSupportReport } from '../utils/supportReport';
+import { getAIModeLabel, isLocalAIEndpoint } from '../utils/settingsUx';
 
 const AI_PROVIDERS: AIProvider[] = ['ollama', 'openai', 'claude', '9router'];
 
@@ -26,6 +27,7 @@ export default function SettingsPanel() {
   const [nineRouterStatus, setNineRouterStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [copiedCommand, setCopiedCommand] = useState('');
   const [supportReportStatus, setSupportReportStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+  const [showAdvancedAI, setShowAdvancedAI] = useState(false);
 
   const fetchOllamaModels = useCallback(async () => {
     setLoadingModels(true);
@@ -128,14 +130,15 @@ export default function SettingsPanel() {
     '9router': {
       ok: !!nineRouterStatus?.ok,
       label: nineRouterStatus?.ok
-        ? isLocalUrl(providers['9router'].baseUrl || '')
+        ? isLocalAIEndpoint(providers['9router'].baseUrl || '')
           ? 'Local route ready'
           : 'Remote route ready'
         : 'Route not verified',
-      local: isLocalUrl(providers['9router'].baseUrl || ''),
+      local: isLocalAIEndpoint(providers['9router'].baseUrl || ''),
     },
   };
   const activeStatus = providerStatus[defaultProvider];
+  const aiMode = getAIModeLabel(defaultProvider, providers['9router'].baseUrl || 'http://localhost:20128/v1');
 
   const copyCommand = useCallback(async (command: string) => {
     await navigator.clipboard?.writeText(command);
@@ -176,9 +179,35 @@ export default function SettingsPanel() {
 
   return (
     <div className="p-4 space-y-6">
-      <h3 className="text-sm font-semibold">AI Settings</h3>
+      <h3 className="text-sm font-semibold">Settings</h3>
+
+      <section className="space-y-2 rounded-lg border border-editor-border bg-editor-surface p-3" aria-labelledby="settings-ai-heading">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h4 id="settings-ai-heading" className="text-xs font-medium">AI</h4>
+            <div className="mt-1 text-sm font-medium text-editor-text">{aiMode}</div>
+            <p className="text-[11px] text-editor-text-muted">{providerLabels[defaultProvider]}</p>
+          </div>
+          <Bot className="h-4 w-4 text-editor-accent" />
+        </div>
+        <p className="text-[11px] leading-relaxed text-editor-text-muted">
+          {aiMode === 'Local AI'
+            ? 'AI actions stay on your configured local endpoint.'
+            : 'Transcript text is sent to the selected cloud provider only when you run an AI action.'}
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowAdvancedAI((current) => !current)}
+          aria-expanded={showAdvancedAI}
+          aria-controls="advanced-ai-configuration"
+          className="w-full rounded border border-editor-border bg-editor-bg px-3 py-2 text-left text-xs font-medium text-editor-text hover:border-editor-accent/60"
+        >
+          {showAdvancedAI ? 'Hide AI configuration' : 'Configure AI'}
+        </button>
+      </section>
 
       <div className="space-y-3 rounded-lg border border-editor-border bg-editor-surface p-3">
+        <h4 className="text-xs font-medium">App &amp; Support</h4>
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium">
@@ -231,14 +260,28 @@ export default function SettingsPanel() {
           Local-first privacy
         </div>
         <p className="text-[11px] leading-relaxed text-editor-text-muted">
-          Media files, project files, waveform data, and exports stay on this machine. Transcript
-          text is sent only when you run AI actions with a cloud provider. Ollama and 9router can
-          run against local endpoints.
+          Media files, project files, waveform data, and exports stay on this machine. {aiMode === 'Local AI'
+            ? 'AI actions stay on your configured local endpoint.'
+            : 'Transcript text is sent to the selected cloud provider only when you run an AI action.'}
         </p>
       </div>
 
+      <section className="space-y-2 rounded-lg border border-editor-border bg-editor-surface p-3" aria-labelledby="settings-legal-heading">
+        <h4 id="settings-legal-heading" className="text-xs font-medium">Source &amp; Legal</h4>
+        <div className="grid grid-cols-2 gap-2">
+          <ReleaseLink href={RELEASE_LINKS.sourceCode} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Source code" />
+          <ReleaseLink href={RELEASE_LINKS.license} icon={<ExternalLink className="h-3.5 w-3.5" />} label="AGPL-3.0-or-later" />
+          <ReleaseLink href={RELEASE_LINKS.thirdPartyNotices} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Third-party notices" />
+          <ReleaseLink href={RELEASE_LINKS.trademarks} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Trademark policy" />
+          <ReleaseLink href={RELEASE_LINKS.licensing} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Licensing" />
+          <ReleaseLink href={RELEASE_LINKS.commercialLicensing} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Commercial licensing" />
+        </div>
+      </section>
+
+      {showAdvancedAI && <div id="advanced-ai-configuration" className="space-y-4" aria-label="Advanced AI configuration">
       {/* Default provider selector */}
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-lg border border-editor-border bg-editor-surface p-3">
+        <h4 className="text-xs font-medium">Advanced AI configuration</h4>
         <label className="text-xs text-editor-text-muted font-medium">Default AI Provider</label>
         <div className="grid grid-cols-4 gap-1.5">
           {AI_PROVIDERS.map((p) => (
@@ -439,6 +482,7 @@ export default function SettingsPanel() {
           />
         </div>
       </ProviderSection>
+      </div>}
     </div>
   );
 }
@@ -492,10 +536,6 @@ function SetupCommands({
       ))}
     </div>
   );
-}
-
-function isLocalUrl(url: string) {
-  return /^(https?:\/\/)?(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(url.trim());
 }
 
 function ProviderSection({

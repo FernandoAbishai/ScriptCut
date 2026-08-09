@@ -340,6 +340,8 @@ export default function ExportDialog() {
   const [exportLogs, setExportLogs] = useState<Array<{ time: string; message: string }>>([]);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
+  const [showAdvancedExport, setShowAdvancedExport] = useState(false);
+  const [showExportChecks, setShowExportChecks] = useState(false);
   const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
   const [exportPath, setExportPath] = useState(() => window.localStorage.getItem(EXPORT_PATH_KEY) || '');
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
@@ -721,14 +723,28 @@ export default function ExportDialog() {
         <div className="flex flex-wrap gap-1">
           {readiness.details.map((detail) => (
             <span key={detail} className="rounded bg-editor-bg px-1.5 py-0.5 text-[10px] text-editor-text-muted">
-              {detail}
+              {detail === 'fast stream copy'
+                ? 'Fast export'
+                : detail === 'frame-accurate encode'
+                  ? 'Frame-accurate export'
+                  : detail}
             </span>
           ))}
         </div>
         <p className="text-[11px] leading-4 text-editor-text-muted">{readiness.note}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 rounded border border-editor-border bg-editor-surface p-2">
+      <button
+        type="button"
+        onClick={() => setShowExportChecks((current) => !current)}
+        aria-expanded={showExportChecks}
+        aria-controls="export-checks"
+        className="w-full rounded border border-editor-border bg-editor-surface px-3 py-2 text-left text-xs text-editor-text-muted hover:text-editor-text"
+      >
+        {showExportChecks ? 'Hide export checks' : 'Export checks'}
+      </button>
+
+      {showExportChecks && <div id="export-checks" className="grid grid-cols-2 gap-2 rounded border border-editor-border bg-editor-surface p-2">
         {preflight.items.map((item) => (
           <div key={item.label} className="min-w-0 rounded bg-editor-bg px-2 py-1.5">
             <div className="flex items-center gap-1 text-[10px] font-medium text-editor-text-muted">
@@ -742,7 +758,7 @@ export default function ExportDialog() {
             <div className="mt-0.5 truncate text-[10px] text-editor-text" title={item.detail}>{item.detail}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {(preflight.blockers.length > 0 || preflight.warnings.length > 0) && (
         <div className={`space-y-1 rounded border p-2 text-[11px] ${
@@ -761,27 +777,7 @@ export default function ExportDialog() {
       )}
 
       <fieldset className="space-y-2">
-        <legend className="text-xs text-editor-text-muted font-medium">Creator Template</legend>
-        <div className="grid grid-cols-1 gap-2">
-          {CREATOR_TEMPLATES.map((template) => (
-            <button
-              key={template.id}
-              onClick={() => applyCreatorTemplate(template.id)}
-              className="flex items-center justify-between gap-3 rounded border border-editor-border bg-editor-surface px-3 py-2 text-left hover:border-editor-accent/60"
-            >
-              <span className="min-w-0">
-                <span className="block text-xs font-medium text-editor-text">{template.title}</span>
-                <span className="block truncate text-[10px] text-editor-text-muted">{template.desc}</span>
-              </span>
-              <RotateCcw className="h-3.5 w-3.5 shrink-0 text-editor-text-muted" />
-            </button>
-          ))}
-        </div>
-      </fieldset>
-
-      {/* Preset */}
-      <fieldset className="space-y-2">
-        <legend className="text-xs text-editor-text-muted font-medium">Preset</legend>
+        <legend className="text-xs text-editor-text-muted font-medium">Output</legend>
         <div className="grid grid-cols-2 gap-2">
           <ModeCard
             active={options.preset === 'source'}
@@ -814,66 +810,9 @@ export default function ExportDialog() {
         </div>
       </fieldset>
 
-      {/* Mode */}
       <fieldset className="space-y-2">
-        <legend className="text-xs text-editor-text-muted font-medium">Export Mode</legend>
-        <div className="grid grid-cols-2 gap-2">
-          <ModeCard
-            active={options.mode === 'fast'}
-            onClick={() => {
-              setPreviewAspectRatio('source');
-              setExportOptions((o) => ({ ...o, mode: 'fast', preset: 'source', aspectRatio: 'source' }));
-            }}
-            icon={<Zap className="w-4 h-4" />}
-            title="Fast"
-            desc="Stream copy, seconds"
-          />
-          <ModeCard
-            active={options.mode === 'reencode'}
-            onClick={() => setExportOptions((o) => ({ ...o, mode: 'reencode' }))}
-            icon={<Cog className="w-4 h-4" />}
-            title="Re-encode"
-            desc="Custom quality, slower"
-          />
-        </div>
-      </fieldset>
-
-      {/* Resolution (only for re-encode) */}
-      {options.mode === 'reencode' && (
-        <SelectField
-          label="Resolution"
-          value={options.resolution}
-          onChange={(v) => setExportOptions((o) => ({ ...o, resolution: v as ExportOptions['resolution'] }))}
-          options={[
-            { value: '720p', label: '720p (HD)' },
-            { value: '1080p', label: '1080p (Full HD)' },
-            { value: '4k', label: '4K (Ultra HD)' },
-          ]}
-        />
-      )}
-
-      {options.aspectRatio !== 'source' && (
-        <ReframeControls
-          value={options.reframe}
-          onChange={(reframe) => setExportOptions((o) => ({ ...o, reframe }))}
-        />
-      )}
-
-      {/* Format */}
-      <SelectField
-        label="Format"
-        value={options.format}
-        onChange={(v) => setExportOptions((o) => ({ ...o, format: v as ExportOptions['format'] }))}
-        options={[
-          { value: 'mp4', label: 'MP4 (H.264)' },
-          { value: 'mov', label: 'MOV (QuickTime)' },
-          { value: 'webm', label: 'WebM (VP9)' },
-        ]}
-      />
-
-      {window.electronAPI && (
-        <fieldset className="space-y-2">
-          <legend className="text-xs text-editor-text-muted font-medium">Destination</legend>
+        <legend className="text-xs text-editor-text-muted font-medium">Destination</legend>
+        {window.electronAPI ? (
           <div className="space-y-2 rounded border border-editor-border bg-editor-surface p-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
@@ -928,25 +867,12 @@ export default function ExportDialog() {
               </div>
             </div>
           </div>
-        </fieldset>
-      )}
-
-      {/* Audio enhancement */}
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={options.enhanceAudio}
-          onChange={(e) => setExportOptions((o) => ({ ...o, enhanceAudio: e.target.checked }))}
-          className="w-4 h-4 rounded bg-editor-surface border-editor-border accent-editor-accent"
-        />
-        <span className="text-xs">Enhance audio (Studio Sound)</span>
-      </label>
-
-      <BackgroundRemovalControls
-        value={options.backgroundRemoval}
-        capabilities={backgroundCapabilities}
-        onChange={(backgroundRemoval) => setExportOptions((o) => ({ ...o, backgroundRemoval }))}
-      />
+        ) : (
+          <div className="rounded border border-editor-border bg-editor-surface px-3 py-2 text-[11px] text-editor-text-muted">
+            Browser download after the local render completes.
+          </div>
+        )}
+      </fieldset>
 
       {/* Captions */}
       <SelectField
@@ -958,19 +884,12 @@ export default function ExportDialog() {
           {
             value: 'burn-in',
             label: systemChecks?.checks?.captions?.ok === false
-              ? 'Video + SRT fallback on this computer'
-              : 'Burn-in (permanent)',
+              ? 'On video (SRT fallback on this computer)'
+              : 'On video',
           },
-          { value: 'sidecar', label: 'Sidecar SRT file' },
+          { value: 'sidecar', label: 'Separate SRT' },
         ]}
       />
-
-      {options.captions === 'burn-in' && options.captionStyle && (
-        <CaptionStyleControls
-          value={options.captionStyle}
-          onChange={(captionStyle) => setExportOptions((o) => ({ ...o, captionStyle }))}
-        />
-      )}
 
       {/* Export button */}
       <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -987,7 +906,7 @@ export default function ExportDialog() {
           ) : (
             <>
               <Download className="w-4 h-4" />
-              Export
+              Export Video
             </>
           )}
         </button>
@@ -1001,6 +920,146 @@ export default function ExportDialog() {
           </button>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowAdvancedExport((current) => !current)}
+        aria-expanded={showAdvancedExport}
+        aria-controls="advanced-export-settings"
+        className="w-full rounded border border-editor-border bg-editor-surface px-3 py-2 text-left text-xs font-medium text-editor-text-muted hover:text-editor-text"
+      >
+        {showAdvancedExport ? 'Hide advanced export settings' : 'Advanced export settings'}
+      </button>
+
+      {showAdvancedExport && <div id="advanced-export-settings" className="space-y-4" aria-label="Advanced export settings">
+        <fieldset className="space-y-2">
+          <legend className="text-xs text-editor-text-muted font-medium">Creator Templates</legend>
+          <div className="grid grid-cols-1 gap-2">
+            {CREATOR_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                onClick={() => applyCreatorTemplate(template.id)}
+                className="flex items-center justify-between gap-3 rounded border border-editor-border bg-editor-surface px-3 py-2 text-left hover:border-editor-accent/60"
+              >
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-editor-text">{template.title}</span>
+                  <span className="block truncate text-[10px] text-editor-text-muted">{template.desc}</span>
+                </span>
+                <RotateCcw className="h-3.5 w-3.5 shrink-0 text-editor-text-muted" />
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="space-y-2">
+          <legend className="text-xs text-editor-text-muted font-medium">Export Mode</legend>
+          <div className="grid grid-cols-2 gap-2">
+            <ModeCard
+              active={options.mode === 'fast'}
+              onClick={() => {
+                setPreviewAspectRatio('source');
+                setExportOptions((o) => ({ ...o, mode: 'fast', preset: 'source', aspectRatio: 'source' }));
+              }}
+              icon={<Zap className="w-4 h-4" />}
+              title="Fast"
+              desc="Stream copy, seconds"
+            />
+            <ModeCard
+              active={options.mode === 'reencode'}
+              onClick={() => setExportOptions((o) => ({ ...o, mode: 'reencode' }))}
+              icon={<Cog className="w-4 h-4" />}
+              title="Re-encode"
+              desc="Custom quality, slower"
+            />
+          </div>
+        </fieldset>
+
+        {options.mode === 'reencode' && (
+          <SelectField
+            label="Resolution"
+            value={options.resolution}
+            onChange={(v) => setExportOptions((o) => ({ ...o, resolution: v as ExportOptions['resolution'] }))}
+            options={[
+              { value: '720p', label: '720p (HD)' },
+              { value: '1080p', label: '1080p (Full HD)' },
+              { value: '4k', label: '4K (Ultra HD)' },
+            ]}
+          />
+        )}
+
+        {options.aspectRatio !== 'source' && (
+          <ReframeControls
+            value={options.reframe}
+            onChange={(reframe) => setExportOptions((o) => ({ ...o, reframe }))}
+          />
+        )}
+
+        <SelectField
+          label="Format"
+          value={options.format}
+          onChange={(v) => setExportOptions((o) => ({ ...o, format: v as ExportOptions['format'] }))}
+          options={[
+            { value: 'mp4', label: 'MP4 (H.264)' },
+            { value: 'mov', label: 'MOV (QuickTime)' },
+            { value: 'webm', label: 'WebM (VP9)' },
+          ]}
+        />
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={options.enhanceAudio}
+            onChange={(e) => setExportOptions((o) => ({ ...o, enhanceAudio: e.target.checked }))}
+            className="w-4 h-4 rounded bg-editor-surface border-editor-border accent-editor-accent"
+          />
+          <span className="text-xs">Enhance audio (Studio Sound)</span>
+        </label>
+
+        <BackgroundRemovalControls
+          value={options.backgroundRemoval}
+          capabilities={backgroundCapabilities}
+          onChange={(backgroundRemoval) => setExportOptions((o) => ({ ...o, backgroundRemoval }))}
+        />
+
+        {options.captions === 'burn-in' && options.captionStyle && (
+          <CaptionStyleControls
+            value={options.captionStyle}
+            onChange={(captionStyle) => setExportOptions((o) => ({ ...o, captionStyle }))}
+          />
+        )}
+
+        {options.mode === 'fast' && !hasCuts && (
+          <p className="text-[10px] text-editor-text-muted text-center">
+            Fast mode uses stream copy &mdash; no quality loss, exports in seconds.
+          </p>
+        )}
+        {options.mode === 'fast' && hasCuts && (
+          <div className="flex items-start gap-1.5 p-2 bg-editor-accent/10 rounded text-[10px] text-editor-accent">
+            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Word-level cuts require re-encoding for frame-accurate output. Export will
+              automatically use re-encode mode. This takes longer but ensures your cuts are precise.
+            </span>
+          </div>
+        )}
+        {options.aspectRatio !== 'source' && (
+          <div className="flex items-start gap-1.5 p-2 bg-editor-accent/10 rounded text-[10px] text-editor-accent">
+            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Social presets crop the source into the selected frame. Use reframe to keep off-center
+              subjects inside the safe area.
+            </span>
+          </div>
+        )}
+        {options.backgroundRemoval?.enabled && !backgroundCapabilities?.available && (
+          <div className="flex items-start gap-1.5 p-2 bg-editor-warning/10 rounded text-[10px] text-editor-warning">
+            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Background removal needs local MediaPipe and OpenCV installed in the backend environment.
+            </span>
+          </div>
+        )}
+      </div>}
 
       {isExporting && (
         <div className="space-y-1">
@@ -1138,37 +1197,6 @@ export default function ExportDialog() {
         </details>
       )}
 
-      {options.mode === 'fast' && !hasCuts && (
-        <p className="text-[10px] text-editor-text-muted text-center">
-          Fast mode uses stream copy &mdash; no quality loss, exports in seconds.
-        </p>
-      )}
-      {options.mode === 'fast' && hasCuts && (
-        <div className="flex items-start gap-1.5 p-2 bg-editor-accent/10 rounded text-[10px] text-editor-accent">
-          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            Word-level cuts require re-encoding for frame-accurate output. Export will
-            automatically use re-encode mode. This takes longer but ensures your cuts are precise.
-          </span>
-        </div>
-      )}
-      {options.aspectRatio !== 'source' && (
-        <div className="flex items-start gap-1.5 p-2 bg-editor-accent/10 rounded text-[10px] text-editor-accent">
-          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            Social presets crop the source into the selected frame. Use reframe to keep off-center
-            subjects inside the safe area.
-          </span>
-        </div>
-      )}
-      {options.backgroundRemoval?.enabled && !backgroundCapabilities?.available && (
-        <div className="flex items-start gap-1.5 p-2 bg-editor-warning/10 rounded text-[10px] text-editor-warning">
-          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            Background removal needs local MediaPipe and OpenCV installed in the backend environment.
-          </span>
-        </div>
-      )}
     </div>
   );
 }
