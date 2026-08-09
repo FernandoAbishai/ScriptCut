@@ -129,6 +129,23 @@ function findFile(directory, names) {
   return null;
 }
 
+function normalizeRuntimeSymlinks(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) {
+      const rawTarget = fs.readlinkSync(entryPath);
+      const localTarget = path.join(path.dirname(entryPath), path.basename(rawTarget));
+      if (!fs.existsSync(localTarget)) {
+        fail(`portable runtime symlink target is missing: ${path.relative(root, entryPath)} -> ${rawTarget}`);
+      }
+      fs.unlinkSync(entryPath);
+      fs.symlinkSync(path.basename(rawTarget), entryPath);
+      continue;
+    }
+    if (entry.isDirectory()) normalizeRuntimeSymlinks(entryPath);
+  }
+}
+
 function extractPython() {
   fs.rmSync(runtimeRoot, { recursive: true, force: true });
   fs.mkdirSync(runtimeRoot, { recursive: true });
@@ -138,7 +155,10 @@ function extractPython() {
     const extractedInterpreter = findFile(extractionRoot, new Set(['python3.11', 'python3']));
     if (!extractedInterpreter) fail('the archive did not contain a Python 3.11 executable');
     const extractedDistributionRoot = path.dirname(path.dirname(extractedInterpreter));
+    // The standalone archive contains absolute symlinks into its extraction root.
+    // Normalize them so the staged runtime remains relocatable inside Resources.
     fs.cpSync(extractedDistributionRoot, runtimeRoot, { recursive: true, dereference: false });
+    normalizeRuntimeSymlinks(runtimeRoot);
   } finally {
     fs.rmSync(extractionRoot, { recursive: true, force: true });
   }
@@ -211,9 +231,9 @@ function verifyCore(interpreterPath, relativeInterpreter) {
     SCRIPTCUT_RUNTIME_MANIFEST_SCHEMA: 'scriptcut.runtime.v1',
   });
   const probe = [
-    'import fastapi, uvicorn, pydantic, requests, moviepy, torch, whisper',
+    'import fastapi, uvicorn, pydantic, requests, torch, whisper',
     'from importlib.metadata import version; assert version("openai-whisper") == "20250625"',
-    'import main',
+    'import importlib.util, sys; import main; forbidden = ("whisperx", "nemo", "pyannote.audio", "df", "mediapipe", "cv2", "openai", "anthropic", "moviepy"); assert all(name not in sys.modules for name in forbidden)',
   ].join('; ');
   run(interpreterPath, ['-c', probe], { cwd: path.join(root, 'backend'), env: environment, inherit: true });
 

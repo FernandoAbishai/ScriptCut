@@ -1,5 +1,7 @@
 """Transcription service with normalized word-level output."""
 
+import importlib
+import importlib.util
 import logging
 import math
 import os
@@ -10,7 +12,7 @@ from typing import Literal, Optional
 import torch
 
 from utils.gpu_utils import get_optimal_device, configure_gpu
-from utils.audio_processing import extract_audio
+from utils.audio_processing import cleanup_temp_audio, extract_audio
 from utils.cache import load_from_cache, save_to_cache
 from services.model_manager import ModelManagerError, get_model_manager
 
@@ -22,12 +24,16 @@ TranscriptionEngine = Literal["whisperx", "whisper", "parakeet", "auto"]
 PARAKEET_DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 WHISPER_MODEL_NAMES = {"tiny", "base", "small", "medium", "large"}
 
-try:
-    import whisperx
-    WHISPERX_AVAILABLE = True
-except ImportError:
-    whisperx = None
-    WHISPERX_AVAILABLE = False
+def _module_available(module_name: str) -> bool:
+    """Discover a capability without importing its dependency graph."""
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
+
+
+whisperx = None
+WHISPERX_AVAILABLE = _module_available("whisperx")
 
 try:
     import whisper
@@ -36,12 +42,9 @@ except ImportError:
     whisper = None
     WHISPER_AVAILABLE = False
 
-try:
-    import nemo.collections.asr as nemo_asr
-    NEMO_AVAILABLE = True
-except ImportError:
-    nemo_asr = None
-    NEMO_AVAILABLE = False
+nemo_asr = None
+NEMO_AVAILABLE = _module_available("nemo")
+_optional_failures: dict[str, Exception] = {}
 
 try:
     HF_TOKEN = None
@@ -55,6 +58,42 @@ def _get_device(use_gpu: bool = True) -> torch.device:
     if use_gpu:
         return get_optimal_device()
     return torch.device("cpu")
+
+
+def _load_optional(module_name: str):
+    if module_name in _optional_failures:
+        return None
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as exc:
+        _optional_failures[module_name] = exc
+        logger.warning("Optional transcription capability %s could not be loaded: %s", module_name, exc)
+        return None
+    return module
+
+
+def _load_whisperx():
+    global whisperx, WHISPERX_AVAILABLE
+    if whisperx is not None:
+        return whisperx
+    if not WHISPERX_AVAILABLE:
+        return None
+    whisperx = _load_optional("whisperx")
+    if whisperx is None:
+        WHISPERX_AVAILABLE = False
+    return whisperx
+
+
+def _load_nemo():
+    global nemo_asr, NEMO_AVAILABLE
+    if nemo_asr is not None:
+        return nemo_asr
+    if not NEMO_AVAILABLE:
+        return None
+    nemo_asr = _load_optional("nemo.collections.asr")
+    if nemo_asr is None:
+        NEMO_AVAILABLE = False
+    return nemo_asr
 
 
 def _load_model(
@@ -82,7 +121,7 @@ def _load_model(
         logger.info("Loading %s model: %s on %s", engine, model_name, device)
         if engine == "parakeet":
             model = _load_parakeet_model(model_name, device)
-        elif engine == "whisperx" and WHISPERX_AVAILABLE:
+        elif engine == "whisperx" and _load_whisperx() is not None:
             compute_type = "float16" if device.type == "cuda" else "int8"
             model = whisperx.load_model(
                 model_name,
@@ -106,33 +145,41 @@ def _missing_engine_message(engine: str | None = None) -> str:
         return "Packaged baseline transcription capability is incomplete. Reinstall ScriptCut to repair it."
     if engine == "whisper":
         return "OpenAI Whisper is not installed. Install openai-whisper or choose another transcription engine."
-    return "No requested transcription backend is installed. Install whisperx, openai-whisper, or Parakeet dependencies."
+    return "The selected transcription capability is not included in this ScriptCut build."
+
+
+def _optional_engine_message(engine: str, *, explicit: bool = False) -> str:
+    packaged = os.environ.get("SCRIPTCUT_RUNTIME_MODE") == "packaged-bundled"
+    if packaged:
+        labels = {"parakeet": "Parakeet", "whisperx": "WhisperX"}
+        return f"{labels.get(engine, engine)} is not included in this ScriptCut build."
+    if engine == "parakeet":
+        return "Parakeet TDT v3 is not available. Install NVIDIA NeMo ASR dependencies or choose WhisperX/Whisper."
+    return "WhisperX is not available. Install whisperx or choose another transcription engine."
 
 
 def _resolve_engine(engine: TranscriptionEngine) -> TranscriptionEngine:
     if engine != "auto":
         if engine not in {"whisperx", "whisper", "parakeet"}:
             raise RuntimeError(f"Unknown transcription engine: {engine}")
-        if engine == "parakeet" and not NEMO_AVAILABLE:
-            raise RuntimeError(
-                "Parakeet TDT v3 is not available. Install NVIDIA NeMo ASR dependencies or choose WhisperX/Whisper."
-            )
-        if engine == "whisperx" and not WHISPERX_AVAILABLE:
-            raise RuntimeError("WhisperX is not installed. Install whisperx or choose another transcription engine.")
+        if engine == "parakeet" and (_load_nemo() is None):
+            raise RuntimeError(_optional_engine_message("parakeet", explicit=True))
+        if engine == "whisperx" and (_load_whisperx() is None):
+            raise RuntimeError(_optional_engine_message("whisperx", explicit=True))
         if engine == "whisper" and not WHISPER_AVAILABLE:
             raise RuntimeError(_missing_engine_message("whisper"))
         return engine
-    if NEMO_AVAILABLE:
+    if NEMO_AVAILABLE and _load_nemo() is not None:
         return "parakeet"
-    if WHISPERX_AVAILABLE:
+    if WHISPERX_AVAILABLE and _load_whisperx() is not None:
         return "whisperx"
     if WHISPER_AVAILABLE:
         return "whisper"
-    raise RuntimeError("No transcription backend is installed. Install NVIDIA NeMo ASR, whisperx, or openai-whisper.")
+    raise RuntimeError(_missing_engine_message())
 
 
 def _load_parakeet_model(model_name: str, device: torch.device):
-    if NEMO_AVAILABLE:
+    if _load_nemo() is not None:
         model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
         if hasattr(model, "to"):
             model = model.to(device)
@@ -140,10 +187,7 @@ def _load_parakeet_model(model_name: str, device: torch.device):
             model.eval()
         return ("nemo", model)
 
-    raise RuntimeError(
-        "Parakeet TDT v3 is selected but NVIDIA NeMo ASR is not installed. "
-        "Install them with `pip install -U nemo_toolkit['asr']`."
-    )
+    raise RuntimeError(_optional_engine_message("parakeet", explicit=True))
 
 
 def get_transcription_engine_status() -> dict:
@@ -171,7 +215,6 @@ def get_transcription_engine_status() -> dict:
                 "label": "Parakeet TDT v3 multilingual",
                 "first_class": True,
                 "languages": 25,
-                "install_hint": "pip install -U nemo_toolkit['asr']",
             },
             "whisperx": {
                 "available": WHISPERX_AVAILABLE,
@@ -219,36 +262,41 @@ def transcribe_audio(
             logger.info("Using cached transcription")
             return cached
 
-    video_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
-    if file_path.suffix.lower() in video_extensions:
-        audio_path = extract_audio(file_path)
-    else:
-        audio_path = file_path
+    temporary_audio_path = None
+    try:
+        video_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+        if file_path.suffix.lower() in video_extensions:
+            temporary_audio_path = extract_audio(file_path)
+            audio_path = temporary_audio_path
+        else:
+            audio_path = file_path
 
-    device = _get_device(use_gpu)
-    model = _load_model(model_name, device, resolved_engine, progress_callback)
-    if progress_callback:
-        progress_callback(45, "Transcribing locally")
+        device = _get_device(use_gpu)
+        model = _load_model(model_name, device, resolved_engine, progress_callback)
+        if progress_callback:
+            progress_callback(45, "Transcribing locally")
 
-    logger.info(f"Transcribing with {resolved_engine}: {file_path}")
+        logger.info("Transcribing with %s: %s", resolved_engine, file_path)
 
-    if resolved_engine == "parakeet":
-        result = _transcribe_parakeet(model, str(audio_path))
-    elif resolved_engine == "whisperx":
-        result = _transcribe_whisperx(model, str(audio_path), device, language)
-    else:
-        result = _transcribe_standard(model, str(audio_path), language)
+        if resolved_engine == "parakeet":
+            result = _transcribe_parakeet(model, str(audio_path))
+        elif resolved_engine == "whisperx":
+            result = _transcribe_whisperx(model, str(audio_path), device, language)
+        else:
+            result = _transcribe_standard(model, str(audio_path), language)
 
-    result["engine"] = resolved_engine
-    result["model"] = model_name
+        result["engine"] = resolved_engine
+        result["model"] = model_name
 
-    if progress_callback:
-        progress_callback(95, "Finalizing transcript")
+        if progress_callback:
+            progress_callback(95, "Finalizing transcript")
 
-    if use_cache:
-        save_to_cache(file_path, result, model_name, cache_operation)
+        if use_cache:
+            save_to_cache(file_path, result, model_name, cache_operation)
 
-    return result
+        return result
+    finally:
+        cleanup_temp_audio(temporary_audio_path)
 
 
 def evict_model_cache(engine: str = "whisper", model_name: str = "base") -> None:

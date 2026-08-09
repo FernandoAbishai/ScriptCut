@@ -1,6 +1,8 @@
 """Export-time background removal using optional local segmentation backends."""
 
 import logging
+import importlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -11,28 +13,19 @@ from utils.ffmpeg import find_ffmpeg
 
 logger = logging.getLogger(__name__)
 
-MEDIAPIPE_AVAILABLE = False
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
+
+
+MEDIAPIPE_AVAILABLE = _module_available("mediapipe")
 RVM_AVAILABLE = False
-CV2_AVAILABLE = False
-
-try:
-    import mediapipe as mp
-    MEDIAPIPE_AVAILABLE = True
-except ImportError:
-    mp = None
-
-try:
-    import cv2
-    import numpy as np
-    CV2_AVAILABLE = True
-except ImportError:
-    cv2 = None
-    np = None
-
-try:
-    pass  # rvm import would go here
-except ImportError:
-    pass
+CV2_AVAILABLE = _module_available("cv2")
+mp = None
+cv2 = None
+np = None
 
 
 def is_available() -> bool:
@@ -40,7 +33,7 @@ def is_available() -> bool:
 
 
 def capabilities() -> dict:
-    """Return local background-removal support without importing from the router."""
+    """Return discoverable support without importing optional modules."""
     return {
         "available": is_available(),
         "mediapipe": MEDIAPIPE_AVAILABLE,
@@ -48,6 +41,28 @@ def capabilities() -> dict:
         "rvm": RVM_AVAILABLE,
         "replacements": ["blur", "color", "image"],
     }
+
+
+def _load_mediapipe_backends() -> None:
+    global MEDIAPIPE_AVAILABLE, CV2_AVAILABLE, mp, cv2, np
+    if not MEDIAPIPE_AVAILABLE or not CV2_AVAILABLE:
+        raise RuntimeError("Background removal capability is unavailable in this build")
+    if mp is not None and cv2 is not None and np is not None:
+        return
+    try:
+        mp = importlib.import_module("mediapipe")
+        cv2 = importlib.import_module("cv2")
+        np = importlib.import_module("numpy")
+    except Exception as exc:
+        MEDIAPIPE_AVAILABLE = False
+        CV2_AVAILABLE = False
+        raise RuntimeError("Background removal capability could not be loaded") from exc
+
+
+def _missing_capability_message() -> str:
+    if os.environ.get("SCRIPTCUT_RUNTIME_MODE") == "packaged-bundled":
+        return "Background removal is not included in this ScriptCut build."
+    return "Background removal requires local MediaPipe and OpenCV. Install mediapipe and opencv-python for source development."
 
 
 def remove_background_on_export(
@@ -71,21 +86,20 @@ def remove_background_on_export(
         output_path
     """
     if not is_available():
-        raise RuntimeError(
-            "Background removal requires local MediaPipe and OpenCV. "
-            "Install with: pip install mediapipe opencv-python"
-        )
+        raise RuntimeError(_missing_capability_message())
 
     if replacement not in {"blur", "color", "image"}:
         raise ValueError("Background replacement must be blur, color, or image")
 
     _check_canceled(progress_callback)
 
-    if MEDIAPIPE_AVAILABLE and CV2_AVAILABLE:
+    try:
+        _load_mediapipe_backends()
         return _remove_with_mediapipe(input_path, output_path, replacement, replacement_value, progress_callback)
-
-    raise RuntimeError("No supported background-removal backend is available")
-
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("Background removal failed while loading its optional capability") from exc
 
 def _remove_with_mediapipe(
     input_path: str,
