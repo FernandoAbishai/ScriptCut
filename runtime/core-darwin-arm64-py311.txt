@@ -1,0 +1,11 @@
+# Direct, startup-proven core dependencies for the current backend.
+# Python: 3.11.15 | target: darwin-arm64 | runtime: python-build-standalone 20260807
+# This is an exact-version input, not a hash-locked release inventory yet.
+fastapi==0.138.1
+uvicorn==0.49.0
+pydantic==2.13.4
+python-multipart==0.0.32
+requests==2.34.2
+moviepy==2.2.1
+numpy==1.26.4
+torch==2.12.1

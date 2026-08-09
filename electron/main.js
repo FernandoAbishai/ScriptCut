@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } = require('ele
 const fs = require('fs');
 const path = require('path');
 const { PythonBackend } = require('./python-bridge');
+const { selectRuntimeMode } = require('./runtime-contract');
 
 let mainWindow = null;
 let pythonBackend = null;
@@ -107,8 +108,13 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  const runtimeMode = selectRuntimeMode({
+    isDev,
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+  });
   pythonBackend = new PythonBackend(BACKEND_PORT, isDev, process.env.SCRIPTCUT_API_TOKEN || null, {
-    runtimeMode: isDev ? 'development' : 'packaged-legacy',
+    runtimeMode,
     resourcesPath: process.resourcesPath,
     userDataPath: app.getPath('userData'),
     projectRoot: path.join(__dirname, '..'),

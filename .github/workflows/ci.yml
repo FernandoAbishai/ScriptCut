@@ -50,6 +50,9 @@ jobs:
       - name: Test runtime contract
         run: npm run smoke:runtime-contract
 
+      - name: Test pinned runtime artifact metadata
+        run: npm run smoke:runtime-artifacts
+
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 
