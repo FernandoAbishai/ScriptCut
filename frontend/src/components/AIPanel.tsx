@@ -29,6 +29,8 @@ import {
   type ClipWorkspaceStage,
 } from '../utils/clipWorkspace';
 import CaptionPreview from './CaptionPreview';
+import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
+import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
 
@@ -192,6 +194,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
   const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
+  const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
 
   useEffect(() => {
     setActiveTab(mode === 'clips' ? 'clips' : 'edit');
@@ -407,6 +410,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const startAIJob = useCallback(
     async <T,>(path: string, body: unknown, fallbackMessage: string, context?: Partial<AIJobContext>) => {
+      setCreatorNotice(null);
       const startRes = await fetch(`${backendUrl}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -462,7 +466,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       setEditPlanResult(data);
     } catch (err) {
       console.error(err);
-      alert(`Edit planning failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setProcessing(false);
     }
@@ -523,7 +527,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       }
     } catch (err) {
       console.error(err);
-      alert(`AI Director failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setProcessing(false);
     }
@@ -572,7 +576,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       setFillerResult(data);
     } catch (err) {
       console.error(err);
-      alert(`Filler detection failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setProcessing(false);
     }
@@ -612,7 +616,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       setClipStage('review');
     } catch (err) {
       console.error(err);
-      alert(`Clip creation failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setProcessing(false);
     }
@@ -918,11 +922,13 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           });
         }
         if (!silent) {
-          alert(
-            output.srtPath
-              ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}${output.warnings.length ? `\n\n${output.warnings.join('\n')}` : ''}`
-              : `Clip exported to: ${output.outputPath}`,
-          );
+          setCreatorNotice({
+            tone: 'success',
+            title: 'Clip exported',
+            message: output.srtPath ? `Saved to ${output.outputPath}; captions saved to ${output.srtPath}.` : `Saved to ${output.outputPath}.`,
+            technicalDetails: output.warnings.length ? output.warnings.join('\n') : undefined,
+            onDismiss: () => setCreatorNotice(null),
+          });
         }
         return output.outputPath;
       } catch (err) {
@@ -932,7 +938,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           updateClipDraft(settings.id, { status: 'failed', lastError: message });
         }
         if (!silent && !message.toLowerCase().includes('canceled')) {
-          alert(`Failed to export clip.\n\n${message}`);
+          setCreatorNotice({ ...getCreatorErrorPresentation('clip-action', err), onDismiss: () => setCreatorNotice(null) });
         }
         throw err;
       }
@@ -982,15 +988,17 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           exportedAt: new Date().toISOString(),
           lastError: undefined,
         });
-        alert(
-          output.srtPath
-            ? `Clip exported to: ${output.outputPath}\nCaptions saved to: ${output.srtPath}${output.warnings.length ? `\n\n${output.warnings.join('\n')}` : ''}`
-            : `Clip exported to: ${output.outputPath}`,
-        );
+        setCreatorNotice({
+          tone: 'success',
+          title: 'Clip exported',
+          message: output.srtPath ? `Saved to ${output.outputPath}; captions saved to ${output.srtPath}.` : `Saved to ${output.outputPath}.`,
+          technicalDetails: output.warnings.length ? output.warnings.join('\n') : undefined,
+          onDismiss: () => setCreatorNotice(null),
+        });
       } catch (err) {
         console.error(err);
         updateClipDraft(draft.id, { status: 'failed', lastError: err instanceof Error ? err.message : String(err) });
-        alert(`Clip retry failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+        setCreatorNotice({ ...getCreatorErrorPresentation('clip-action', err), onDismiss: () => setCreatorNotice(null) });
       } finally {
         setExportingDraftId(null);
       }
@@ -1040,10 +1048,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       );
       try {
         await navigator.clipboard.writeText(packageText);
-        alert('Clip package copied.');
+        setCreatorNotice({ tone: 'success', title: 'Copied', message: 'Clip package copied to the clipboard.', onDismiss: () => setCreatorNotice(null) });
       } catch (err) {
         console.error('Clip package copy failed:', err);
-        alert(`Could not copy clip package.\n\n${err instanceof Error ? err.message : String(err)}`);
+        setCreatorNotice({ ...getCreatorErrorPresentation('clipboard', err), onDismiss: () => setCreatorNotice(null) });
       }
     },
     [words],
@@ -1057,10 +1065,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         : pack.map((item) => item.text).join('\n\n');
       try {
         await navigator.clipboard.writeText(packageText);
-        alert(platform ? 'Social post copied.' : 'Social publishing pack copied.');
+        setCreatorNotice({ tone: 'success', title: 'Copied', message: platform ? 'Social post copied to the clipboard.' : 'Social publishing pack copied to the clipboard.', onDismiss: () => setCreatorNotice(null) });
       } catch (err) {
         console.error('Social publishing copy failed:', err);
-        alert(`Could not copy social package.\n\n${err instanceof Error ? err.message : String(err)}`);
+        setCreatorNotice({ ...getCreatorErrorPresentation('clipboard', err), onDismiss: () => setCreatorNotice(null) });
       }
     },
     [],
@@ -1069,10 +1077,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const copyHookFrameBrief = useCallback(async (draft: ClipDraft, frame?: HookFrameCandidate) => {
     try {
       await navigator.clipboard.writeText(formatHookFrameBrief(draft, frame));
-      alert('Hook frame brief copied.');
+      setCreatorNotice({ tone: 'success', title: 'Copied', message: 'Hook frame brief copied to the clipboard.', onDismiss: () => setCreatorNotice(null) });
     } catch (err) {
       console.error('Hook frame copy failed:', err);
-      alert(`Could not copy hook frame brief.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('clipboard', err), onDismiss: () => setCreatorNotice(null) });
     }
   }, []);
 
@@ -1087,7 +1095,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     async (draft: ClipDraft) => {
       const validation = validateClipDraftForExport(draft, words, videoPath);
       if (!validation.ready) {
-        alert(`Clip is not ready to export.\n\n${validation.reasons.join('\n')}`);
+        setCreatorNotice({ tone: 'warning', title: 'Clip isn’t ready to export', message: 'Review the readiness details before exporting.', technicalDetails: validation.reasons.join('\n'), onDismiss: () => setCreatorNotice(null) });
         return;
       }
       setExportingDraftId(draft.id);
@@ -1142,14 +1150,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         results,
         words,
       });
-      alert(
-        stopBatchExportRef.current
-          ? `Stopped batch export after ${results.length} of ${exportableDrafts.length} clips.\n${successCount} exported, ${failedCount} failed.${manifestPath ? `\nManifest saved to: ${manifestPath}` : ''}`
-          : `Batch export finished.\n${successCount} exported, ${failedCount} failed.${manifestPath ? `\nManifest saved to: ${manifestPath}` : ''}`,
-      );
+      setCreatorNotice({
+        tone: failedCount > 0 ? 'warning' : 'success',
+        title: stopBatchExportRef.current ? 'Batch export stopped' : 'Batch export finished',
+        message: `${successCount} exported, ${failedCount} failed.${manifestPath ? ` Manifest saved to ${manifestPath}.` : ''}`,
+        onDismiss: () => setCreatorNotice(null),
+      });
     } catch (err) {
       console.error(err);
-      alert(`Batch export failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('clip-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setExportingDraftId(null);
       setBatchExporting(false);
@@ -1197,7 +1206,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       } catch (err) {
         console.error(err);
         updateClipDraft(draft.id, { lastError: err instanceof Error ? err.message : String(err) });
-        alert(`Clip packaging failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+        setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
       } finally {
         setPackagingDraftId(null);
       }
@@ -1207,6 +1216,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const retryAIJob = useCallback(async () => {
     if (!activeAIJob || !['failed', 'canceled'].includes(activeAIJob.status)) return;
+    setCreatorNotice(null);
     setProcessing(true, `Retrying ${activeAIJob.label}...`);
     try {
       const retryRes = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/retry`, { method: 'POST' });
@@ -1240,7 +1250,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       }
     } catch (err) {
       console.error(err);
-      alert(`AI retry failed.\n\n${err instanceof Error ? err.message : String(err)}`);
+      setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setProcessing(false);
     }
@@ -1291,6 +1301,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
+        {creatorNotice && <CreatorNotice notice={creatorNotice} className="mb-3" />}
         {activeAIJob && (
           <AIJobStatusCard job={activeAIJob} onCancel={cancelAIJob} onRetry={retryAIJob} />
         )}

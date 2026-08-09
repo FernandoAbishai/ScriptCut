@@ -8,6 +8,9 @@ import type { ClipDraft } from '../types/project';
 import { adjustWordSelectionBoundary, formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
 import { findTranscriptMatches } from '../utils/transcriptSearch';
 import { formatSpeakerDuration, getSpeakerStats } from '../utils/speakerStats';
+import CreatorDialog from './CreatorDialog';
+import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
+import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 
 export default function TranscriptEditor() {
   const words = useEditorStore((s) => s.words);
@@ -40,6 +43,13 @@ export default function TranscriptEditor() {
   const selectedSegmentIndexRef = useRef(-1);
   const userScrollPauseUntilRef = useRef(0);
   const userScrollTimerRef = useRef(0);
+  const renameSpeakerButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteSpeakerButtonRef = useRef<HTMLButtonElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [speakerNameDraft, setSpeakerNameDraft] = useState('');
+  const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
 
   const deletedSet = useMemo(() => {
     const s = new Set<number>();
@@ -244,18 +254,28 @@ export default function TranscriptEditor() {
 
   const handleRenameSpeaker = useCallback(() => {
     if (speakerFilter === 'all') return;
-    const nextLabel = window.prompt('Rename speaker', speakerFilter);
-    if (nextLabel) {
-      renameSpeaker(speakerFilter, nextLabel);
-      setSpeakerFilter(nextLabel.trim());
-    }
-  }, [speakerFilter, renameSpeaker]);
+    setSpeakerNameDraft(speakerFilter);
+    setRenameDialogOpen(true);
+  }, [speakerFilter]);
+
+  const submitRenameSpeaker = useCallback(() => {
+    const nextLabel = speakerNameDraft.trim();
+    if (!nextLabel || speakerFilter === 'all') return;
+    renameSpeaker(speakerFilter, nextLabel);
+    setSpeakerFilter(nextLabel);
+    setRenameDialogOpen(false);
+  }, [renameSpeaker, speakerFilter, speakerNameDraft]);
 
   const handleDeleteSpeaker = useCallback(() => {
     if (speakerFilter === 'all') return;
-    const confirmed = window.confirm(`Delete all words from ${speakerFilter}?`);
-    if (confirmed) deleteSpeakerWords(speakerFilter);
-  }, [speakerFilter, deleteSpeakerWords]);
+    setDeleteDialogOpen(true);
+  }, [speakerFilter]);
+
+  const confirmDeleteSpeaker = useCallback(() => {
+    if (speakerFilter === 'all') return;
+    deleteSpeakerWords(speakerFilter);
+    setDeleteDialogOpen(false);
+  }, [deleteSpeakerWords, speakerFilter]);
 
   const applySpeakerLayer = useCallback(
     (kind: 'mute' | 'room-tone' | 'caption-only') => {
@@ -283,7 +303,20 @@ export default function TranscriptEditor() {
 
   const copySelectionText = useCallback(async () => {
     if (!selectionSummary) return;
-    await navigator.clipboard?.writeText(selectionSummary.text);
+    try {
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+        throw new Error('Clipboard access is unavailable');
+      }
+      await navigator.clipboard.writeText(selectionSummary.text);
+      setCreatorNotice({
+        tone: 'success',
+        title: 'Copied',
+        message: 'Selected transcript text copied to the clipboard.',
+        onDismiss: () => setCreatorNotice(null),
+      });
+    } catch (err) {
+      setCreatorNotice({ ...getCreatorErrorPresentation('clipboard', err), onDismiss: () => setCreatorNotice(null) });
+    }
   }, [selectionSummary]);
 
   const draftClipFromSelection = useCallback(() => {
@@ -410,7 +443,9 @@ export default function TranscriptEditor() {
   );
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <>
+      {creatorNotice && <CreatorNotice notice={creatorNotice} className="mx-4 mt-2" />}
+      <div className="flex-1 flex flex-col min-h-0">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-editor-border shrink-0">
         <span className="text-xs text-editor-text-muted mr-auto">
           {visibleWordCount} words &middot; {deletedRanges.length} cuts &middot; {nonDeleteLayerCount} layers
@@ -427,18 +462,20 @@ export default function TranscriptEditor() {
               }
             }}
             placeholder="Search transcript"
+            aria-label="Search transcript"
             className="min-w-0 flex-1 bg-transparent text-xs text-editor-text placeholder:text-editor-text-muted/50 focus:outline-none"
           />
           {searchQuery && (
             <>
-              <span className="text-[10px] text-editor-text-muted">
-                {searchMatches.length === 0 ? '0' : `${activeSearchIndex + 1}/${searchMatches.length}`}
+              <span className="text-[10px] text-editor-text-muted" aria-live="polite">
+                {searchMatches.length === 0 ? '0 results' : `${activeSearchIndex + 1}/${searchMatches.length}`}
               </span>
               <button
                 onClick={() => activateSearchResult(activeSearchIndex - 1)}
                 disabled={searchMatches.length === 0}
                 className="rounded p-0.5 text-editor-text-muted hover:bg-editor-bg disabled:opacity-40"
                 title="Previous result"
+                aria-label="Previous result"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
@@ -447,6 +484,7 @@ export default function TranscriptEditor() {
                 disabled={searchMatches.length === 0}
                 className="rounded p-0.5 text-editor-text-muted hover:bg-editor-bg disabled:opacity-40"
                 title="Next result"
+                aria-label="Next result"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -457,6 +495,7 @@ export default function TranscriptEditor() {
                 }}
                 className="rounded p-0.5 text-editor-text-muted hover:bg-editor-bg"
                 title="Clear search"
+                aria-label="Clear search"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -468,6 +507,7 @@ export default function TranscriptEditor() {
             <select
               value={speakerFilter}
               onChange={(e) => setSpeakerFilter(e.target.value)}
+              aria-label="Filter transcript by speaker"
               className="px-2 py-1 bg-editor-surface border border-editor-border rounded text-xs text-editor-text focus:outline-none focus:border-editor-accent"
             >
               <option value="all">All speakers</option>
@@ -489,6 +529,7 @@ export default function TranscriptEditor() {
                 </button>
                 <button
                   onClick={handleRenameSpeaker}
+                  ref={renameSpeakerButtonRef}
                   className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-border text-editor-text-muted rounded hover:bg-editor-surface transition-colors"
                   title="Rename speaker"
                 >
@@ -497,6 +538,7 @@ export default function TranscriptEditor() {
                 </button>
                 <button
                   onClick={handleDeleteSpeaker}
+                  ref={deleteSpeakerButtonRef}
                   className="flex items-center gap-1 px-2 py-1 text-xs bg-editor-danger/20 text-editor-danger rounded hover:bg-editor-danger/30 transition-colors"
                   title="Delete speaker words"
                 >
@@ -562,6 +604,7 @@ export default function TranscriptEditor() {
                 onClick={() => trimSelection('start', -1)}
                 className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
                 title="Include previous word"
+                aria-label="Include previous word"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
@@ -570,6 +613,7 @@ export default function TranscriptEditor() {
                 onClick={() => trimSelection('start', 1)}
                 className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
                 title="Remove first selected word"
+                aria-label="Remove first selected word"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -579,6 +623,7 @@ export default function TranscriptEditor() {
                 onClick={() => trimSelection('end', -1)}
                 className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
                 title="Remove last selected word"
+                aria-label="Remove last selected word"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
@@ -587,6 +632,7 @@ export default function TranscriptEditor() {
                 onClick={() => trimSelection('end', 1)}
                 className="p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
                 title="Include next word"
+                aria-label="Include next word"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -684,7 +730,50 @@ export default function TranscriptEditor() {
           style={{ height: '100%' }}
         />
       </div>
-    </div>
+      </div>
+
+      <CreatorDialog
+        open={renameDialogOpen}
+        title="Rename speaker"
+        description="Choose the speaker name shown throughout this transcript."
+        onClose={() => setRenameDialogOpen(false)}
+        initialFocusRef={renameInputRef}
+        returnFocusRef={renameSpeakerButtonRef}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitRenameSpeaker();
+          }}
+        >
+          <label htmlFor="rename-speaker-input" className="text-xs font-medium text-editor-text">Speaker name</label>
+          <input
+            id="rename-speaker-input"
+            ref={renameInputRef}
+            value={speakerNameDraft}
+            onChange={(event) => setSpeakerNameDraft(event.target.value)}
+            className="mt-2 w-full rounded border border-editor-border bg-editor-surface px-2.5 py-2 text-sm text-editor-text focus:border-editor-accent focus:outline-none"
+          />
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" onClick={() => setRenameDialogOpen(false)} className="rounded border border-editor-border px-3 py-2 text-xs text-editor-text-muted hover:bg-editor-surface">Cancel</button>
+            <button type="submit" disabled={!speakerNameDraft.trim()} className="rounded bg-editor-accent px-3 py-2 text-xs font-medium text-white hover:bg-editor-accent-hover disabled:opacity-50">Rename</button>
+          </div>
+        </form>
+      </CreatorDialog>
+
+      <CreatorDialog
+        open={deleteDialogOpen}
+        title="Delete this speaker’s words?"
+        description={`This will mark all words from ${speakerFilter} for deletion. You can undo the change afterward.`}
+        onClose={() => setDeleteDialogOpen(false)}
+        returnFocusRef={deleteSpeakerButtonRef}
+      >
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={() => setDeleteDialogOpen(false)} className="rounded border border-editor-border px-3 py-2 text-xs text-editor-text-muted hover:bg-editor-surface">Cancel</button>
+          <button type="button" onClick={confirmDeleteSpeaker} className="rounded bg-editor-danger px-3 py-2 text-xs font-medium text-white hover:opacity-90">Delete words</button>
+        </div>
+      </CreatorDialog>
+    </>
   );
 }
 

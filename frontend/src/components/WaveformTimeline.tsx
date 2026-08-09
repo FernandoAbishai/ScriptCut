@@ -160,7 +160,7 @@ export default function WaveformTimeline() {
         if (canceled || (err instanceof DOMException && err.name === 'AbortError')) return;
         console.warn('Could not decode audio for waveform:', err);
         audioBufferRef.current = null;
-        setAudioError('Waveform unavailable — audio could not be decoded');
+        setAudioError('Waveform unavailable');
         setWaveformRevision((revision) => revision + 1);
       }
     };
@@ -327,7 +327,7 @@ export default function WaveformTimeline() {
 
   if (!videoUrl) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-editor-text-muted text-xs">
+      <div className="w-full h-full flex items-center justify-center text-editor-text-muted text-xs" role="status" aria-live="polite">
         Load a video to see the waveform
       </div>
     );
@@ -344,24 +344,31 @@ export default function WaveformTimeline() {
             {formatTimelineTime(playbackState.previewTime)} / {formatTimelineTime(playbackState.previewDuration)}
           </span>
           <button
+            type="button"
             onClick={() => setFollowPlayhead((current) => !current)}
             className={`p-0.5 ${followPlayhead ? 'text-editor-accent' : 'text-editor-text-muted'} hover:text-editor-text`}
             title={followPlayhead ? 'Following playhead' : 'Follow playhead'}
+            aria-label={followPlayhead ? 'Stop following playhead' : 'Follow playhead'}
+            aria-pressed={followPlayhead}
           >
             <LocateFixed className="w-3.5 h-3.5" />
           </button>
           <button
+            type="button"
             onClick={() => setZoom((current) => Math.max(1, current - 0.5))}
             disabled={zoom <= 1}
             className="p-0.5 text-editor-text-muted hover:text-editor-text"
             title="Zoom out"
+            aria-label="Zoom out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
+            type="button"
             onClick={() => setZoom((current) => Math.min(8, current + 0.5))}
             className="p-0.5 text-editor-text-muted hover:text-editor-text"
             title="Zoom in"
+            aria-label="Zoom in"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
@@ -369,6 +376,8 @@ export default function WaveformTimeline() {
       </div>
       <div
         className="flex-1 relative overflow-x-auto"
+        role="group"
+        aria-label="Waveform timeline. Drag across the waveform to select transcript words or click to seek."
         data-timeline-scroll="true"
         onScroll={() => {
           manualScrollPauseUntilRef.current = Date.now() + 900;
@@ -378,6 +387,7 @@ export default function WaveformTimeline() {
           <canvas ref={waveCanvasRef} className="absolute inset-0 h-full w-full" />
           <canvas
             ref={headCanvasRef}
+            aria-label="Interactive waveform timeline"
             className="absolute inset-0 h-full w-full cursor-crosshair"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -389,9 +399,9 @@ export default function WaveformTimeline() {
           />
         </div>
         {audioError && (
-          <div className="pointer-events-none absolute inset-x-3 top-2 flex items-center gap-1.5 rounded bg-editor-bg/80 px-2 py-1 text-[10px] text-editor-text-muted">
+          <div className="pointer-events-none absolute inset-x-3 top-2 flex items-center gap-1.5 rounded bg-editor-bg/80 px-2 py-1 text-[10px] text-editor-text-muted" role="status" aria-live="polite">
             <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
-            <span>{audioError}</span>
+            <span>{audioError}. ScriptCut couldn’t draw the audio waveform. You can still edit with the transcript and video preview.</span>
           </div>
         )}
       </div>
