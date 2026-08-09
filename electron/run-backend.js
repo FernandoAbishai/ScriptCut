@@ -1,13 +1,18 @@
 const path = require('path');
 const { spawn } = require('child_process');
-const { resolvePythonRuntime } = require('./python-runtime');
-
-const backendDir = path.join(__dirname, '..', 'backend');
+const os = require('os');
+const { resolveBackendLaunchPlan } = require('./runtime-contract');
 
 function main() {
-  const { command, argsPrefix } = resolvePythonRuntime();
+  const projectRoot = path.join(__dirname, '..');
+  const launchPlan = resolveBackendLaunchPlan({
+    runtimeMode: 'development',
+    resourcesPath: projectRoot,
+    projectRoot,
+    userDataPath: process.env.SCRIPTCUT_USER_DATA_PATH || path.join(os.tmpdir(), 'scriptcut-dev'),
+  });
   const args = [
-    ...argsPrefix,
+    ...launchPlan.argsPrefix,
     '-m',
     'uvicorn',
     'main:app',
@@ -16,10 +21,15 @@ function main() {
     ...process.argv.slice(2),
   ];
 
-  const child = spawn(command, args, {
-    cwd: backendDir,
+  const child = spawn(launchPlan.command, args, {
+    cwd: launchPlan.backendRoot,
     stdio: 'inherit',
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: {
+      ...process.env,
+      ...launchPlan.environment,
+      SCRIPTCUT_ALLOW_TOKENLESS_DEV: '1',
+      PYTHONUNBUFFERED: '1',
+    },
   });
 
   child.on('exit', (code, signal) => {

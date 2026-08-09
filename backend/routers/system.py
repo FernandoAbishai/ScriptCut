@@ -60,6 +60,17 @@ def _diagnostic_ffmpeg_version(ffmpeg: dict) -> str:
     return detail if "ffmpeg version" in detail.lower() else "available"
 
 
+def _runtime_metadata() -> dict:
+    """Return runtime identity without exposing local filesystem paths or secrets."""
+    return {
+        "mode": os.environ.get("SCRIPTCUT_RUNTIME_MODE", "development"),
+        "target": os.environ.get("SCRIPTCUT_RUNTIME_TARGET", ""),
+        "pythonSource": os.environ.get("SCRIPTCUT_RUNTIME_PYTHON_SOURCE", "external"),
+        "manifestSchema": os.environ.get("SCRIPTCUT_RUNTIME_MANIFEST_SCHEMA", "scriptcut.runtime.v1"),
+        "tokenRequired": bool(os.environ.get("SCRIPTCUT_API_TOKEN", "").strip()),
+    }
+
+
 @router.get("/system/checks")
 async def system_checks():
     transcription = _transcription_status()
@@ -111,6 +122,7 @@ async def system_diagnostics():
     captions_available = supports_ass_subtitles() if ffmpeg["ok"] else False
     return {
         "backend": {"status": "ready"},
+        "runtime": _runtime_metadata(),
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "platform": {
             "system": platform.system(),

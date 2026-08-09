@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -13,12 +15,33 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from local_api_auth import is_authorized_local_api_request
+from local_api_auth import is_authorized_local_api_request, validate_local_api_startup
 from network_security import validate_provider_url
 from services.job_manager import JobManager
 
 
 class SecuritySmokeTests(unittest.TestCase):
+    def test_tokenless_startup_requires_explicit_development_override(self):
+        with self.assertRaisesRegex(RuntimeError, "SCRIPTCUT_API_TOKEN is required"):
+            validate_local_api_startup(None, False)
+        self.assertFalse(validate_local_api_startup(None, True))
+        self.assertTrue(validate_local_api_startup("session-secret", False))
+
+    def test_backend_module_rejects_unconfigured_tokenless_startup(self):
+        environment = os.environ.copy()
+        environment.pop("SCRIPTCUT_API_TOKEN", None)
+        environment.pop("SCRIPTCUT_ALLOW_TOKENLESS_DEV", None)
+        result = subprocess.run(
+            [sys.executable, "-c", "import main"],
+            cwd=BACKEND_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SCRIPTCUT_API_TOKEN is required", result.stderr)
+
     def test_local_api_token_rejects_missing_and_wrong_values(self):
         self.assertFalse(is_authorized_local_api_request("session-secret", None))
         self.assertFalse(is_authorized_local_api_request("session-secret", "wrong"))

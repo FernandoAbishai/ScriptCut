@@ -4,11 +4,17 @@ const path = require('path');
 const http = require('http');
 const { resolvePythonRuntime } = require('./python-runtime');
 const { bundledToolEnv } = require('./bundled-tools');
+const { resolveBackendLaunchPlan } = require('./runtime-contract');
 
 class PythonBackend {
-  constructor(port, isDev, apiToken = null) {
+  constructor(port, isDev, apiToken = null, runtimeContext = {}) {
     this.port = port;
     this.isDev = isDev;
+    this.runtimeMode = runtimeContext.runtimeMode || (isDev ? 'development' : 'packaged-legacy');
+    this.resourcesPath = runtimeContext.resourcesPath || process.resourcesPath;
+    this.userDataPath = runtimeContext.userDataPath || null;
+    this.projectRoot = runtimeContext.projectRoot || path.join(__dirname, '..');
+    this.resolvePython = runtimeContext.resolvePython || resolvePythonRuntime;
     this.process = null;
     this.apiToken = apiToken || crypto.randomBytes(32).toString('hex');
     this.lastBackendError = '';
@@ -30,13 +36,16 @@ class PythonBackend {
       }
     }
 
-    const backendDir = this.isDev
-      ? path.join(__dirname, '..', 'backend')
-      : path.join(process.resourcesPath, 'backend');
-    const { command, argsPrefix } = resolvePythonRuntime();
+    const launchPlan = resolveBackendLaunchPlan({
+      runtimeMode: this.runtimeMode,
+      resourcesPath: this.resourcesPath,
+      userDataPath: this.userDataPath,
+      projectRoot: this.projectRoot,
+      resolvePython: this.resolvePython,
+    });
 
-    this.process = spawn(command, [
-      ...argsPrefix,
+    this.process = spawn(launchPlan.command, [
+      ...launchPlan.argsPrefix,
       '-m', 'uvicorn', 'main:app',
       '--host', '127.0.0.1',
       '--port', String(this.port),
@@ -45,6 +54,7 @@ class PythonBackend {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        ...launchPlan.environment,
         ...bundledToolEnv(this.isDev),
         SCRIPTCUT_API_TOKEN: this.apiToken,
         SCRIPTCUT_FILE_TOKEN_SECRET: this.apiToken,

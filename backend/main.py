@@ -9,7 +9,12 @@ from fastapi import FastAPI, File, Query, Request, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from local_api_auth import is_authorized_local_api_request
+from local_api_auth import is_authorized_local_api_request, validate_local_api_startup
+
+LOCAL_API_TOKEN = os.getenv("SCRIPTCUT_API_TOKEN", "").strip()
+ALLOW_TOKENLESS_DEV = os.getenv("SCRIPTCUT_ALLOW_TOKENLESS_DEV", "") == "1"
+TOKEN_REQUIRED = validate_local_api_startup(LOCAL_API_TOKEN, ALLOW_TOKENLESS_DEV)
+
 from routers import transcribe, export, ai, captions, audio, jobs, background, system
 
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +38,6 @@ app.add_middleware(
     expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
 )
 
-LOCAL_API_TOKEN = os.getenv("SCRIPTCUT_API_TOKEN", "")
 MAX_UPLOAD_BYTES = int(os.getenv("SCRIPTCUT_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024 * 1024)))
 
 
@@ -41,7 +45,7 @@ MAX_UPLOAD_BYTES = int(os.getenv("SCRIPTCUT_MAX_UPLOAD_BYTES", str(10 * 1024 * 1
 async def require_local_api_token(request: Request, call_next):
     """Protect local APIs from other processes and browser origins."""
     if (
-        LOCAL_API_TOKEN
+        TOKEN_REQUIRED
         and request.method != "OPTIONS"
         and request.url.path != "/health"
         and not is_authorized_local_api_request(LOCAL_API_TOKEN, request.headers.get("X-ScriptCut-Token"))
