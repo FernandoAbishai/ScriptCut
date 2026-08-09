@@ -263,6 +263,7 @@ function resolveBackendLaunchPlan(options = {}) {
         SCRIPTCUT_LOG_ROOT: contract.logRoot,
         SCRIPTCUT_MODEL_MANIFEST_PATH: contract.modelManifestPath,
         PYTHONNOUSERSITE: '1',
+        PYTHONDONTWRITEBYTECODE: '1',
         PYTHONPATH: corePackRoot,
       },
       environmentKeysToRemove: [

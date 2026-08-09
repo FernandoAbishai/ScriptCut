@@ -4,7 +4,7 @@ This guide is for preparing a desktop release from the repository.
 
 ## Current Release Status
 
-Phase 3B.5C adds the controlled public unsigned macOS arm64 distribution path. This guide describes how qualifying public alphas are produced; it does not assert that every historical alpha already has the self-contained runtime. Inspect each release's notes and manifest. The workflow creates no tag or GitHub Release unless explicitly dispatched with publication gates. Apple Developer membership, Developer ID signing, and notarization are optional future enhancements, not prerequisites for the public unsigned alpha path. Source development is still supported with:
+Phase 3B.5C adds the controlled public ad-hoc-signed macOS arm64 distribution path. This guide describes how qualifying public alphas are produced; it does not assert that every historical alpha already has the self-contained runtime. Inspect each release's notes and manifest. The workflow creates no tag or GitHub Release unless explicitly dispatched with publication gates. Apple Developer membership, Developer ID signing, and notarization are optional future enhancements, not prerequisites for the public ad-hoc alpha path. Source development is still supported with:
 
 ```bash
 npm run setup
@@ -39,7 +39,7 @@ When packaging changes are included, run:
 npm run qa:desktop:package
 ```
 
-Check unsigned candidate readiness:
+Check ad-hoc candidate readiness:
 
 ```bash
 npm run release:trust:candidate
@@ -80,7 +80,7 @@ Run the extended native model gate explicitly when requested:
 npm run release:rc:arm64 -- --real-model
 ```
 
-The release-candidate command supports exactly native macOS arm64. It disables certificate auto-discovery and removes signing/notarization credentials from its build environment, so a local Apple Development certificate cannot be selected accidentally. The candidate is unsigned and not suitable for public distribution.
+The release-candidate command supports exactly native macOS arm64. It disables certificate auto-discovery and removes signing/notarization credentials from its build environment, so a local Apple Development certificate cannot be selected accidentally. The candidate uses an ad-hoc code signature for package integrity and is not signed with Apple Developer ID or notarized; it is suitable for the controlled public alpha path after all launchability and provenance gates pass.
 
 Build a local macOS DMG:
 
@@ -92,9 +92,9 @@ The generated installer will be written under `dist/`.
 
 Use `npm run dist:dir` when you only need an unpacked app bundle for local QA.
 
-## Public unsigned GitHub prerelease
+## Public ad-hoc GitHub prerelease
 
-The dedicated `.github/workflows/release-unsigned.yml` workflow is `workflow_dispatch` only. It builds on a native `macos-14` arm64 runner using the existing `npm run release:rc:arm64` candidate machinery, then stages the exact public DMG, public manifest, notes, checksum, and Sigstore attestation bundles.
+The dedicated `.github/workflows/release-unsigned.yml` workflow is `workflow_dispatch` only. It builds on a native `macos-14` arm64 runner using the existing `npm run release:rc:arm64` candidate machinery, then stages the exact public DMG, public manifest, notes, checksum, and Sigstore attestation bundles. The resulting app uses an ad-hoc code signature for package integrity; the workflow name and input identifiers retain their existing compatibility names.
 
 Required inputs are `release_tag`, `publish`, `real_model`, and `confirmation`. The tag must be `v<package.version>-alpha.<positive integer>` and must be greater than every existing alpha tag. `publish=false` is the safe dry-run mode: it may create attestations and a workflow artifact whose name includes `dry-run`, but it cannot create a tag, release, commit, or mutate `main`. Publication additionally requires `publish=true`, `real_model=true`, `confirmation=PUBLISH_UNSIGNED_ALPHA`, the workflow ref to be `main`, and a current `origin/main` equal to the dispatched commit. The publish job has contents write permission only, downloads the already verified artifact, creates a GitHub prerelease with `--prerelease --latest=false`, and verifies the exact tag, asset set, and digest after creation. It never rebuilds during publication.
 
@@ -120,11 +120,11 @@ Highlights:
 
 Install:
 1. Download the macOS Apple Silicon (arm64) DMG from the official ScriptCut Releases feed.
-2. If macOS blocks the unsigned first launch, use System Settings → Privacy & Security → Open Anyway.
+2. If macOS blocks the ad-hoc-signed first launch, use System Settings → Privacy & Security → Open Anyway.
 3. Open ScriptCut and select a video; the baseline model is app-managed and downloaded on first transcription.
 
 Status:
-This is an unsigned, unnotarized prerelease alpha. Keep original media and project backups.
+This is an ad-hoc-signed prerelease alpha that is not signed with Apple Developer ID or notarized. Keep original media and project backups.
 ```
 
 Attach:
@@ -136,7 +136,7 @@ Attach:
 - `dist/public-release/ScriptCut-v<version>-alpha.<n>-arm64.dmg.sigstore.json`
 - `dist/public-release/release-manifest.sigstore.json`
 
-The public release manifest uses schema `scriptcut.release.v2` and records the unsigned/notarized truth, bundled runtime/core/FFmpeg/model provenance, final DMG SHA-256, release tag, source commit, and the DMG attestation reference. The DMG and manifest are each attested with the official GitHub artifact-attestation action; the workflow artifact bundles are retained for independent verification.
+The public release manifest uses schema `scriptcut.release.v2` and records the ad-hoc structural signature, Apple Developer ID, and notarization truth, bundled runtime/core/FFmpeg/model provenance, final DMG SHA-256, release tag, source commit, and the DMG attestation reference. The DMG and manifest are each attested with the official GitHub artifact-attestation action; the workflow artifact bundles are retained for independent verification.
 
 ## Signing And Notarization
 
@@ -182,4 +182,4 @@ Supported notarization inputs:
 - The bundle manifest records whether the selected FFmpeg supports ASS burn-in captions. Releases without that filter use the tested sidecar `.srt` fallback and must state that in their notes.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.
 - Browser mode at `localhost:5173` is for development. The desktop app is the intended user version.
-- Public unsigned alpha releases are intentionally not Apple-signed or notarized. Apple trust may be added later without changing the public provenance and verification contract.
+- Public ad-hoc alpha releases are not signed with Apple Developer ID or notarized. Apple trust may be added later without changing the public provenance and verification contract.

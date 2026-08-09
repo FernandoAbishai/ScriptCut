@@ -232,6 +232,7 @@ function verifyCore(interpreterPath, relativeInterpreter) {
   });
   const probe = [
     'import fastapi, uvicorn, pydantic, requests, torch, whisper',
+    'x = torch.tensor([1.0, 2.0]); y = x * 2; assert y.tolist() == [2.0, 4.0]',
     'from importlib.metadata import version; assert version("openai-whisper") == "20250625"',
     'import importlib.util, sys; import main; forbidden = ("whisperx", "nemo", "pyannote.audio", "df", "mediapipe", "cv2", "openai", "anthropic", "moviepy"); assert all(name not in sys.modules for name in forbidden)',
   ].join('; ');
@@ -286,6 +287,37 @@ function directorySize(directory) {
   return fs.readdirSync(directory).reduce((total, entry) => total + directorySize(path.join(directory, entry)), 0);
 }
 
+function directoryStats(directory) {
+  if (!fs.existsSync(directory)) return { files: 0, bytes: 0 };
+  const stat = fs.lstatSync(directory);
+  if (!stat.isDirectory()) return { files: 1, bytes: stat.size };
+  return fs.readdirSync(directory).reduce((total, entry) => {
+    const child = directoryStats(path.join(directory, entry));
+    return { files: total.files + child.files, bytes: total.bytes + child.bytes };
+  }, { files: 0, bytes: 0 });
+}
+
+function pruneNonRuntimeCoreArtifacts() {
+  const torchIncludePath = path.join(corePackRoot, 'torch', 'include');
+  if (!fs.existsSync(torchIncludePath) || !fs.statSync(torchIncludePath).isDirectory()) {
+    fail(`expected pinned Torch development headers directory is missing: ${path.relative(root, torchIncludePath)}`);
+  }
+
+  const removed = directoryStats(torchIncludePath);
+  fs.rmSync(torchIncludePath, { recursive: true, force: false });
+  if (fs.existsSync(torchIncludePath)) {
+    fail(`Torch development headers directory still exists after pruning: ${path.relative(root, torchIncludePath)}`);
+  }
+
+  console.log([
+    'Pruned non-runtime Torch development headers:',
+    `files=${removed.files}`,
+    `bytes=${removed.bytes}`,
+    `path=${path.relative(buildRoot, torchIncludePath).split(path.sep).join('/')}`,
+  ].join('\n'));
+  return removed;
+}
+
 async function main() {
   verifyTarget();
   fs.mkdirSync(buildRoot, { recursive: true });
@@ -295,12 +327,20 @@ async function main() {
   const environment = isolatedEnvironment();
   const version = pythonVersion(interpreterPath, environment);
   installCorePack(interpreterPath);
+  const coreBefore = directoryStats(corePackRoot);
+  console.log(`Core pack files before pruning: ${coreBefore.files}`);
+  console.log(`Core pack bytes before pruning: ${coreBefore.bytes}`);
+  const headersRemoved = pruneNonRuntimeCoreArtifacts();
+  const coreAfter = directoryStats(corePackRoot);
+  console.log(`Torch headers removed: ${headersRemoved.files}`);
+  console.log(`Core pack files after pruning: ${coreAfter.files}`);
+  console.log(`Core pack bytes after pruning: ${coreAfter.bytes}`);
   verifyCore(interpreterPath, relativeInterpreter);
   const modelManifest = validateTrustedModelManifest();
   const manifest = writeManifest(relativeInterpreter, version);
 
   console.log(`Portable Python: ${path.relative(root, runtimeRoot)} (${directorySize(runtimeRoot)} bytes)`);
-  console.log(`Core pack: ${path.relative(root, corePackRoot)} (${directorySize(corePackRoot)} bytes)`);
+  console.log(`Core pack: ${path.relative(root, corePackRoot)} (${coreAfter.bytes} bytes)`);
   console.log(`Backend: backend (${directorySize(path.join(root, 'backend'))} bytes)`);
   console.log(`Runtime manifest: ${path.relative(root, manifestPath)}`);
   console.log(`Trusted model manifest: ${path.relative(root, modelInputPath)} (${modelManifest.id}, ${modelManifest.expectedBytes} bytes)`);

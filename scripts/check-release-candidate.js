@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { verifyApp } = require('./check-macos-launchability');
 
 const root = path.join(__dirname, '..');
 
@@ -41,7 +42,9 @@ function inspectDmg(dmgPath) {
   try {
     run('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mountPoint, dmgPath]);
     attached = true;
-    if (!fs.existsSync(path.join(mountPoint, 'ScriptCut.app'))) fail('verified DMG does not contain ScriptCut.app');
+    const mountedApp = path.join(mountPoint, 'ScriptCut.app');
+    if (!fs.existsSync(mountedApp)) fail('verified DMG does not contain ScriptCut.app');
+    verifyApp(mountedApp);
     console.log('DMG inspection: verified, read-only mounted, ScriptCut.app present');
   } finally {
     if (attached) run('hdiutil', ['detach', mountPoint]);
@@ -55,6 +58,7 @@ function main() {
   const dmgPath = path.resolve(optionValue('--dmg') || '');
   if (!appPath || !appPath.endsWith('.app') || !fs.existsSync(appPath)) fail('candidate app path is missing');
   if (!dmgPath || !dmgPath.endsWith('.dmg') || !fs.existsSync(dmgPath)) fail('candidate DMG path is missing');
+  verifyApp(appPath);
   const resources = path.join(appPath, 'Contents', 'Resources');
   for (const relative of [
     'backend',

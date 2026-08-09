@@ -4,7 +4,7 @@ This page describes the ScriptCut support boundary and how to identify a qualify
 
 | Platform | Current status | Distribution | Notes |
 | --- | --- | --- | --- |
-| macOS Apple Silicon (arm64) | Supported self-contained public-alpha path when identified by release notes | GitHub prerelease DMG | Qualifying releases bundle portable Python/core runtime and FFmpeg/FFprobe and record that truth in the manifest. The baseline model is app-managed; no system Python is required. The DMG is unsigned/not notarized, so first-launch approval may be required. |
+| macOS Apple Silicon (arm64) | Supported self-contained public-alpha path when identified by release notes | GitHub prerelease DMG | Qualifying releases bundle portable Python/core runtime and FFmpeg/FFprobe and record that truth in the manifest. The baseline model is app-managed; no system Python is required. The app uses an ad-hoc code signature but is not signed with Apple Developer ID or notarized, so first-launch approval may be required. |
 | macOS Intel (x64) | Preparation supported, release not yet published | Source / maintainer build | Build and validate on a native Intel Mac with a matching x64 FFmpeg bundle before publishing an Intel DMG. |
 | Windows | Source development only | No public installer | Do not treat the current NSIS config as a supported release until packaging, FFmpeg, and export have been verified on Windows. |
 | Linux | Source development only | No public installer | Do not treat the current AppImage config as a supported release until packaging, FFmpeg, and export have been verified on Linux. |
@@ -17,9 +17,9 @@ This page describes the ScriptCut support boundary and how to identify a qualify
 - Portable FFmpeg and FFprobe for the matching macOS architecture.
 - App-managed baseline Whisper model download and verification on first transcription.
 - Export preflight and a caption capability check.
-- Public unsigned/notarized status is recorded in the release manifest and notes.
+- Public ad-hoc code-signature, Apple Developer ID, and notarization status is recorded in the release manifest and notes.
 
-Creators do not install system Python, pip, FFmpeg, or a virtual environment for a qualifying packaged arm64 alpha. Download only from the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases), and confirm the release notes and manifest identify the self-contained path. Older alpha releases may predate it. If macOS blocks the unsigned first launch, use **System Settings → Privacy & Security → Open Anyway**; never disable Gatekeeper or remove quarantine attributes.
+Creators do not install system Python, pip, FFmpeg, or a virtual environment for a qualifying packaged arm64 alpha. Download only from the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases), and confirm the release notes and manifest identify the self-contained path. Older alpha releases may predate it. If macOS blocks the ad-hoc-signed first launch, use **System Settings → Privacy & Security → Open Anyway**; never disable Gatekeeper or remove quarantine attributes.
 
 ## Maintainer Release Check
 

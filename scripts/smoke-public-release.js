@@ -54,6 +54,7 @@ function writeFixture(rootDir) {
       manifestSha256: '1'.repeat(64),
     },
     coreInventorySha256: '2'.repeat(64),
+    codeSignature: { type: 'ad-hoc', structurallyValid: true, hardenedRuntime: false },
     ffmpeg: { platform: 'darwin', architecture: 'arm64', manifestSha256: '3'.repeat(64) },
     model: { id: 'whisper-base', revision: '4'.repeat(64), expectedBytes: 10, sha256: '4'.repeat(64), manifestSha256: '5'.repeat(64), embedded: false },
   }, null, 2)}\n`, 'utf8');
@@ -84,6 +85,8 @@ async function main() {
     const notes = fs.readFileSync(path.join(fixture.outputDir, 'RELEASE_NOTES.md'), 'utf8');
     validateManifest(manifest);
     validateNotes(notes);
+    assert(/--signer-workflow[\s\S]*--source-digest/.test(notes), 'generated RELEASE_NOTES omit constrained attestation verification');
+    assert(!/--signer-repo/.test(notes), 'generated RELEASE_NOTES contain deprecated signer-repo constraint');
     assert(manifest.artifact.filename === 'ScriptCut-v0.1.0-alpha.3-arm64.dmg', 'public DMG naming convention is wrong');
     assert(fs.existsSync(path.join(fixture.outputDir, manifest.artifact.filename)), 'public DMG was not staged');
     assert(fs.readFileSync(path.join(fixture.outputDir, 'SHA256SUMS.txt'), 'utf8').includes(manifest.artifact.filename), 'public checksum filename is wrong');
@@ -116,7 +119,7 @@ async function main() {
   const install = fs.readFileSync(path.join(root, 'docs', 'INSTALL.md'), 'utf8');
   const installCreator = install.slice(0, install.indexOf('## Source Development Requirements'));
   assert(!/releases\/latest|install Python|local Python|python\.org/i.test(installCreator), 'creator INSTALL section has stale setup guidance');
-  assert(/Privacy & Security|Open Anyway|official ScriptCut Releases/i.test(installCreator), 'creator INSTALL section lacks unsigned first-launch path');
+  assert(/Privacy & Security|Open Anyway|official ScriptCut Releases/i.test(installCreator), 'creator INSTALL section lacks first-launch approval path');
   assert(/qualifying self-contained release|Older alpha releases may predate/i.test(installCreator), 'INSTALL lacks temporal self-contained path truth');
   assert(!/(?:current|downloadable) (?:public )?alpha/i.test(installCreator), 'INSTALL claims an unpublished alpha is current or downloadable');
 
@@ -133,13 +136,15 @@ async function main() {
   assert(!/(?:current|downloadable) (?:public )?alpha/i.test(userGuideCreator), 'USER_GUIDE claims an unpublished alpha is current or downloadable');
 
   const platform = fs.readFileSync(path.join(root, 'docs', 'PLATFORM_SUPPORT.md'), 'utf8');
-  assert(/self-contained public-alpha|portable Python.*bundled|unsigned|first-launch/i.test(platform), 'PLATFORM_SUPPORT lacks public arm64 truth');
+  assert(/self-contained public-alpha|portable Python.*bundled|ad-hoc|first-launch/i.test(platform), 'PLATFORM_SUPPORT lacks public arm64 truth');
   assert(/Older alpha releases may predate|when identified by release notes/i.test(platform), 'PLATFORM_SUPPORT lacks temporal alpha clarification');
   assert(/local Python 3\.10-3\.12/.test(platform.split('## Maintainer Release Check')[1] || ''), 'PLATFORM_SUPPORT contributor/maintainer truth was removed');
 
   const verifyRelease = fs.readFileSync(path.join(root, 'docs', 'VERIFY_RELEASE.md'), 'utf8');
   assert(/shasum -a 256 -c SHA256SUMS\.txt/.test(verifyRelease), 'VERIFY_RELEASE lacks checksum command');
   assert(/gh attestation verify/.test(verifyRelease) && /does not prove.*vulnerabil/i.test(verifyRelease), 'VERIFY_RELEASE lacks bounded attestation guidance');
+  assert(/--signer-workflow[\s\S]*--source-digest/.test(verifyRelease), 'VERIFY_RELEASE omits constrained attestation verification');
+  assert(!/--signer-repo/.test(verifyRelease), 'VERIFY_RELEASE contains deprecated signer-repo constraint');
 
   validateWorkflowText(fs.readFileSync(path.join(root, '.github', 'workflows', 'release-unsigned.yml'), 'utf8'));
   console.log('Public release metadata, tag, notes, documentation, and workflow static tests passed.');

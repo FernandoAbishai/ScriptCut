@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { newestApp } = require('./check-packaged-runtime');
+const { inspectSignature } = require('./check-macos-launchability');
 
 const root = path.join(__dirname, '..');
 const appOption = process.argv.indexOf('--app');
@@ -102,11 +103,10 @@ function main() {
   if (unexpected.length > 0) fail(`native files outside known roots: ${unexpected.map(({ filePath }) => path.relative(appRoot, filePath)).join(', ')}`);
   if (missingResources.length > 0) fail(`required license/notice resources missing: ${missingResources.join(', ')}`);
 
+  const strictSignature = inspectSignature(appRoot);
+
   const modelWeights = files.filter((filePath) => path.basename(filePath) === 'base.pt');
   if (modelWeights.length > 0) fail(`model weight is embedded: ${modelWeights.map((filePath) => path.relative(appRoot, filePath)).join(', ')}`);
-  const signature = spawnSync('codesign', ['-dv', '--verbose=2', appRoot], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  const signatureOutput = `${signature.stdout || ''}${signature.stderr || ''}`;
-  const signingState = signature.status === 0 ? (signatureOutput.match(/Authority=(.*)/)?.[1] || 'ad-hoc or unsigned identity') : 'unsigned';
   const runtimeManifestPath = path.join(resources, 'manifests', 'runtime-manifest.json');
   const pythonPath = fs.existsSync(runtimeManifestPath)
     ? path.join(resources, JSON.parse(fs.readFileSync(runtimeManifestPath, 'utf8')).python.executable)
@@ -122,7 +122,10 @@ function main() {
   console.log('Unexpected native locations: 0');
   console.log('Symlink escapes: 0');
   console.log('Writable executable anomalies: 0');
-  console.log(`Candidate signing state: ${signingState}`);
+  console.log('Ad-hoc signature: Yes');
+  console.log('Developer ID signed: No');
+  console.log('Hardened Runtime: No');
+  console.log('Strict verification: Passed');
   console.log('macOS signing-readiness inventory passed.');
 }
 

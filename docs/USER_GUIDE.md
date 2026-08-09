@@ -11,7 +11,7 @@ ScriptCut lets you edit spoken video by editing the transcript. Delete words to 
 1. Go to the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) and choose a prerelease explicitly identified as self-contained for macOS Apple Silicon.
 2. Download that tagged macOS Apple Silicon (arm64) `.dmg`.
 3. Open the DMG and launch ScriptCut.
-4. If macOS blocks the unsigned first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming the download came from the official Releases feed.
+4. If macOS blocks the ad-hoc-signed first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming the download came from the official Releases feed.
 
 The supported self-contained public-alpha path bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe. ScriptCut downloads and verifies the baseline transcription model on first use; creators do not install system Python or FFmpeg for a qualifying packaged app. Older alpha releases may predate this path; check the individual release notes and manifest. If there is no qualifying public release yet, use the repository setup in [Install ScriptCut](./INSTALL.md).
 

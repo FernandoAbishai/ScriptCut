@@ -120,7 +120,12 @@ function findResourceFile(directory, filename) {
 }
 
 function isolatedPythonEnvironment(corePackRoot) {
-  const environment = { ...process.env, PYTHONNOUSERSITE: '1', PYTHONPATH: corePackRoot };
+  const environment = {
+    ...process.env,
+    PYTHONNOUSERSITE: '1',
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONPATH: corePackRoot,
+  };
   delete environment.PYTHONHOME;
   delete environment.VIRTUAL_ENV;
   delete environment.SCRIPTCUT_PYTHON_PATH;

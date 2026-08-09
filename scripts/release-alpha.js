@@ -173,6 +173,11 @@ async function createReleaseManifest(pkg, artifact, checksums, provenance) {
       manifestSha256: await checksumFile(provenance.modelManifestPath),
       embedded: false,
     },
+    codeSignature: {
+      type: 'ad-hoc',
+      structurallyValid: true,
+      hardenedRuntime: false,
+    },
     signed: false,
     notarized: false,
     reproducible: false,
@@ -201,7 +206,8 @@ Creators do not need to install Python, run pip, download FFmpeg, configure PATH
 
 ## Trust status
 
-- Candidate signing state: unsigned.
+- Candidate signing state: ad-hoc structural signature.
+- Developer ID signing state: not signed with Apple Developer ID.
 - Notarization state: not notarized.
 - This candidate is not Gatekeeper-approved and is not ready for public distribution.
 - No tag or GitHub Release was created by this preparation.
@@ -224,7 +230,7 @@ function runPackagedGate(name, script, args, env) {
 
 async function main() {
   if (!process.argv.includes('--candidate')) {
-    throw new Error('Phase 3B.5A only prepares an explicit unsigned candidate. Use --candidate; signed distribution is reserved for Phase 3B.5B.');
+    throw new Error('Phase 3B.5A only prepares an explicit ad-hoc candidate. Use --candidate; signed distribution is reserved for Phase 3B.5B.');
   }
   if (process.platform !== 'darwin' || process.arch !== 'arm64') {
     throw new Error(`Release candidates require native macOS arm64, received ${process.platform}-${process.arch}.`);
@@ -240,7 +246,7 @@ async function main() {
   runStep('Prepare portable Python and core pack', 'npm', ['run', 'runtime:prepare:mac-arm64'], { env });
   runStep('Validate native release platform', 'node', ['scripts/release-platform.js', '--arch', 'arm64'], { env });
   runStep('Build frontend', 'npm', ['run', 'build:frontend'], { env });
-  runStep('Build unsigned self-contained arm64 DMG', 'node_modules/.bin/electron-builder', [
+  runStep('Build ad-hoc self-contained arm64 DMG', 'node_modules/.bin/electron-builder', [
     '--config', 'electron-builder.release.cjs',
     '--arm64',
     '--publish', 'never',
@@ -267,13 +273,13 @@ async function main() {
   const notesPath = writeReleaseNotes(pkg, artifact, checksums, manifest);
   runStep('Release metadata smoke', 'node', ['scripts/smoke-release-metadata.js', '--dir', releaseMetadataDir], { env });
 
-  console.log('\nUnsigned self-contained release candidate prepared.');
+  console.log('\nAd-hoc self-contained release candidate prepared.');
   console.log(`Candidate app: ${path.relative(root, outputs.appPath)}`);
   console.log(`Candidate DMG: ${path.relative(root, stagedDmgPath)}`);
   console.log(`Release notes: ${path.relative(root, notesPath)}`);
   console.log(`Release manifest: ${path.relative(root, manifestPath)}`);
   console.log(`Checksums: ${path.relative(root, checksums.checksumPath)}`);
-  console.log('No tag, GitHub Release, Apple signing, or notarization was performed.');
+  console.log('No tag, GitHub Release, Developer ID signing, or notarization was performed.');
 }
 
 if (require.main === module) {
