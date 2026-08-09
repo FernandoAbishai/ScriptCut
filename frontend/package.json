@@ -11,6 +11,7 @@
     "test:home-onboarding": "node scripts/smoke-home-onboarding.mjs",
     "test:transcription-ux": "node scripts/smoke-transcription-ux.mjs",
     "test:editor-frame": "node scripts/smoke-editor-frame.mjs",
+    "test:create-clips-workspace": "node scripts/smoke-create-clips-workspace.mjs",
     "test:transcript-selection": "node scripts/smoke-transcript-selection.mjs",
     "test:transcript-search": "node scripts/smoke-transcript-search.mjs",
     "test:speaker-stats": "node scripts/smoke-speaker-stats.mjs",

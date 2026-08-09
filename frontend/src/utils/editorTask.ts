@@ -46,10 +46,10 @@ export function getEditorTaskPresentation(input: EditorTaskInput): EditorTaskPre
   if (input.activePanel === 'ai') {
     return {
       workflowLabel,
-      title: 'AI tools',
+      title: input.workflow === 'short' ? 'Create Clips' : 'AI tools',
       description:
         input.workflow === 'short'
-          ? 'Find moments and prepare clip drafts, or continue manually from the transcript.'
+          ? 'Find, review, prepare, and export moments from your recording.'
           : 'Optional assistance for edits, filler words, and clips.',
       status: 'Optional',
     };

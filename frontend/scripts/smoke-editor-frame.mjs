@@ -104,6 +104,11 @@ assert.equal(projectReady.workflowLabel, 'Project');
 assert.equal(projectReady.title, 'Project ready');
 
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', activePanel: 'ai' }).title, 'AI tools');
+assert.equal(getEditorTaskPresentation({ ...base, workflow: 'short', activePanel: 'ai' }).title, 'Create Clips');
+assert.equal(
+  getEditorTaskPresentation({ ...base, workflow: 'short', activePanel: 'ai' }).description,
+  'Find, review, prepare, and export moments from your recording.',
+);
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', activePanel: 'export' }).title, 'Export');
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', activePanel: 'settings' }).title, 'Settings');
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', wordCount: 0 }).title, 'Waiting for transcript');
