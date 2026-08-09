@@ -1,15 +1,14 @@
 # Your First ScriptCut Export
 
-This guide is for a creator using the ScriptCut desktop alpha, not for contributors building from source.
+This guide is for a creator using a self-contained ScriptCut desktop alpha explicitly identified in its release notes, not for contributors building from source.
 
 ## Before You Start
 
-- Use a macOS Apple Silicon Mac (M1 or newer) for the current downloadable alpha.
-- Open ScriptCut from the DMG and wait for the setup assistant.
-- Green checks for the local backend, Python, and FFmpeg mean you can edit and export.
-- If Python is marked as missing, use the **Install Python for macOS** link in the app, restart ScriptCut, and press the refresh button in the setup assistant.
+- Use a macOS Apple Silicon Mac (M1 or newer).
+- Download a self-contained macOS arm64 DMG from the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases), as identified by that release's notes and manifest, then open ScriptCut and select a video.
+- If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** for the official download.
 
-The alpha includes FFmpeg for export. It still uses a local Python runtime and ScriptCut backend dependencies for transcription and editing, so the setup assistant is the source of truth for readiness on your Mac.
+A qualifying public alpha bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe for the supported baseline path. On the first transcription, ScriptCut downloads and verifies the baseline model with progress, then stores it in app-managed local storage for later offline reuse. No system Python or separate FFmpeg installation is required for that packaged app. Older alpha releases may predate this self-contained path.
 
 ## Edit A Full Video
 
