@@ -14,6 +14,9 @@ const readinessSource = readFileSync(resolve(__dirname, '../src/utils/homeReadin
 assert.match(homeSource, /title="Edit a Video"/);
 assert.match(homeSource, /title="Create Clips"/);
 assert.match(homeSource, />\s*Open Project\s*</);
+assert.match(homeSource, /src="\.\/brand\/scriptcut-mark\.svg"/);
+assert.match(homeSource, /src="\.\/brand\/scriptcut-wordmark\.svg"/);
+assert.doesNotMatch(homeSource, /src="\/brand\//);
 assert.doesNotMatch(homeSource, /title="Create a short"/);
 assert.match(homeSource, /const \[setupDetailsOpen, setSetupDetailsOpen\] = useState\(false\)/);
 assert.doesNotMatch(homeSource, /useState\(!onboardingDismissed\)/);
@@ -31,6 +34,8 @@ assert.match(homeSource, /native file access, autosave and direct exports/);
 assert.match(homeSource, /onShowSetup\(\)/);
 
 assert.match(appSource, /onOpenWorkflow=\{handleStartWorkflow\}/);
+assert.match(appSource, /src="\.\/brand\/scriptcut-mark\.svg"/);
+assert.doesNotMatch(appSource, /src="\/brand\//);
 assert.match(appSource, /if \(coreReadiness === 'needs-setup'\)/);
 assert.match(appSource, /intent === 'short'/);
 assert.match(appSource, /captions: 'none'/);

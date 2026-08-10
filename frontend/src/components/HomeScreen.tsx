@@ -147,8 +147,8 @@ export default function HomeScreen({
       )}
 
       <div className="flex flex-col items-center gap-3">
-        <img src="/brand/scriptcut-mark.svg" alt="" className="h-16 w-16" />
-        <img src="/brand/scriptcut-wordmark.svg" alt="ScriptCut" className="h-auto w-[220px] max-w-full" />
+        <img src="./brand/scriptcut-mark.svg" alt="" className="h-16 w-16" />
+        <img src="./brand/scriptcut-wordmark.svg" alt="ScriptCut" className="h-auto w-[220px] max-w-full" />
         <p className="max-w-sm text-center text-sm text-editor-text-muted">
           Turn recordings into finished videos and clips.
         </p>
