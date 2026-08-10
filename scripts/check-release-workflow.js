@@ -5,6 +5,8 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const workflowPath = path.join(root, '.github', 'workflows', 'release-unsigned.yml');
+const ciWorkflowPath = path.join(root, '.github', 'workflows', 'ci.yml');
+const releaseConfigPath = path.join(root, 'electron-builder.release.cjs');
 
 function fail(message) {
   throw new Error(`Release workflow check failed: ${message}`);
@@ -32,7 +34,25 @@ function stepBlock(text, stepName) {
   return text.slice(after, next < 0 ? text.length : after + next);
 }
 
-function validateWorkflowText(text) {
+function validateOpenFileGuard(text, label, stepName) {
+  const build = stepBlock(text, stepName);
+  const guardError = (suffix) => [label, suffix].join(' ');
+  const releaseInvocation = build.indexOf('npm run release:rc:arm64');
+  assert(releaseInvocation >= 0, guardError('candidate build does not invoke npm run release:rc:arm64'));
+  const beforeRelease = build.slice(0, releaseInvocation);
+  assert(/DESIRED_NOFILE\s*=\s*65536/.test(beforeRelease), guardError('candidate build desired open-file target is missing'));
+  assert(/TARGET_NOFILE\s*=\s*["']?\$DESIRED_NOFILE["']?/.test(beforeRelease), guardError('candidate build does not initialize the capped open-file target'));
+  assert(/HARD_NOFILE\s*=\s*["']?\$\(\s*ulimit\s+-Hn\s*\)["']?/.test(beforeRelease), guardError('candidate build does not inspect the hard open-file limit'));
+  assert(/SOFT_BEFORE\s*=\s*["']?\$\(\s*ulimit\s+-Sn\s*\)["']?/.test(beforeRelease), guardError('candidate build does not inspect the soft open-file limit before packaging'));
+  assert(/KERNEL_MAX\s*=\s*["']?\$\(\s*sysctl\s+-n\s+kern\.maxfilesperproc/.test(beforeRelease), guardError('candidate build does not inspect kern.maxfilesperproc'));
+  assert(/HARD_NOFILE[\s\S]*?-lt\s+"?\$TARGET_NOFILE[\s\S]*?TARGET_NOFILE\s*=\s*"?\$HARD_NOFILE/.test(beforeRelease), guardError('candidate build does not cap the target at the hard open-file limit'));
+  assert(/KERNEL_MAX[\s\S]*?-lt\s+"?\$TARGET_NOFILE[\s\S]*?TARGET_NOFILE\s*=\s*"?\$KERNEL_MAX/.test(beforeRelease), guardError('candidate build does not cap the target at kern.maxfilesperproc'));
+  assert(/SOFT_BEFORE[\s\S]*?TARGET_NOFILE[\s\S]*?-lt[\s\S]*?ulimit\s+-Sn/.test(beforeRelease), guardError('candidate build does not conditionally raise the soft open-file limit'));
+  assert(/SOFT_AFTER\s*=\s*["']?\$\(\s*ulimit\s+-Sn\s*\)["']?/.test(beforeRelease), guardError('candidate build does not inspect the soft open-file limit after raising it'));
+  assert(/SOFT_AFTER[\s\S]*?-lt[\s\S]*?SOFT_BEFORE/.test(beforeRelease), guardError('candidate build does not protect against lowering the existing soft limit'));
+}
+
+function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ciWorkflowPath, 'utf8') } = {}) {
   const jobsStart = text.indexOf('\njobs:');
   assert(jobsStart > 0, 'jobs section is missing');
   const trigger = text.slice(0, jobsStart);
@@ -54,6 +74,8 @@ function validateWorkflowText(text) {
   assert(/actions\/upload-artifact@v4/.test(build), 'build workflow artifact upload is missing');
   assert(/-arm64-dry-run/.test(build), 'dry-run artifact naming is missing');
   assert(/-arm64-public/.test(build), 'public artifact naming is missing');
+  validateOpenFileGuard(text, 'release-unsigned.yml', 'Build ad-hoc self-contained candidate');
+  validateOpenFileGuard(candidateWorkflowText, 'ci.yml', 'Build and verify ad-hoc self-contained release candidate');
 
   assert(/runs-on:\s+macos-14/.test(clean), 'clean verification runner must be macos-14');
   assert(/actions\/download-artifact@v4/.test(clean), 'clean runner must download the build artifact');
@@ -85,8 +107,18 @@ function validateWorkflowText(text) {
 
 function main() {
   assert(fs.existsSync(workflowPath), '.github/workflows/release-unsigned.yml is missing');
-  validateWorkflowText(fs.readFileSync(workflowPath, 'utf8'));
-  console.log('Unsigned public release workflow structure and permission checks passed.');
+  assert(fs.existsSync(ciWorkflowPath), '.github/workflows/ci.yml is missing');
+  assert(fs.existsSync(releaseConfigPath), 'electron-builder.release.cjs is missing');
+  validateWorkflowText(fs.readFileSync(workflowPath, 'utf8'), {
+    candidateWorkflowText: fs.readFileSync(ciWorkflowPath, 'utf8'),
+  });
+  const releaseConfig = fs.readFileSync(releaseConfigPath, 'utf8');
+  assert(/identity:\s*['"]-['"]/.test(releaseConfig), 'release config must use ad-hoc identity -');
+  assert(/hardenedRuntime:\s*false/.test(releaseConfig), 'release config must disable Hardened Runtime for public ad-hoc candidates');
+  assert(/notarize:\s*false/.test(releaseConfig), 'release config must keep notarization disabled for public ad-hoc candidates');
+  assert(!/disable-library-validation|get-task-allow|allow-dyld-environment-variables/i.test(releaseConfig), 'forbidden entitlement found in release config');
+  assert(!/entitlements(?:Inherit)?\s*:/.test(releaseConfig), 'public ad-hoc release config must not apply signing entitlements');
+  console.log('Ad-hoc public release workflow structure and permission checks passed.');
 }
 
 if (require.main === module) {

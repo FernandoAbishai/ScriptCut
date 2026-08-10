@@ -88,21 +88,18 @@ function notarizationCredentialState() {
   );
 }
 
-function commonChecks(pkg, config) {
+function commonChecks(pkg, config, { candidate = false } = {}) {
   const entitlements = config?.mac?.entitlements ? path.join(root, config.mac.entitlements) : '';
   const inherited = config?.mac?.entitlementsInherit ? path.join(root, config.mac.entitlementsInherit) : '';
   const entitlementCheck = validateEntitlements(entitlements);
   const inheritedCheck = validateEntitlements(inherited);
   const target = JSON.stringify(config?.mac?.target || '');
-  return [
+  const checks = [
     check('Native macOS arm64 host', process.platform === 'darwin' && process.arch === 'arm64', `${process.platform}-${process.arch}`),
     check('Package author', !!pkg.author, pkg.author || 'package.json author is missing'),
     check('App icon config', !!config?.mac?.icon, config?.mac?.icon || 'release config mac.icon is missing'),
     check('App icon file', !!config?.mac?.icon && fs.existsSync(path.join(root, config.mac.icon)), config?.mac?.icon || 'icon path is missing'),
     check('Release config target', target === JSON.stringify([{ target: 'dmg', arch: ['arm64'] }]), target),
-    check('Hardened Runtime explicit', config?.mac?.hardenedRuntime === true, String(config?.mac?.hardenedRuntime)),
-    check('Primary entitlements valid', entitlementCheck.ok, entitlementCheck.detail),
-    check('Inherited entitlements valid', inheritedCheck.ok, inheritedCheck.detail),
     check('Portable runtime input', fs.existsSync(path.join(root, 'runtime', 'core-darwin-arm64-py311.txt')) && fs.existsSync(path.join(root, 'scripts', 'prepare-python-runtime.js')), 'runtime input and preparation script'),
     check('Trusted model input', fs.existsSync(path.join(root, 'runtime', 'models', 'whisper-base.json')), 'runtime/models/whisper-base.json'),
     check('FFmpeg preparation input', fs.existsSync(path.join(root, 'scripts', 'prepare-ffmpeg-bundle.js')), 'scripts/prepare-ffmpeg-bundle.js'),
@@ -110,12 +107,25 @@ function commonChecks(pkg, config) {
     check('notarytool available', commandAvailable('xcrun') && run('xcrun', ['--find', 'notarytool']).status === 0, 'xcrun notarytool'),
     check('stapler available', commandAvailable('xcrun') && run('xcrun', ['--find', 'stapler']).status === 0, 'xcrun stapler'),
   ];
+  if (candidate) {
+    checks.splice(5, 0,
+      check('Hardened Runtime disabled for ad-hoc candidate', config?.mac?.hardenedRuntime === false, String(config?.mac?.hardenedRuntime)),
+      check('Candidate does not apply Hardened Runtime entitlements', !entitlements && !inherited, 'entitlements omitted from ad-hoc candidate config'),
+    );
+  } else {
+    checks.splice(5, 0,
+      check('Hardened Runtime explicit', config?.mac?.hardenedRuntime === true, String(config?.mac?.hardenedRuntime)),
+      check('Primary entitlements valid', entitlementCheck.ok, entitlementCheck.detail),
+      check('Inherited entitlements valid', inheritedCheck.ok, inheritedCheck.detail),
+    );
+  }
+  return checks;
 }
 
 function candidateChecks(pkg, config) {
   return [
-    ...commonChecks(pkg, config),
-    check('Candidate skips implicit signing', config?.mac?.identity === null, `identity=${String(config?.mac?.identity)}`),
+    ...commonChecks(pkg, config, { candidate: true }),
+    check('Candidate uses explicit ad-hoc signing', config?.mac?.identity === '-', `identity=${String(config?.mac?.identity)}`),
     check('Candidate skips notarization', config?.mac?.notarize === false, `notarize=${String(config?.mac?.notarize)}`),
   ];
 }
@@ -153,7 +163,7 @@ function main() {
     console.error(`\n${failures} ${mode} release trust check${failures === 1 ? '' : 's'} failed.`);
     process.exit(1);
   }
-  console.log(`\n${mode === 'candidate' ? 'Unsigned release-candidate' : 'Credentialed signed-release'} trust checks passed.`);
+  console.log(`\n${mode === 'candidate' ? 'Ad-hoc release-candidate' : 'Credentialed signed-release'} trust checks passed.`);
 }
 
 main();

@@ -96,7 +96,10 @@ function candidateArtifact(candidateDir, candidateManifest) {
   const artifactPath = path.join(candidateDir, filename);
   if (!fs.existsSync(artifactPath)) fail(`candidate DMG is missing: ${filename}`);
   if (candidateManifest.signed !== false || candidateManifest.notarized !== false) {
-    fail('candidate trust state must remain unsigned and not notarized');
+    fail('candidate Apple trust state must remain not Developer ID signed and not notarized');
+  }
+  if (candidateManifest.codeSignature?.type !== 'ad-hoc' || candidateManifest.codeSignature?.structurallyValid !== true) {
+    fail('candidate must provide a structurally valid ad-hoc code signature');
   }
   return artifactPath;
 }
@@ -107,18 +110,23 @@ function publicManifest({ pkg, tag, commit, artifact, candidate, dmgAttestation 
     productName: pkg.build?.productName || pkg.name,
     version: pkg.version,
     releaseTag: tag,
-    channel: 'public-unsigned-alpha',
+    channel: 'ad-hoc-public-alpha',
     prerelease: true,
     platform: 'darwin',
     architecture: 'arm64',
     commit,
     generatedAt: new Date().toISOString(),
     distribution: {
-      mode: 'unsigned-public-alpha',
+      mode: 'ad-hoc-public-alpha',
       appleDeveloperIdSigned: false,
       appleNotarized: false,
       gatekeeperTrusted: false,
       firstLaunchApprovalRequired: true,
+    },
+    codeSignature: {
+      type: 'ad-hoc',
+      structurallyValid: true,
+      hardenedRuntime: false,
     },
     artifact: {
       filename: artifact.filename,
@@ -162,7 +170,7 @@ function publicNotes(manifest) {
 
 ## ScriptCut alpha status
 
-This is a public prerelease alpha for creator validation. It is provided from the official ScriptCut GitHub repository and is intentionally unsigned.
+This is a public prerelease alpha for creator validation. It is provided from the official ScriptCut GitHub repository and uses an ad-hoc code signature for package integrity.
 
 ## Supported platform
 
@@ -184,7 +192,7 @@ macOS Apple Silicon (arm64) only. Intel, Windows, Linux, and browser builds are 
 
 ## macOS first-launch notice
 
-This macOS build is not signed with Apple Developer ID and is not notarized by Apple. macOS may block the first launch because the app is not from an identified developer. If you obtained this DMG from the official ScriptCut GitHub release, open **System Settings → Privacy & Security → Open Anyway**, confirm the macOS prompt, and then open ScriptCut normally. Do not use this approval path for random applications or downloads.
+This macOS build uses an ad-hoc code signature for package integrity, but it is not signed with Apple Developer ID and is not notarized by Apple. macOS may block the first launch because the app is not from an identified developer. If you obtained this DMG from the official ScriptCut GitHub release, open **System Settings → Privacy & Security → Open Anyway**, confirm the macOS prompt, and then open ScriptCut normally. Do not use this approval path for random applications or downloads.
 
 ## Baseline transcription model behavior
 
@@ -209,14 +217,22 @@ The checksum must match the exact public DMG filename: \`${artifact}\`.
 Advanced verification can confirm which official repository, workflow, and commit produced the artifact:
 
 \`\`\`bash
-gh attestation verify ${artifact} -R FernandoAbishai/ScriptCut --signer-repo FernandoAbishai/ScriptCut --signer-workflow FernandoAbishai/ScriptCut/.github/workflows/release-unsigned.yml
+gh attestation verify ${artifact} \\
+  -R FernandoAbishai/ScriptCut \\
+  --signer-workflow FernandoAbishai/ScriptCut/.github/workflows/release-unsigned.yml \\
+  --source-digest ${manifest.commit}
+
+gh attestation verify release-manifest.json \\
+  -R FernandoAbishai/ScriptCut \\
+  --signer-workflow FernandoAbishai/ScriptCut/.github/workflows/release-unsigned.yml \\
+  --source-digest ${manifest.commit}
 \`\`\`
 
 Attestation establishes build provenance; it does not prove that the software is free of bugs or vulnerabilities. Checksums establish integrity and do not make macOS treat this app as notarized.
 
 ## Known alpha limitations
 
-- The app is unsigned and not notarized, so the first launch requires the macOS approval path above.
+- The app uses an ad-hoc code signature but is not signed with Apple Developer ID or notarized, so the first launch requires the macOS approval path above.
 - This release is a prerelease alpha; keep original media and project backups.
 - Optional capabilities and some caption/export behavior depend on the packaged resources and current baseline support.
 `;

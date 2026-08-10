@@ -60,6 +60,8 @@ async function main() {
   assert(/^[0-9a-f]{40}$/.test(manifest.commit), 'commit must be a full SHA-1');
   assert(manifest.tagCandidate === null && manifest.tagExists === false, 'metadata must not pretend a tag exists');
   assert(manifest.signed === false && manifest.notarized === false, 'candidate trust state must be false');
+  assert(manifest.codeSignature?.type === 'ad-hoc' && manifest.codeSignature?.structurallyValid === true, 'candidate ad-hoc signature metadata is missing');
+  assert(manifest.codeSignature?.hardenedRuntime === false, 'candidate metadata must record Hardened Runtime disabled');
   assert(manifest.model?.embedded === false, 'modelEmbedded must be false');
   assert(manifest.runtime?.mode === 'packaged-bundled', 'runtime mode must be packaged-bundled');
   assert(manifest.runtime?.pythonSource === 'bundled', 'Python source must be bundled');
@@ -78,6 +80,7 @@ async function main() {
   assert(!/^\s*(?:before|first|to use|run|install|configure|create)\b.*(?:Python|pip|FFmpeg|PATH|virtual environment)/im.test(notes), 'release notes contain positive developer setup instructions');
   assert(/first transcription/i.test(notes) && /without model-network access/i.test(notes), 'release notes omit first-use model behavior');
   assert(/internal release candidate/i.test(notes) && /not for public distribution/i.test(notes), 'release notes omit candidate-only trust wording');
+  assert(/ad-hoc structural signature/i.test(notes) && /not signed with Apple Developer ID/i.test(notes), 'release notes omit ad-hoc trust wording');
 
   const artifactPath = path.join(releaseDir, manifest.artifact.filename);
   assert(fs.existsSync(artifactPath), 'manifest artifact is missing from release directory');

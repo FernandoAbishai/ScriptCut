@@ -82,8 +82,33 @@ jobs:
             test "$CONFIRMATION" = "PUBLISH_UNSIGNED_ALPHA"
           fi
 
-      - name: Build existing self-contained candidate
+      - name: Build ad-hoc self-contained candidate
         run: |
+          DESIRED_NOFILE=65536
+          HARD_NOFILE="$(ulimit -Hn)"
+          SOFT_BEFORE="$(ulimit -Sn)"
+          KERNEL_MAX="$(sysctl -n kern.maxfilesperproc 2>/dev/null || true)"
+          echo "open-file soft limit before: $SOFT_BEFORE"
+          echo "open-file hard limit: $HARD_NOFILE"
+          echo "kern.maxfilesperproc: $KERNEL_MAX"
+          echo "open-file desired target: $DESIRED_NOFILE"
+          TARGET_NOFILE="$DESIRED_NOFILE"
+          if [[ "$HARD_NOFILE" =~ ^[0-9]+$ ]] && [ "$HARD_NOFILE" -lt "$TARGET_NOFILE" ]; then
+            TARGET_NOFILE="$HARD_NOFILE"
+          fi
+          if [[ "$KERNEL_MAX" =~ ^[0-9]+$ ]] && [ "$KERNEL_MAX" -gt 0 ] && [ "$KERNEL_MAX" -lt "$TARGET_NOFILE" ]; then
+            TARGET_NOFILE="$KERNEL_MAX"
+          fi
+          echo "open-file capped target: $TARGET_NOFILE"
+          if [ "$SOFT_BEFORE" != "unlimited" ] && [[ "$SOFT_BEFORE" =~ ^[0-9]+$ ]] && [ "$SOFT_BEFORE" -lt "$TARGET_NOFILE" ]; then
+            ulimit -Sn "$TARGET_NOFILE"
+          fi
+          SOFT_AFTER="$(ulimit -Sn)"
+          echo "open-file soft limit after: $SOFT_AFTER"
+          if [[ "$SOFT_BEFORE" =~ ^[0-9]+$ && "$SOFT_AFTER" =~ ^[0-9]+$ ]] && [ "$SOFT_AFTER" -lt "$SOFT_BEFORE" ]; then
+            echo "macOS signing open-file guard would lower the existing soft limit"
+            exit 1
+          fi
           if [ "${{ inputs.real_model }}" = "true" ]; then
             npm run release:rc:arm64 -- --real-model
           else

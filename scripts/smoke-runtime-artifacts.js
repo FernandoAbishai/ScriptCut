@@ -19,6 +19,13 @@ assert.ok(!(packageJson.build?.extraResources || []).some((entry) => entry.from 
 const coreRequirements = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.txt'), 'utf8');
 assert.ok(!coreRequirements.includes('model-manifest'));
 assert.ok(!coreRequirements.includes('base.pt'));
+const runtimePreparation = fs.readFileSync(path.join(__dirname, 'prepare-python-runtime.js'), 'utf8');
+assert.match(runtimePreparation, /function\s+pruneNonRuntimeCoreArtifacts\s*\(/);
+assert.match(runtimePreparation, /path\.join\(\s*corePackRoot\s*,\s*['"]torch['"]\s*,\s*['"]include['"]\s*\)/);
+assert.match(runtimePreparation, /fs\.rmSync\(\s*torchIncludePath\s*,\s*\{[\s\S]*?recursive:\s*true/);
+assert.ok(!/path\.join\(\s*corePackRoot\s*,\s*['"]torch['"]\s*\)/.test(runtimePreparation));
+assert.ok(!/path\.join\(\s*corePackRoot\s*,\s*['"]torch['"]\s*,\s*['"]lib['"]\s*\)/.test(runtimePreparation));
+assert.ok(!/rmSync\([^)]*include\s+directories|rmSync\([^)]*glob/i.test(runtimePreparation));
 
 assert.strictEqual(PYTHON_RUNTIME_ARTIFACT.provider, 'python-build-standalone');
 assert.strictEqual(PYTHON_RUNTIME_ARTIFACT.pythonVersion, '3.11.15');

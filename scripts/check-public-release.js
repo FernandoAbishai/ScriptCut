@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { checksumFile } = require('./release-alpha');
+const { verifyApp } = require('./check-macos-launchability');
 
 const root = path.join(__dirname, '..');
 const forbiddenNames = new Set([
@@ -58,6 +59,7 @@ function validateNotes(notes) {
     /macOS Apple Silicon/i,
     /self-contained/i,
     /first transcription/i,
+    /ad-hoc code signature/i,
     /not signed with Apple Developer ID/i,
     /not notarized by Apple/i,
     /Privacy & Security/i,
@@ -73,13 +75,15 @@ function validateNotes(notes) {
 function validateManifest(manifest, { allowPendingAttestation = false } = {}) {
   assert(manifest.schema === 'scriptcut.release.v2', 'schema must be scriptcut.release.v2');
   assert(/^v\d+\.\d+\.\d+-alpha\.[1-9]\d*$/.test(manifest.releaseTag), 'release tag format is invalid');
-  assert(manifest.prerelease === true && manifest.channel === 'public-unsigned-alpha', 'public prerelease semantics are missing');
+  assert(manifest.prerelease === true && manifest.channel === 'ad-hoc-public-alpha', 'public prerelease semantics are missing');
   assert(manifest.platform === 'darwin' && manifest.architecture === 'arm64', 'public target must be darwin arm64');
-  assert(manifest.distribution?.mode === 'unsigned-public-alpha', 'distribution mode is not unsigned-public-alpha');
+  assert(manifest.distribution?.mode === 'ad-hoc-public-alpha', 'distribution mode is not ad-hoc-public-alpha');
   assert(manifest.distribution.appleDeveloperIdSigned === false, 'Apple signing truth must be false');
   assert(manifest.distribution.appleNotarized === false, 'Apple notarization truth must be false');
   assert(manifest.distribution.gatekeeperTrusted === false, 'Gatekeeper truth must be false');
   assert(manifest.distribution.firstLaunchApprovalRequired === true, 'first-launch approval truth must be true');
+  assert(manifest.codeSignature?.type === 'ad-hoc' && manifest.codeSignature?.structurallyValid === true, 'ad-hoc structural signature truth is missing');
+  assert(manifest.codeSignature?.hardenedRuntime === false, 'public ad-hoc candidate must not claim Hardened Runtime');
   assert(manifest.runtime?.mode === 'packaged-bundled' && manifest.runtime?.pythonSource === 'bundled', 'runtime must be packaged-bundled');
   assert(manifest.runtime?.target?.platform === 'darwin' && manifest.runtime?.target?.arch === 'arm64', 'runtime target must be darwin arm64');
   assert(manifest.model?.embedded === false, 'model weights must not be embedded');
@@ -107,7 +111,9 @@ function mountedApp(dmgPath, callback) {
     run('hdiutil', ['attach', dmgPath, '-readonly', '-nobrowse', '-mountpoint', mountPoint]);
     const appName = fs.readdirSync(mountPoint).find((name) => name.endsWith('.app'));
     assert(appName === 'ScriptCut.app', 'DMG does not contain ScriptCut.app at its root');
-    return callback(path.join(mountPoint, appName));
+    const appPath = path.join(mountPoint, appName);
+    const result = verifyApp(appPath);
+    return callback(appPath, result);
   } finally {
     spawnSync('hdiutil', ['detach', mountPoint, '-force'], { cwd: root, encoding: 'utf8', stdio: 'ignore' });
     fs.rmSync(mountPoint, { recursive: true, force: true });
@@ -149,7 +155,7 @@ async function checkBundle(directory, dmgPath, { allowPendingAttestation = false
     assert(forbidden.length === 0, `forbidden packaged resource: ${forbidden.join(', ')}`);
   });
   console.log(`Public DMG verified: ${manifest.releaseTag}, ${manifest.artifact.bytes} bytes, ${actualHash}`);
-  console.log('Self-contained resources, model exclusion, checksum, notes, and unsigned truth passed.');
+  console.log('Self-contained resources, model exclusion, checksum, notes, and ad-hoc launchability truth passed.');
   return manifest;
 }
 

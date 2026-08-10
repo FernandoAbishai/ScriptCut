@@ -16,10 +16,8 @@ module.exports = {
     ...baseConfig.mac,
     target: [{ target: 'dmg', arch: ['arm64'] }],
     artifactName: 'ScriptCut-${version}-${arch}.${ext}',
-    hardenedRuntime: true,
-    entitlements: 'build/entitlements.mac.plist',
-    entitlementsInherit: 'build/entitlements.mac.inherit.plist',
-    identity: null,
+    hardenedRuntime: false,
+    identity: '-',
     notarize: false,
   },
 };
