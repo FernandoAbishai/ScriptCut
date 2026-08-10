@@ -664,7 +664,7 @@ export default function App() {
       {/* Top bar */}
       <header className="h-12 flex items-center justify-between px-4 border-b border-editor-border shrink-0">
         <div className="flex items-center gap-3">
-          <img src="/brand/scriptcut-mark.svg" alt="ScriptCut" className="h-5 w-5" />
+          <img src="./brand/scriptcut-mark.svg" alt="ScriptCut" className="h-5 w-5" />
           <div className="min-w-0">
             <span className="block max-w-[300px] truncate text-sm font-medium">
               {videoPath.split(/[\\/]/).pop()}

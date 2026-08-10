@@ -5,10 +5,10 @@ function platformArchName() {
   return `${process.platform}-${process.arch}`;
 }
 
-function candidateRoots(isDev) {
+function candidateRoots(isDev, resourcesPath = process.resourcesPath) {
   const roots = [];
-  if (!isDev && process.resourcesPath) {
-    roots.push(path.join(process.resourcesPath, 'bin'));
+  if (!isDev && resourcesPath) {
+    roots.push(path.join(resourcesPath, 'bin'));
   }
   roots.push(path.join(__dirname, '..', 'build', 'bin'));
   return roots;
@@ -18,8 +18,8 @@ function executableNames(name) {
   return process.platform === 'win32' ? [`${name}.exe`, name] : [name];
 }
 
-function findBundledTool(name, isDev) {
-  for (const root of candidateRoots(isDev)) {
+function findBundledTool(name, isDev, resourcesPath = process.resourcesPath) {
+  for (const root of candidateRoots(isDev, resourcesPath)) {
     for (const fileName of executableNames(name)) {
       const candidates = [
         path.join(root, platformArchName(), fileName),
@@ -35,9 +35,9 @@ function findBundledTool(name, isDev) {
   return null;
 }
 
-function bundledToolEnv(isDev) {
-  const ffmpeg = findBundledTool('ffmpeg', isDev);
-  const ffprobe = findBundledTool('ffprobe', isDev);
+function bundledToolEnv(isDev, resourcesPath = process.resourcesPath) {
+  const ffmpeg = findBundledTool('ffmpeg', isDev, resourcesPath);
+  const ffprobe = findBundledTool('ffprobe', isDev, resourcesPath);
   const env = {};
   const pathDirs = [];
 
