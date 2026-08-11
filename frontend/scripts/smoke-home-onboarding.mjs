@@ -32,6 +32,10 @@ assert.match(homeSource, /Dismiss/);
 assert.match(homeSource, /Development \/ browser mode/);
 assert.match(homeSource, /native file access, autosave and direct exports/);
 assert.match(homeSource, /onShowSetup\(\)/);
+assert.match(homeSource, /getSetupGuidance\(row, isElectron\)/);
+assert.match(homeSource, /The ScriptCut desktop app includes its local editing runtime/);
+assert.match(homeSource, /Desktop releases include the video export engine/);
+assert.match(homeSource, /Source development uses Python 3\.11/);
 
 assert.match(appSource, /onOpenWorkflow=\{handleStartWorkflow\}/);
 assert.match(appSource, /src="\.\/brand\/scriptcut-mark\.svg"/);

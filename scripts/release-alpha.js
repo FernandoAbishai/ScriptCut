@@ -247,6 +247,7 @@ async function main() {
   runStep('Validate native release platform', 'node', ['scripts/release-platform.js', '--arch', 'arm64'], { env });
   runStep('Build frontend', 'npm', ['run', 'build:frontend'], { env });
   runStep('Frontend packaged asset reference smoke', 'node', ['frontend/scripts/smoke-home-onboarding.mjs'], { env });
+  runStep('Canonical brand asset smoke', 'npm', ['run', 'smoke:brand'], { env });
   runStep('Build ad-hoc self-contained arm64 DMG', 'node_modules/.bin/electron-builder', [
     '--config', 'electron-builder.release.cjs',
     '--arm64',

@@ -17,15 +17,25 @@ function fail(message) {
   throw new Error(`Electron-like packaged backend smoke failed: ${message}`);
 }
 
-function request(port, pathname, token) {
+function request(port, pathname, { method = 'GET', token, headers = {} } = {}) {
   return new Promise((resolve) => {
-    const headers = token ? { 'X-ScriptCut-Token': token } : {};
-    const requestHandle = http.get({ hostname: '127.0.0.1', port, path: pathname, headers }, (response) => {
+    const requestHeaders = {
+      ...headers,
+      ...(token ? { 'X-ScriptCut-Token': token } : {}),
+    };
+    const requestHandle = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: pathname,
+      method,
+      headers: requestHeaders,
+    }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
       response.on('end', () => resolve({
         status: response.statusCode || 0,
         body: Buffer.concat(chunks).toString('utf8'),
+        headers: response.headers,
       }));
     });
     requestHandle.on('error', () => resolve({ status: 0, body: '' }));
@@ -33,6 +43,7 @@ function request(port, pathname, token) {
       requestHandle.destroy();
       resolve({ status: 0, body: '' });
     });
+    requestHandle.end();
   });
 }
 
@@ -101,11 +112,36 @@ async function main() {
     backend._recordStartupChildOutput('stderr', startupStderrMarker);
     await startup;
     child = backend.process;
-    const health = await request(port, '/health');
+    const health = await request(port, '/health', { headers: { Origin: 'null' } });
     assert.equal(health.status, 200, `health returned ${health.status}`);
-    const unauthenticated = await request(port, '/system/diagnostics');
-    assert.equal(unauthenticated.status, 401, `unauthenticated diagnostics returned ${unauthenticated.status}`);
-    const diagnosticsResponse = await request(port, '/system/diagnostics', token);
+    const unauthenticated = await request(port, '/system/checks', { headers: { Origin: 'null' } });
+    assert.equal(unauthenticated.status, 401, `unauthenticated system checks returned ${unauthenticated.status}`);
+    const packagedChecks = await request(port, '/system/checks', {
+      token,
+      headers: { Origin: 'null' },
+    });
+    assert.equal(packagedChecks.status, 200, `packaged system checks returned ${packagedChecks.status}`);
+    assert.equal(packagedChecks.headers['access-control-allow-origin'], 'null', 'packaged origin was not allowed explicitly');
+    const arbitraryOrigin = await request(port, '/system/checks', {
+      token,
+      headers: { Origin: 'https://example.invalid' },
+    });
+    assert.equal(arbitraryOrigin.status, 200, `arbitrary-origin system checks returned ${arbitraryOrigin.status}`);
+    assert.equal(arbitraryOrigin.headers['access-control-allow-origin'], undefined, 'arbitrary origin received a CORS grant');
+    const preflight = await request(port, '/system/checks', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'null',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type,x-scriptcut-token',
+      },
+    });
+    assert.equal(preflight.status, 200, `packaged preflight returned ${preflight.status}`);
+    assert.equal(preflight.headers['access-control-allow-origin'], 'null', 'packaged preflight did not allow Origin: null');
+    assert.match(preflight.headers['access-control-allow-methods'] || '', /POST/);
+    assert.match(preflight.headers['access-control-allow-headers'] || '', /content-type/i);
+    assert.match(preflight.headers['access-control-allow-headers'] || '', /x-scriptcut-token/i);
+    const diagnosticsResponse = await request(port, '/system/diagnostics', { token });
     assert.equal(diagnosticsResponse.status, 200, `authenticated diagnostics returned ${diagnosticsResponse.status}`);
     backend._recordStartupChildOutput('stdout', postReadyMarker);
     backend._recordStartupChildOutput('stderr', postReadyMarker);

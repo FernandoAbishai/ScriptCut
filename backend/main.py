@@ -14,6 +14,10 @@ from local_api_auth import is_authorized_local_api_request, validate_local_api_s
 LOCAL_API_TOKEN = os.getenv("SCRIPTCUT_API_TOKEN", "").strip()
 ALLOW_TOKENLESS_DEV = os.getenv("SCRIPTCUT_ALLOW_TOKENLESS_DEV", "") == "1"
 TOKEN_REQUIRED = validate_local_api_startup(LOCAL_API_TOKEN, ALLOW_TOKENLESS_DEV)
+RUNTIME_MODE = os.getenv("SCRIPTCUT_RUNTIME_MODE", "development")
+ALLOWED_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+if RUNTIME_MODE in {"packaged-legacy", "packaged-bundled"}:
+    ALLOWED_CORS_ORIGINS.append("null")
 
 from routers import transcribe, export, ai, captions, audio, jobs, background, system
 
@@ -31,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ScriptCut Backend", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Range", "X-ScriptCut-Token"],

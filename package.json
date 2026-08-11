@@ -52,7 +52,8 @@
     "smoke:model-manager": "cd backend && (../.venv311/bin/python -m unittest scripts/smoke_model_manager.py -v || ../.venv/bin/python -m unittest scripts/smoke_model_manager.py -v || python -m unittest scripts/smoke_model_manager.py -v)",
     "smoke:transcription": "cd backend && (../.venv311/bin/python -m unittest scripts/smoke_transcription.py -v || ../.venv/bin/python -m unittest scripts/smoke_transcription.py -v || python -m unittest scripts/smoke_transcription.py -v)",
     "smoke:runtime-contract": "node scripts/smoke-runtime-contract.js",
-    "smoke:runtime-artifacts": "node scripts/smoke-runtime-artifacts.js"
+    "smoke:runtime-artifacts": "node scripts/smoke-runtime-artifacts.js",
+    "smoke:brand": "node scripts/smoke-brand-assets.js"
   },
   "devDependencies": {"concurrently": "^9.1.0", "electron": "^43.1.0", "electron-builder": "^26.15.3", "wait-on": "^8.0.0"},
   "dependencies": {"python-shell": "^5.0.0"},
