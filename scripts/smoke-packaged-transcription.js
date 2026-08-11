@@ -89,6 +89,30 @@ function makeWorkerEnvironment(packageInfo, modelRoot, token, networkDisabled) {
   return environment;
 }
 
+function probePackagedMps(packageInfo) {
+  const modelRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-mps-probe-'));
+  try {
+    const result = spawnSync(packageInfo.plan.command, ['-c', [
+      'import json, torch',
+      'from utils.gpu_utils import get_optimal_device',
+      'print(json.dumps({"built": bool(torch.backends.mps.is_built()), "available": bool(torch.backends.mps.is_available()), "device": str(get_optimal_device())}))',
+    ].join('; ')], {
+      cwd: packageInfo.plan.backendRoot,
+      env: makeWorkerEnvironment(packageInfo, modelRoot, 'scriptcut-mps-probe-token', true),
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) fail(`packaged MPS probe failed: ${(result.stderr || result.stdout || '').trim()}`);
+    const line = (result.stdout || '').trim().split('\n').at(-1);
+    try {
+      return JSON.parse(line);
+    } catch (error) {
+      fail(`packaged MPS probe was not JSON: ${error.message}`);
+    }
+  } finally {
+    fs.rmSync(modelRoot, { recursive: true, force: true });
+  }
+}
+
 async function startWorker(packageInfo, modelRoot, token, networkDisabled) {
   const port = 42000 + (process.pid % 1000);
   const child = spawn(packageInfo.plan.command, [
@@ -179,6 +203,23 @@ function createVideoFixture(packageInfo, directory) {
   return output;
 }
 
+function assertNormalizedTranscription(result, label) {
+  if (result.engine !== 'whisper' || result.model !== 'base') fail(`${label} did not use Whisper base`);
+  if (!result.words?.length || !result.segments?.length) fail(`${label} did not include words and segments`);
+  const assertWord = (word, wordLabel) => {
+    if (!word.word || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end < word.start || !Number.isFinite(word.confidence)) {
+      fail(`${label} returned invalid normalized word timing in ${wordLabel}`);
+    }
+  };
+  result.words.forEach((word, index) => assertWord(word, `words[${index}]`));
+  for (const segment of result.segments) {
+    if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) || segment.start < 0 || segment.end < segment.start || !segment.words?.length) {
+      fail(`${label} returned invalid segment timing or missing associated word timing`);
+    }
+    segment.words.forEach((word, index) => assertWord(word, `segment.words[${index}]`));
+  }
+}
+
 function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
@@ -190,12 +231,26 @@ async function realModelSmoke(packageInfo) {
   const modelManifest = JSON.parse(fs.readFileSync(path.join(packageInfo.resourcesPath, 'manifests', 'model-manifest.json'), 'utf8'));
   const modelPath = path.join(modelRoot, 'whisper', 'base', modelManifest.revision, modelManifest.filename);
   const audioPath = createVideoFixture(packageInfo, fixtureRoot);
+  const useGpu = process.argv.includes('--use-gpu');
+  let deviceProbe = { device: 'cpu', built: false, available: false };
+  if (useGpu) {
+    deviceProbe = probePackagedMps(packageInfo);
+    console.log(`Packaged MPS built: ${deviceProbe.built}`);
+    console.log(`Packaged MPS available: ${deviceProbe.available}`);
+    if (!deviceProbe.available) {
+      console.log('Real packaged --real-model --use-gpu transcription: SKIPPED because packaged MPS is unavailable; no CPU substitution was reported as an MPS pass');
+      fs.rmSync(modelRoot, { recursive: true, force: true });
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+      return;
+    }
+    if (deviceProbe.device !== 'mps') fail(`--use-gpu selected ${deviceProbe.device}, expected mps on Apple Silicon`);
+  }
   let worker;
   try {
     worker = await startWorker(packageInfo, modelRoot, token, false);
     const before = parseJson(await request(worker.port, 'GET', '/transcription/models', token), 'initial model status').models[0];
     if (before.installed || before.verified) fail('model root was not empty at first use');
-    const first = await runJob(worker, token, audioPath, process.argv.includes('--use-gpu'));
+    const first = await runJob(worker, token, audioPath, useGpu);
     const after = parseJson(await request(worker.port, 'GET', '/transcription/models', token), 'installed model status').models[0];
     if (!after.installed || !after.verified || !after.active) fail('first-use model was not verified and activated');
     if (!fs.existsSync(modelPath)) fail('managed model weight was not installed in the app-managed root');
@@ -203,17 +258,15 @@ async function realModelSmoke(packageInfo) {
     const downloadedHash = sha256(modelPath);
     if (downloadedBytes !== modelManifest.expectedBytes || downloadedHash !== modelManifest.sha256) fail('downloaded model metadata does not match the trusted manifest');
     const result = first.job.result || {};
-    if (result.engine !== 'whisper' || result.model !== 'base' || !result.words?.length || !result.segments?.length) fail('first transcription result did not meet the normalized contract');
-    for (const word of result.words) {
-      if (!word.word || !Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < 0 || word.end < word.start) fail('first transcription returned invalid word timing');
-    }
+    assertNormalizedTranscription(result, 'first transcription');
+    if (useGpu && !/Loading whisper model:.*on mps/i.test(worker.stderr())) fail(`packaged worker did not report Whisper loading on MPS: ${worker.stderr().slice(-2000)}`);
     for (const stage of ['Downloading transcription model', 'Verifying transcription model', 'Loading transcription model', 'Transcribing locally']) {
       if (!first.messages.includes(stage)) fail(`first-use progress did not expose stage: ${stage}`);
     }
     await stopWorker(worker);
 
     worker = await startWorker(packageInfo, modelRoot, token, true);
-    const offline = await runJob(worker, token, audioPath, process.argv.includes('--use-gpu'));
+    const offline = await runJob(worker, token, audioPath, useGpu);
     if (offline.job.status !== 'succeeded') fail('offline second-use transcription did not succeed');
     await stopWorker(worker);
 
@@ -221,25 +274,26 @@ async function realModelSmoke(packageInfo) {
     worker = await startWorker(packageInfo, modelRoot, token, false);
     const corruptStatus = parseJson(await request(worker.port, 'GET', '/transcription/models', token), 'corrupt model status').models[0];
     if (corruptStatus.verified) fail('corrupt model was still reported verified');
-    const repaired = await runJob(worker, token, audioPath, process.argv.includes('--use-gpu'));
+    const repaired = await runJob(worker, token, audioPath, useGpu);
     if (repaired.job.status !== 'succeeded') fail('corrupt model repair transcription did not succeed');
 
     const deleted = await request(worker.port, 'DELETE', '/transcription/models/whisper-base', token);
     if (deleted.status !== 200) fail(`model deletion returned ${deleted.status}: ${deleted.body}`);
     const deletedStatus = parseJson(await request(worker.port, 'GET', '/transcription/models', token), 'deleted model status').models[0];
     if (deletedStatus.installed || deletedStatus.verified) fail('deleted model remained installed');
-    const reacquired = await runJob(worker, token, audioPath, process.argv.includes('--use-gpu'));
+    const reacquired = await runJob(worker, token, audioPath, useGpu);
     if (reacquired.job.status !== 'succeeded') fail('transcription after deletion did not reacquire the model');
 
     console.log(`First-use model download: ${downloadedBytes} bytes, SHA-256 ${downloadedHash}`);
     console.log(`First-use model location: app-managed writable model storage (${first.elapsedMs} ms)`);
+    console.log(`Selected device: ${deviceProbe.device}`);
     console.log(`First-use transcription: ${result.words.length} words, ${result.segments.length} segments, language=${result.language || 'unknown'}, engine=${result.engine}, model=${result.model}`);
     const downloadProgress = first.observations.filter((sample) => sample.message === 'Downloading transcription model');
     console.log(`Observed model-download progress: ${downloadProgress.length} values (first=${downloadProgress[0]?.progress ?? 'n/a'}, last=${downloadProgress.at(-1)?.progress ?? 'n/a'})`);
     console.log(`Offline second-use transcription: succeeded (${offline.elapsedMs} ms) with network disabled`);
     console.log('Corrupt-model repair: rejected unverified candidate and repaired successfully');
     console.log('Deletion and reacquisition: model removed, cache evicted, and next transcription succeeded');
-    console.log(`Device request: ${process.argv.includes('--use-gpu') ? 'current automatic device selection' : 'CPU'}`);
+    console.log(`Device request: ${useGpu ? 'current automatic device selection' : 'CPU'}`);
     console.log('Packaged transcription smoke passed.');
   } finally {
     await stopWorker(worker);

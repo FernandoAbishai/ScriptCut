@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _model_cache: dict = {}
 _model_cache_lock = threading.Lock()
+_whisper_mps_dtw_lock = threading.Lock()
 TranscriptionEngine = Literal["whisperx", "whisper", "parakeet", "auto"]
 PARAKEET_DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 WHISPER_MODEL_NAMES = {"tiny", "base", "small", "medium", "large"}
@@ -52,6 +53,42 @@ try:
     HF_TOKEN = os.environ.get("HF_TOKEN")
 except Exception:
     pass
+
+
+def _ensure_whisper_mps_word_timing_compat() -> bool:
+    """Patch pinned Whisper DTW so MPS tensors reach CPU as float32 first."""
+    if not WHISPER_AVAILABLE or whisper is None:
+        return False
+
+    timing = getattr(whisper, "timing", None)
+    if timing is None:
+        timing = importlib.import_module("whisper.timing")
+
+    current_dtw = getattr(timing, "dtw", None)
+    if getattr(current_dtw, "_scriptcut_mps_word_timing_compat", False):
+        return True
+
+    with _whisper_mps_dtw_lock:
+        current_dtw = getattr(timing, "dtw", None)
+        if getattr(current_dtw, "_scriptcut_mps_word_timing_compat", False):
+            return True
+        dtw_cpu = getattr(timing, "dtw_cpu", None)
+        if not callable(current_dtw) or not callable(dtw_cpu):
+            return False
+
+        original_dtw = current_dtw
+
+        def scriptcut_dtw(tensor):
+            device = getattr(tensor, "device", None)
+            if getattr(device, "type", None) == "mps":
+                cpu_matrix = tensor.detach().to(device="cpu", dtype=torch.float32).numpy()
+                return dtw_cpu(cpu_matrix)
+            return original_dtw(tensor)
+
+        scriptcut_dtw._scriptcut_mps_word_timing_compat = True
+        scriptcut_dtw._scriptcut_original_dtw = original_dtw
+        timing.dtw = scriptcut_dtw
+        return True
 
 
 def _get_device(use_gpu: bool = True) -> torch.device:
@@ -273,6 +310,9 @@ def transcribe_audio(
 
         device = _get_device(use_gpu)
         model = _load_model(model_name, device, resolved_engine, progress_callback)
+        if resolved_engine == "whisper" and device.type == "mps":
+            if not _ensure_whisper_mps_word_timing_compat():
+                raise RuntimeError("Whisper MPS word-timestamp compatibility could not be installed.")
         if progress_callback:
             progress_callback(45, "Transcribing locally")
 

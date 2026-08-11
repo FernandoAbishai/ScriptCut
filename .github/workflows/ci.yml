@@ -175,7 +175,7 @@ jobs:
             exit 1
           fi
           if [ "${{ inputs.real_model }}" = "true" ]; then
-            npm run release:rc:arm64 -- --real-model
+            npm run release:rc:arm64 -- --real-model --use-gpu
           else
             npm run release:rc:arm64
           fi
