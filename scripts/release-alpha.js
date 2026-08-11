@@ -248,6 +248,7 @@ async function main() {
   runStep('Build frontend', 'npm', ['run', 'build:frontend'], { env });
   runStep('Frontend packaged asset reference smoke', 'node', ['frontend/scripts/smoke-home-onboarding.mjs'], { env });
   runStep('Canonical brand asset smoke', 'npm', ['run', 'smoke:brand'], { env });
+  runStep('Packaged renderer policy smoke', 'npm', ['run', 'smoke:renderer-policy'], { env });
   runStep('Build ad-hoc self-contained arm64 DMG', 'node_modules/.bin/electron-builder', [
     '--config', 'electron-builder.release.cjs',
     '--arm64',
@@ -259,6 +260,7 @@ async function main() {
   runPackagedGate('Packaged FFmpeg gate', 'scripts/check-packaged-ffmpeg.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Electron-like packaged backend startup gate', 'scripts/check-packaged-electron-backend.js', ['--app', outputs.appPath], env);
+  runPackagedGate('Packaged Electron renderer transport gate', 'scripts/smoke-packaged-electron-renderer.js', ['--app', outputs.appPath], env);
   runPackagedGate('Packaged optional-capability gate', 'scripts/smoke-packaged-optional-capabilities.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Packaged transcription contract gate', 'scripts/smoke-packaged-transcription.js', ['--arch', 'arm64', '--app', outputs.appPath, ...(realModel ? ['--real-model'] : [])], env);
   runPackagedGate('macOS signing-readiness inventory', 'scripts/check-macos-signing-readiness.js', ['--app', outputs.appPath], env);

@@ -106,6 +106,9 @@ jobs:
       - name: Build frontend
         run: npm run build --prefix frontend
 
+      - name: Test packaged renderer policy
+        run: npm run smoke:renderer-policy
+
       - name: Run backend smoke tests
         run: npm run smoke:backend
 
