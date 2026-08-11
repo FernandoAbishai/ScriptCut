@@ -1,7 +1,8 @@
 # ScriptCut Brand Assets
 
-The primary ScriptCut mark is **Transcript Slice**. It represents the
-product's defining interaction: editing a video by editing its transcript.
+The primary ScriptCut mark is the purple/indigo/teal document-and-edit-cut
+icon restored from the approved historical source at commit
+`d05d7f07d851e549a4e2bd7d46595b2cdf1514ab`.
 
 ## Primary Assets
 

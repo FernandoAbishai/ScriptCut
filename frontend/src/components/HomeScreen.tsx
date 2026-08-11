@@ -477,7 +477,7 @@ function FirstRunChecklist({
       )}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {rows.map((row) => {
-          const guidance = getSetupGuidance(row);
+          const guidance = getSetupGuidance(row, isElectron);
           const optional = isOptionalCheck(row);
           const importance = getCheckImportance(row);
           const displayLabel = getCreatorCheckLabel(row);
@@ -638,7 +638,7 @@ function getCreatorCheckLabel(row: SystemCheck) {
   return row.label;
 }
 
-function getSetupGuidance(row: SystemCheck) {
+function getSetupGuidance(row: SystemCheck, isElectron: boolean) {
   if (row.ok) return null;
 
   if (row.label === 'Desktop app') {
@@ -650,14 +650,26 @@ function getSetupGuidance(row: SystemCheck) {
   }
 
   if (row.label === 'Python') {
+    if (isElectron) {
+      return {
+        message: 'The ScriptCut desktop app includes its local editing runtime. Restart ScriptCut. If the problem continues, reinstall the official ScriptCut DMG.',
+        link: RELEASE_LINKS.latestRelease,
+        linkLabel: 'Reinstall official DMG',
+      };
+    }
     return {
-      message: 'This alpha uses Python 3.11 for its local editing engine. Install it once, restart ScriptCut, then refresh these checks.',
+      message: 'Source development uses Python 3.11 for the local editing engine. Install it once, restart ScriptCut, then refresh these checks.',
       link: RELEASE_LINKS.pythonDownloads,
-      linkLabel: 'Install Python for macOS',
+      linkLabel: 'Python source setup',
     };
   }
 
   if (row.label === 'Local backend') {
+    if (isElectron) {
+      return {
+        message: "ScriptCut couldn't start or reach its local editing service. Restart the app. If the problem continues, review Technical details.",
+      };
+    }
     return {
       message: 'ScriptCut could not start its local editing engine. Follow the setup guide, then restart the app and refresh these checks.',
       link: RELEASE_LINKS.installGuide,
@@ -666,6 +678,13 @@ function getSetupGuidance(row: SystemCheck) {
   }
 
   if (row.label === 'FFmpeg') {
+    if (isElectron) {
+      return {
+        message: 'Desktop releases include the video export engine. Reinstall the official ScriptCut DMG if this component is missing.',
+        link: RELEASE_LINKS.latestRelease,
+        linkLabel: 'Reinstall official DMG',
+      };
+    }
     return {
       message: 'Desktop releases include FFmpeg for export. Source builds can install FFmpeg manually.',
       command: 'brew install ffmpeg',
@@ -681,6 +700,13 @@ function getSetupGuidance(row: SystemCheck) {
   }
 
   if (row.label === 'Transcription') {
+    if (isElectron) {
+      return {
+        message: 'Baseline Whisper transcription is included in this desktop release. Restart ScriptCut; if it remains unavailable, reinstall the official ScriptCut DMG.',
+        link: RELEASE_LINKS.latestRelease,
+        linkLabel: 'Reinstall official DMG',
+      };
+    }
     return {
       message: 'Choose Auto or Whisper fallback, or install Parakeet dependencies for the fastest multilingual engine.',
       command: "pip install -U nemo_toolkit['asr']",
@@ -688,6 +714,11 @@ function getSetupGuidance(row: SystemCheck) {
   }
 
   if (row.label === 'Background removal') {
+    if (isElectron) {
+      return {
+        message: 'This optional capability is not included in the desktop release. Core editing and export do not require it.',
+      };
+    }
     return {
       message: 'Optional add-on. Install MediaPipe and OpenCV only if you need background removal.',
       command: 'pip install mediapipe opencv-python',

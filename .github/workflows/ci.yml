@@ -64,6 +64,9 @@ jobs:
       - name: Test pinned runtime artifact metadata
         run: npm run smoke:runtime-artifacts
 
+      - name: Test canonical brand assets
+        run: npm run smoke:brand
+
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 
