@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { inspectPackage } = require('./check-packaged-runtime');
 
 const root = path.join(__dirname, '..');
 const distDir = path.join(root, 'dist');
@@ -228,6 +229,19 @@ function runPackagedGate(name, script, args, env) {
   runStep(name, 'node', [script, ...args], { env });
 }
 
+function runPackagedPythonGate(name, script, packageInfo, env, args = []) {
+  const smokeEnv = {
+    ...env,
+    ...packageInfo.plan.environment,
+    SCRIPTCUT_PACKAGED_BACKEND_ROOT: packageInfo.plan.backendRoot,
+    SCRIPTCUT_RUNTIME_MODE: 'packaged-bundled',
+    PYTHONNOUSERSITE: '1',
+    PYTHONPATH: packageInfo.corePackRoot,
+    PATH: '/usr/bin:/bin',
+  };
+  runStep(name, packageInfo.plan.command, [path.join(root, script), ...args], { env: smokeEnv });
+}
+
 async function main() {
   if (!process.argv.includes('--candidate')) {
     throw new Error('Phase 3B.5A only prepares an explicit ad-hoc candidate. Use --candidate; signed distribution is reserved for Phase 3B.5B.');
@@ -248,6 +262,7 @@ async function main() {
   runStep('Build frontend', 'npm', ['run', 'build:frontend'], { env });
   runStep('Frontend packaged asset reference smoke', 'node', ['frontend/scripts/smoke-home-onboarding.mjs'], { env });
   runStep('Canonical brand asset smoke', 'npm', ['run', 'smoke:brand'], { env });
+  runStep('Packaged renderer policy smoke', 'npm', ['run', 'smoke:renderer-policy'], { env });
   runStep('Build ad-hoc self-contained arm64 DMG', 'node_modules/.bin/electron-builder', [
     '--config', 'electron-builder.release.cjs',
     '--arm64',
@@ -255,12 +270,15 @@ async function main() {
   ], { env });
 
   const outputs = candidateOutputs(pkg);
+  const packageInfo = inspectPackage(outputs.appPath);
   runPackagedGate('Packaged runtime gate', 'scripts/check-packaged-runtime.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Packaged FFmpeg gate', 'scripts/check-packaged-ffmpeg.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Electron-like packaged backend startup gate', 'scripts/check-packaged-electron-backend.js', ['--app', outputs.appPath], env);
+  runPackagedGate('Packaged Electron renderer transport gate', 'scripts/smoke-packaged-electron-renderer.js', ['--app', outputs.appPath], env);
+  runPackagedPythonGate('Whisper MPS word-timing compatibility gate', 'scripts/smoke-whisper-mps-word-timing.py', packageInfo, env);
   runPackagedGate('Packaged optional-capability gate', 'scripts/smoke-packaged-optional-capabilities.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
-  runPackagedGate('Packaged transcription contract gate', 'scripts/smoke-packaged-transcription.js', ['--arch', 'arm64', '--app', outputs.appPath, ...(realModel ? ['--real-model'] : [])], env);
+  runPackagedGate('Packaged transcription contract gate', 'scripts/smoke-packaged-transcription.js', ['--arch', 'arm64', '--app', outputs.appPath, ...(realModel ? ['--real-model', '--use-gpu'] : [])], env);
   runPackagedGate('macOS signing-readiness inventory', 'scripts/check-macos-signing-readiness.js', ['--app', outputs.appPath], env);
   runPackagedGate('Candidate DMG inspection', 'scripts/check-release-candidate.js', ['--app', outputs.appPath, '--dmg', outputs.dmgPath], env);
 

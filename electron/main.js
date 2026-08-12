@@ -63,7 +63,7 @@ function openExternalUrl(url) {
   if (url.startsWith('https://')) void shell.openExternal(url);
 }
 
-function createWindow() {
+function createWindow({ hidden = false } = {}) {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -79,6 +79,7 @@ function createWindow() {
     },
     show: false,
   });
+  if (hidden) mainWindow.hide();
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -87,7 +88,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'));
   }
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  if (!hidden) mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
     return { action: 'deny' };
@@ -105,6 +106,7 @@ function createWindow() {
     callback({ requestHeaders: details.requestHeaders });
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  return mainWindow;
 }
 
 app.whenReady().then(async () => {
@@ -125,6 +127,30 @@ app.whenReady().then(async () => {
     backendStartupError = error instanceof Error ? error.message : String(error);
     console.error('[backend] Startup failed:', backendStartupError);
   }
+
+  if (process.env.SCRIPTCUT_RENDERER_SMOKE === '1') {
+    try {
+      if (!app.isPackaged) throw new Error('renderer transport smoke requires a packaged app');
+      const { runRendererTransportSmoke } = require('./renderer-transport-smoke');
+      const mediaPath = process.env.SCRIPTCUT_RENDERER_SMOKE_MEDIA_PATH;
+      if (!mediaPath) throw new Error('renderer transport smoke media fixture is missing');
+      const smokeWindow = createWindow({ hidden: true });
+      const result = await runRendererTransportSmoke({
+        window: smokeWindow,
+        backendOrigin: BACKEND_ORIGIN,
+        mediaPath,
+      });
+      console.log(`SCRIPTCUT_RENDERER_SMOKE_RESULT=${JSON.stringify(result)}`);
+      pythonBackend.stop();
+      app.exit(0);
+    } catch (error) {
+      console.error('[renderer-smoke] Failed:', error instanceof Error ? error.stack || error.message : String(error));
+      pythonBackend.stop();
+      app.exit(1);
+    }
+    return;
+  }
+
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
