@@ -7,6 +7,7 @@ const root = path.join(__dirname, '..');
 const workflowPath = path.join(root, '.github', 'workflows', 'release-unsigned.yml');
 const ciWorkflowPath = path.join(root, '.github', 'workflows', 'ci.yml');
 const releaseConfigPath = path.join(root, 'electron-builder.release.cjs');
+const releaseAlphaPath = path.join(root, 'scripts', 'release-alpha.js');
 
 function fail(message) {
   throw new Error(`Release workflow check failed: ${message}`);
@@ -52,6 +53,24 @@ function validateOpenFileGuard(text, label, stepName) {
   assert(/SOFT_AFTER[\s\S]*?-lt[\s\S]*?SOFT_BEFORE/.test(beforeRelease), guardError('candidate build does not protect against lowering the existing soft limit'));
 }
 
+function validateHostedCandidateInvocation(text) {
+  const build = stepBlock(text, 'Build and verify ad-hoc self-contained release candidate');
+  assert(!/PYTORCH_MPS_HIGH_WATERMARK_RATIO/.test(build), 'hosted candidate must not manipulate the MPS allocator');
+  assert(/npm run release:rc:arm64 -- --real-model/.test(build), 'hosted real-model candidate must invoke --real-model');
+  assert(!/npm run release:rc:arm64 -- --real-model --use-gpu/.test(build), 'hosted real-model candidate must not request GPU execution');
+  assert(!/npm run release:rc:arm64 -- --real-model --require-mps/.test(build), 'hosted real-model candidate must not require physical MPS');
+}
+
+function validateReleaseArgumentSeparation(text) {
+  assert(/const realModel = process\.argv\.includes\('--real-model'\)/.test(text), 'release orchestrator must parse --real-model separately');
+  assert(/const useGpu = process\.argv\.includes\('--use-gpu'\)/.test(text), 'release orchestrator must parse --use-gpu separately');
+  assert(/const requireMps = process\.argv\.includes\('--require-mps'\)/.test(text), 'release orchestrator must parse --require-mps separately');
+  assert(/requireMps \? \['--require-mps'\] : \[\]/.test(text), 'MPS smoke must receive --require-mps only when explicitly requested');
+  assert(/if \(realModel\) transcriptionArgs\.push\('--real-model'\)/.test(text), 'packaged transcription must receive --real-model independently');
+  assert(/if \(useGpu\) transcriptionArgs\.push\('--use-gpu'\)/.test(text), 'packaged transcription must receive --use-gpu independently');
+  assert(!/realModel \? \['--real-model', '--use-gpu'\]/.test(text), 'release orchestrator must not couple --real-model with --use-gpu');
+}
+
 function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ciWorkflowPath, 'utf8') } = {}) {
   const jobsStart = text.indexOf('\njobs:');
   assert(jobsStart > 0, 'jobs section is missing');
@@ -74,6 +93,8 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(/actions\/upload-artifact@v4/.test(build), 'build workflow artifact upload is missing');
   assert(/-arm64-dry-run/.test(build), 'dry-run artifact naming is missing');
   assert(/-arm64-public/.test(build), 'public artifact naming is missing');
+  assert(/npm run release:rc:arm64 -- --real-model/.test(build), 'public hosted real-model validation must invoke --real-model');
+  assert(!/npm run release:rc:arm64 -- --real-model --use-gpu/.test(build), 'public hosted real-model validation must not request GPU execution');
   validateOpenFileGuard(text, 'release-unsigned.yml', 'Build ad-hoc self-contained candidate');
   validateOpenFileGuard(candidateWorkflowText, 'ci.yml', 'Build and verify ad-hoc self-contained release candidate');
 
@@ -112,6 +133,8 @@ function main() {
   validateWorkflowText(fs.readFileSync(workflowPath, 'utf8'), {
     candidateWorkflowText: fs.readFileSync(ciWorkflowPath, 'utf8'),
   });
+  validateHostedCandidateInvocation(fs.readFileSync(ciWorkflowPath, 'utf8'));
+  validateReleaseArgumentSeparation(fs.readFileSync(releaseAlphaPath, 'utf8'));
   const releaseConfig = fs.readFileSync(releaseConfigPath, 'utf8');
   assert(/identity:\s*['"]-['"]/.test(releaseConfig), 'release config must use ad-hoc identity -');
   assert(/hardenedRuntime:\s*false/.test(releaseConfig), 'release config must disable Hardened Runtime for public ad-hoc candidates');

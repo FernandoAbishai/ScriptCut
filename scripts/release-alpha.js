@@ -253,6 +253,8 @@ async function main() {
   const pkg = readPackage();
   const env = releaseEnv();
   const realModel = process.argv.includes('--real-model');
+  const useGpu = process.argv.includes('--use-gpu');
+  const requireMps = process.argv.includes('--require-mps');
   ensureReleaseDirs();
 
   runStep('Release candidate trust readiness', 'node', ['scripts/check-release-trust.js', '--candidate'], { env });
@@ -276,9 +278,20 @@ async function main() {
   runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Electron-like packaged backend startup gate', 'scripts/check-packaged-electron-backend.js', ['--app', outputs.appPath], env);
   runPackagedGate('Packaged Electron renderer transport gate', 'scripts/smoke-packaged-electron-renderer.js', ['--app', outputs.appPath], env);
-  runPackagedPythonGate('Whisper MPS word-timing compatibility gate', 'scripts/smoke-whisper-mps-word-timing.py', packageInfo, env);
+  runPackagedPythonGate(
+    'Whisper MPS word-timing compatibility gate',
+    'scripts/smoke-whisper-mps-word-timing.py',
+    packageInfo,
+    env,
+    requireMps ? ['--require-mps'] : [],
+  );
   runPackagedGate('Packaged optional-capability gate', 'scripts/smoke-packaged-optional-capabilities.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
-  runPackagedGate('Packaged transcription contract gate', 'scripts/smoke-packaged-transcription.js', ['--arch', 'arm64', '--app', outputs.appPath, ...(realModel ? ['--real-model', '--use-gpu'] : [])], env);
+  const transcriptionArgs = ['--arch', 'arm64', '--app', outputs.appPath];
+  if (realModel) transcriptionArgs.push('--real-model');
+  if (useGpu) transcriptionArgs.push('--use-gpu');
+  if (realModel && !useGpu) console.log('Hosted real model: CPU');
+  if (realModel && useGpu && requireMps) console.log('Physical Mac real model: MPS required');
+  runPackagedGate('Packaged transcription contract gate', 'scripts/smoke-packaged-transcription.js', transcriptionArgs, env);
   runPackagedGate('macOS signing-readiness inventory', 'scripts/check-macos-signing-readiness.js', ['--app', outputs.appPath], env);
   runPackagedGate('Candidate DMG inspection', 'scripts/check-release-candidate.js', ['--app', outputs.appPath, '--dmg', outputs.dmgPath], env);
 
