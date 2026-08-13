@@ -644,7 +644,7 @@ function getSetupGuidance(row: SystemCheck, isElectron: boolean) {
   if (row.label === 'Desktop app') {
     return {
       message: 'Use the installed ScriptCut desktop app for native file access, autosave, and direct exports.',
-      link: RELEASE_LINKS.latestRelease,
+      link: RELEASE_LINKS.releases,
       linkLabel: 'Download desktop release',
     };
   }
@@ -653,7 +653,7 @@ function getSetupGuidance(row: SystemCheck, isElectron: boolean) {
     if (isElectron) {
       return {
         message: 'The ScriptCut desktop app includes its local editing runtime. Restart ScriptCut. If the problem continues, reinstall the official ScriptCut DMG.',
-        link: RELEASE_LINKS.latestRelease,
+        link: RELEASE_LINKS.releases,
         linkLabel: 'Reinstall official DMG',
       };
     }
@@ -681,14 +681,14 @@ function getSetupGuidance(row: SystemCheck, isElectron: boolean) {
     if (isElectron) {
       return {
         message: 'Desktop releases include the video export engine. Reinstall the official ScriptCut DMG if this component is missing.',
-        link: RELEASE_LINKS.latestRelease,
+        link: RELEASE_LINKS.releases,
         linkLabel: 'Reinstall official DMG',
       };
     }
     return {
       message: 'Desktop releases include FFmpeg for export. Source builds can install FFmpeg manually.',
       command: 'brew install ffmpeg',
-      link: RELEASE_LINKS.latestRelease,
+      link: RELEASE_LINKS.releases,
       linkLabel: 'Get desktop release',
     };
   }
@@ -703,7 +703,7 @@ function getSetupGuidance(row: SystemCheck, isElectron: boolean) {
     if (isElectron) {
       return {
         message: 'Baseline Whisper transcription is included in this desktop release. Restart ScriptCut; if it remains unavailable, reinstall the official ScriptCut DMG.',
-        link: RELEASE_LINKS.latestRelease,
+        link: RELEASE_LINKS.releases,
         linkLabel: 'Reinstall official DMG',
       };
     }

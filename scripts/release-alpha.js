@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { inspectPackage } = require('./check-packaged-runtime');
+const { formatCandidateArtifactFilename, readProductVersion } = require('./release-identity');
 
 const root = path.join(__dirname, '..');
 const distDir = path.join(root, 'dist');
@@ -13,7 +14,10 @@ const packageOutputDir = path.join(releaseDir, 'app');
 const releaseMetadataDir = releaseDir;
 
 function readPackage() {
-  return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const productVersion = readProductVersion();
+  if (pkg.version !== productVersion) throw new Error('package version does not match canonical productVersion');
+  return { ...pkg, version: productVersion };
 }
 
 function runStep(name, command, args, options = {}) {
@@ -83,7 +87,7 @@ function findFiles(directory, predicate, found = []) {
 }
 
 function candidateOutputs(pkg) {
-  const expectedDmg = `ScriptCut-${pkg.version}-arm64.dmg`;
+  const expectedDmg = formatCandidateArtifactFilename(pkg.version, 'arm64');
   const dmgs = findFiles(packageOutputDir, (filePath, entry) => entry.isFile() && path.basename(filePath) === expectedDmg);
   if (dmgs.length !== 1) throw new Error(`Expected exactly one current candidate DMG ${expectedDmg}; found ${dmgs.length}.`);
   const apps = findFiles(packageOutputDir, (filePath, entry) => entry.isDirectory() && entry.name === 'ScriptCut.app');
@@ -275,6 +279,7 @@ async function main() {
   const outputs = candidateOutputs(pkg);
   const packageInfo = inspectPackage(outputs.appPath);
   runPackagedGate('Packaged runtime gate', 'scripts/check-packaged-runtime.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
+  runPackagedGate('Packaged release identity gate', 'scripts/smoke-packaged-release-identity.js', ['--app', outputs.appPath], env);
   runPackagedGate('Packaged FFmpeg gate', 'scripts/check-packaged-ffmpeg.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Electron-like packaged backend startup gate', 'scripts/check-packaged-electron-backend.js', ['--app', outputs.appPath], env);

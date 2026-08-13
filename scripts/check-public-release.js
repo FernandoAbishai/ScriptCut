@@ -6,6 +6,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { checksumFile } = require('./release-alpha');
 const { verifyApp } = require('./check-macos-launchability');
+const { formatPublicArtifactFilename, validateAlphaReleaseTag } = require('./release-identity');
 
 const root = path.join(__dirname, '..');
 const forbiddenNames = new Set([
@@ -74,7 +75,12 @@ function validateNotes(notes) {
 
 function validateManifest(manifest, { allowPendingAttestation = false } = {}) {
   assert(manifest.schema === 'scriptcut.release.v2', 'schema must be scriptcut.release.v2');
-  assert(/^v\d+\.\d+\.\d+-alpha\.[1-9]\d*$/.test(manifest.releaseTag), 'release tag format is invalid');
+  let tagInfo;
+  try {
+    tagInfo = validateAlphaReleaseTag(manifest.releaseTag, manifest.version);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   assert(manifest.prerelease === true && manifest.channel === 'ad-hoc-public-alpha', 'public prerelease semantics are missing');
   assert(manifest.platform === 'darwin' && manifest.architecture === 'arm64', 'public target must be darwin arm64');
   assert(manifest.distribution?.mode === 'ad-hoc-public-alpha', 'distribution mode is not ad-hoc-public-alpha');
@@ -90,7 +96,7 @@ function validateManifest(manifest, { allowPendingAttestation = false } = {}) {
   assert(/^[0-9a-f]{40}$/.test(manifest.commit), 'manifest commit must be a full SHA-1');
   assert(/^[0-9a-f]{64}$/.test(manifest.artifact?.sha256), 'artifact SHA-256 is missing');
   assert(Number.isInteger(manifest.artifact?.bytes) && manifest.artifact.bytes > 0, 'artifact byte count is missing');
-  assert(manifest.artifact.filename === `ScriptCut-${manifest.releaseTag}-arm64.dmg`, 'public artifact filename must include the release tag');
+  assert(manifest.artifact.filename === formatPublicArtifactFilename(tagInfo.releaseTag, tagInfo.productVersion, 'arm64'), 'public artifact filename must include the release tag');
   assert(manifest.provenance?.provider === 'github-artifact-attestation-sigstore', 'provenance provider is incorrect');
   assert(manifest.provenance.repository === 'FernandoAbishai/ScriptCut', 'provenance repository is incorrect');
   assert(manifest.provenance.workflow === '.github/workflows/release-unsigned.yml', 'provenance workflow is incorrect');

@@ -4,6 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { checksumFile } = require('./release-alpha');
+const {
+  alphaSuffix,
+  formatPublicArtifactFilename,
+  highestAlphaSuffix,
+  readProductVersion,
+  validateAlphaReleaseTag,
+} = require('./release-identity');
 
 const root = path.join(__dirname, '..');
 const packagePath = path.join(root, 'package.json');
@@ -32,7 +39,7 @@ function readJson(filePath) {
 }
 
 function packageVersion() {
-  return readJson(packagePath).version;
+  return readProductVersion(packagePath);
 }
 
 function currentGitCommit() {
@@ -55,35 +62,7 @@ function existingTagsFromGit() {
   return result.stdout.split(/\r?\n/).map((tag) => tag.trim()).filter(Boolean);
 }
 
-function alphaTagPattern(version) {
-  return new RegExp(`^v${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-alpha\\.(\\d+)$`);
-}
-
-function alphaSuffix(tag, version) {
-  const match = alphaTagPattern(version).exec(tag);
-  return match ? Number(match[1]) : null;
-}
-
-function highestAlphaSuffix(tags, version) {
-  return tags.reduce((highest, tag) => {
-    const suffix = alphaSuffix(tag, version);
-    return suffix === null ? highest : Math.max(highest, suffix);
-  }, 0);
-}
-
-function validateReleaseTag(tag, version, existingTags = []) {
-  if (typeof tag !== 'string' || !tag) throw new Error('release_tag is required');
-  const suffix = alphaSuffix(tag, version);
-  if (suffix === null || suffix < 1) {
-    throw new Error(`release tag must match v${version}-alpha.<positive integer>`);
-  }
-  if (existingTags.includes(tag)) throw new Error(`release tag already exists: ${tag}`);
-  const highest = highestAlphaSuffix(existingTags, version);
-  if (suffix <= highest) {
-    throw new Error(`release alpha suffix ${suffix} must be greater than existing highest suffix ${highest}`);
-  }
-  return { tag, suffix, highestExistingSuffix: highest };
-}
+const validateReleaseTag = validateAlphaReleaseTag;
 
 function readExistingTags(filePath) {
   if (!filePath) return existingTagsFromGit();
@@ -240,9 +219,11 @@ Attestation establishes build provenance; it does not prove that the software is
 
 async function preparePublicRelease(options = {}) {
   const pkg = readJson(packagePath);
+  const productVersion = readProductVersion(packagePath);
+  if (pkg.version !== productVersion) fail('package version does not match canonical productVersion');
   const tag = options.tag || optionValue('--tag');
   const existingTags = options.existingTags || readExistingTags(optionValue('--existing-tags-file'));
-  const tagInfo = validateReleaseTag(tag, pkg.version, existingTags);
+  const tagInfo = validateReleaseTag(tag, productVersion, existingTags);
   const candidateDir = path.resolve(options.candidateDir || optionValue('--candidate-dir') || path.join(root, 'dist', 'release-candidate'));
   const outputDir = path.resolve(options.outputDir || optionValue('--output-dir') || path.join(root, 'dist', 'public-release'));
   const candidateManifestPath = path.join(candidateDir, 'release-manifest.json');
@@ -260,7 +241,7 @@ async function preparePublicRelease(options = {}) {
     fs.rmSync(path.join(outputDir, name), { force: true });
   }
 
-  const publicFilename = `ScriptCut-${tag}-arm64.dmg`;
+  const publicFilename = formatPublicArtifactFilename(tagInfo.releaseTag, productVersion, 'arm64');
   const publicDmgPath = path.join(outputDir, publicFilename);
   if (!options.preserveOutput || !fs.existsSync(publicDmgPath)) {
     fs.copyFileSync(sourceDmg, publicDmgPath);
@@ -284,7 +265,7 @@ async function preparePublicRelease(options = {}) {
       bundle: options.dmgAttestationBundle || optionValue('--dmg-attestation-bundle') || `${publicFilename}.sigstore.json`,
     }
     : null;
-  const manifest = publicManifest({ pkg, tag, commit, artifact, candidate: candidateManifest, dmgAttestation: attestation });
+  const manifest = publicManifest({ pkg, tag: tagInfo.releaseTag, commit, artifact, candidate: candidateManifest, dmgAttestation: attestation });
   fs.writeFileSync(path.join(outputDir, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   fs.writeFileSync(path.join(outputDir, 'RELEASE_NOTES.md'), publicNotes(manifest), 'utf8');
   fs.writeFileSync(path.join(outputDir, 'SHA256SUMS.txt'), `${artifact.sha256}  ${artifact.filename}\n`, 'utf8');

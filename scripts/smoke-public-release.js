@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { preparePublicRelease, validateReleaseTag } = require('./prepare-public-release');
+const { preparePublicRelease } = require('./prepare-public-release');
+const { validateAlphaReleaseTag } = require('./release-identity');
 const { validateManifest, validateNotes } = require('./check-public-release');
 const { validateWorkflowText } = require('./check-release-workflow');
 
@@ -63,11 +64,11 @@ function writeFixture(rootDir) {
 
 async function main() {
   const invalidTags = ['v0.1.0', '0.1.0-alpha.3', 'v0.2.0-alpha.1', 'v0.1.0-beta.1', 'v0.1.0-alpha.0', 'v0.1.0-alpha.-1'];
-  invalidTags.forEach((tag) => expectFailure(() => validateReleaseTag(tag, '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), tag));
-  expectFailure(() => validateReleaseTag('v0.1.0-alpha.2', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), 'existing tag');
-  expectFailure(() => validateReleaseTag('v0.1.0-alpha.1', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), 'older alpha');
-  expectFailure(() => validateReleaseTag('v0.1.0-alpha.2', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), 'equal alpha');
-  assert(validateReleaseTag('v0.1.0-alpha.3', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']).suffix === 3, 'valid next alpha was rejected');
+  invalidTags.forEach((tag) => expectFailure(() => validateAlphaReleaseTag(tag, '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), tag));
+  expectFailure(() => validateAlphaReleaseTag('v0.1.0-alpha.2', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), 'existing tag');
+  expectFailure(() => validateAlphaReleaseTag('v0.1.0-alpha.1', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), 'older alpha');
+  expectFailure(() => validateAlphaReleaseTag('v0.1.0-alpha.2', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']), 'equal alpha');
+  assert(validateAlphaReleaseTag('v0.1.0-alpha.3', '0.1.0', ['v0.1.0-alpha.1', 'v0.1.0-alpha.2']).suffix === 3, 'valid next alpha was rejected');
 
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-public-release-'));
   try {

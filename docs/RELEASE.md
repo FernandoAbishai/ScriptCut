@@ -4,7 +4,7 @@ This guide is for preparing a desktop release from the repository.
 
 ## Current Release Status
 
-Phase 3B.5C adds the controlled public ad-hoc-signed macOS arm64 distribution path. This guide describes how qualifying public alphas are produced; it does not assert that every historical alpha already has the self-contained runtime. Inspect each release's notes and manifest. The workflow creates no tag or GitHub Release unless explicitly dispatched with publication gates. Apple Developer membership, Developer ID signing, and notarization are optional future enhancements, not prerequisites for the public ad-hoc alpha path. Source development is still supported with:
+The release system uses an explicit identity contract while preserving the controlled public ad-hoc-signed macOS arm64 distribution path. This guide describes how qualifying public alphas are produced; it does not assert that every historical alpha already has the self-contained runtime. Inspect each release's notes and manifest. The workflow creates no tag or GitHub Release unless explicitly dispatched with publication gates. Apple Developer membership, Developer ID signing, and notarization are optional future enhancements, not prerequisites for the public ad-hoc alpha path. Source development is still supported with:
 
 ```bash
 npm run setup
@@ -13,6 +13,18 @@ npm run dev
 ```
 
 That starts the local backend, frontend, and Electron desktop app.
+
+## Current release identity
+
+The current product version is `0.1.0`. The supported public release channel is alpha only; the current public prerelease is `v0.1.0-alpha.3`.
+
+The installed application and the public release are intentionally separate identities:
+
+- `package.json.version`, Electron `app.getVersion()`, `CFBundleShortVersionString`, and the renderer product version all represent `productVersion` (`0.1.0`).
+- The GitHub tag and public DMG filename represent `releaseTag` (`v0.1.0-alpha.<n>` and `ScriptCut-v0.1.0-alpha.<n>-arm64.dmg`).
+- `sourceCommit` is the full 40-character Git SHA recorded in release metadata. Artifact identity is the exact filename, byte count, and SHA-256.
+
+The prerelease tag must not be placed in the package version or macOS short version. `CFBundleVersion` remains the exact Electron Builder-emitted value recorded from each native candidate; the current release contract does not add a separate build counter. Beta, RC, and stable validators/publication are not currently supported; their naming can remain future-compatible.
 
 ## Release Checklist
 
