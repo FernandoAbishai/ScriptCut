@@ -110,6 +110,12 @@ function createWindow({ hidden = false } = {}) {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.SCRIPTCUT_IDENTITY_SMOKE === '1') {
+    console.log(`SCRIPTCUT_IDENTITY_SMOKE_RESULT=${JSON.stringify({ version: app.getVersion(), packaged: app.isPackaged, electron: process.versions.electron })}`);
+    app.exit(0);
+    return;
+  }
+
   const runtimeMode = selectRuntimeMode({
     isDev,
     packaged: app.isPackaged,

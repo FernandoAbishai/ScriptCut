@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { AIProvider } from '../types/project';
 import { useEditorStore } from '../store/editorStore';
 import { Bot, Cloud, Brain, RefreshCw, Route, ShieldCheck, Copy, CheckCircle2, AlertCircle, Download, ExternalLink, MonitorCheck } from 'lucide-react';
-import { RELEASE_LINKS, SCRIPTCUT_VERSION } from '../utils/releaseInfo';
+import { RELEASE_LINKS, SCRIPTCUT_PRODUCT_VERSION } from '../utils/releaseInfo';
 import { buildSupportReport } from '../utils/supportReport';
 import { getAIModeLabel, isLocalAIEndpoint } from '../utils/settingsUx';
 
@@ -164,7 +164,7 @@ export default function SettingsPanel() {
         window.electronAPI?.getAppInfo?.().catch(() => undefined),
       ]);
       const report = buildSupportReport({
-        fallbackVersion: SCRIPTCUT_VERSION,
+        fallbackVersion: SCRIPTCUT_PRODUCT_VERSION,
         app,
         runtime,
         jobs: recentJobs?.jobs || [],
@@ -215,7 +215,7 @@ export default function SettingsPanel() {
               ScriptCut desktop
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-editor-text-muted">
-              Version {SCRIPTCUT_VERSION}. Desktop releases are the recommended user path because they provide native file access, autosave, and bundled export tools.
+              Version {SCRIPTCUT_PRODUCT_VERSION}. Desktop releases are the recommended user path because they provide native file access, autosave, and bundled export tools.
             </p>
           </div>
           <span className="rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-text-muted">
@@ -223,7 +223,7 @@ export default function SettingsPanel() {
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <ReleaseLink href={RELEASE_LINKS.latestRelease} icon={<Download className="h-3.5 w-3.5" />} label="Latest release" />
+          <ReleaseLink href={RELEASE_LINKS.releases} icon={<Download className="h-3.5 w-3.5" />} label="Release downloads" />
           <ReleaseLink href={RELEASE_LINKS.installGuide} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Install guide" />
           <ReleaseLink href={RELEASE_LINKS.troubleshooting} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Fix setup" />
           <ReleaseLink href={RELEASE_LINKS.issues} icon={<ExternalLink className="h-3.5 w-3.5" />} label="Report issue" />

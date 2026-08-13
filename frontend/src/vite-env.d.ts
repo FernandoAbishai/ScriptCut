@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __SCRIPTCUT_PRODUCT_VERSION__: string;
+
 interface ElectronAPI {
   openFile: (options?: Record<string, unknown>) => Promise<string | null>;
   openDirectory: (options?: Record<string, unknown>) => Promise<string | null>;

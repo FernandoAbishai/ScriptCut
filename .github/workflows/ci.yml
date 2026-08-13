@@ -55,6 +55,9 @@ jobs:
       - name: Test public release metadata and documentation
         run: npm run smoke:public-release
 
+      - name: Test canonical release identity
+        run: npm run smoke:release-identity
+
       - name: Test public release workflow structure
         run: npm run smoke:release-workflow
 

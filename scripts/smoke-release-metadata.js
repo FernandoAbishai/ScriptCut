@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { checksumFile } = require('./release-alpha');
+const { formatCandidateArtifactFilename, readProductVersion } = require('./release-identity');
 
 const root = path.join(__dirname, '..');
 
@@ -55,10 +56,13 @@ async function main() {
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const notes = fs.readFileSync(notesPath, 'utf8');
+  const productVersion = readProductVersion();
   assert(manifest.schema === 'scriptcut.release.v1', 'schema must be scriptcut.release.v1');
+  assert(manifest.version === productVersion, 'candidate manifest version must be the canonical productVersion');
   assert(manifest.platform === 'darwin' && manifest.architecture === 'arm64', 'release target must be darwin arm64');
   assert(/^[0-9a-f]{40}$/.test(manifest.commit), 'commit must be a full SHA-1');
   assert(manifest.tagCandidate === null && manifest.tagExists === false, 'metadata must not pretend a tag exists');
+  assert(manifest.artifact?.filename === formatCandidateArtifactFilename(productVersion, 'arm64'), 'candidate artifact must use productVersion naming');
   assert(manifest.signed === false && manifest.notarized === false, 'candidate trust state must be false');
   assert(manifest.codeSignature?.type === 'ad-hoc' && manifest.codeSignature?.structurallyValid === true, 'candidate ad-hoc signature metadata is missing');
   assert(manifest.codeSignature?.hardenedRuntime === false, 'candidate metadata must record Hardened Runtime disabled');
