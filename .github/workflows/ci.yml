@@ -55,6 +55,9 @@ jobs:
       - name: Test public release metadata and documentation
         run: npm run smoke:public-release
 
+      - name: Test release metadata contract
+        run: npm run smoke:release-metadata
+
       - name: Test canonical release identity
         run: npm run smoke:release-identity
 
@@ -75,6 +78,9 @@ jobs:
 
       - name: Install backend smoke dependencies
         run: python -m pip install fastapi pydantic python-multipart requests
+
+      - name: Test deterministic model manager workflow
+        run: npm run smoke:model-manager
 
       - name: Lint frontend
         run: npm run lint
