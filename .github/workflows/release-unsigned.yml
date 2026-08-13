@@ -281,7 +281,7 @@ jobs:
     name: Publish verified GitHub prerelease
     if: ${{ inputs.publish == true }}
     needs: [build, clean-runner-verify]
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     permissions:
       contents: write
 
