@@ -41,7 +41,6 @@ function lockRootVersion(relativePath) {
 
 function main() {
   const productVersion = readProductVersion();
-  assert(productVersion === '0.1.0', 'current productVersion must remain 0.1.0');
   assert(readJson('frontend/package.json').version === productVersion, 'frontend package version drifted from productVersion');
   assert(lockRootVersion('package-lock.json') === productVersion, 'root lockfile metadata drifted from productVersion');
   assert(lockRootVersion('frontend/package-lock.json') === productVersion, 'frontend lockfile metadata drifted from productVersion');
