@@ -28,6 +28,55 @@ function walkValues(value, visit) {
   else if (value && typeof value === 'object') Object.values(value).forEach((entry) => walkValues(entry, visit));
 }
 
+function createSourceFixture() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-release-metadata-fixture-'));
+  const releaseDir = path.join(fixtureRoot, 'release-candidate');
+  fs.mkdirSync(releaseDir, { recursive: true });
+
+  const productVersion = readProductVersion();
+  const filename = formatCandidateArtifactFilename(productVersion, 'arm64');
+  const artifact = Buffer.from('ScriptCut source release metadata fixture\n');
+  const artifactSha256 = crypto.createHash('sha256').update(artifact).digest('hex');
+  const manifest = {
+    schema: 'scriptcut.release.v1',
+    version: productVersion,
+    platform: 'darwin',
+    architecture: 'arm64',
+    commit: 'f'.repeat(40),
+    tagCandidate: null,
+    tagExists: false,
+    signed: false,
+    notarized: false,
+    codeSignature: { type: 'ad-hoc', structurallyValid: true, hardenedRuntime: false },
+    model: { embedded: false, manifestSha256: '1'.repeat(64) },
+    runtime: {
+      mode: 'packaged-bundled',
+      pythonSource: 'bundled',
+      target: { platform: 'darwin', arch: 'arm64' },
+      manifestSha256: '2'.repeat(64),
+    },
+    coreInventorySha256: '3'.repeat(64),
+    ffmpeg: { manifestSha256: '4'.repeat(64) },
+    artifact: { filename, bytes: artifact.length, sha256: artifactSha256 },
+  };
+  const notes = [
+    'Creators do not need to install Python, run pip, download FFmpeg, configure PATH, or create a virtual environment.',
+    'The first transcription downloads the model; later use works without model-network access.',
+    'This is an internal release candidate and is not for public distribution.',
+    'The artifact has an ad-hoc structural signature and is not signed with Apple Developer ID.',
+  ].join('\n');
+
+  fs.writeFileSync(path.join(releaseDir, filename), artifact);
+  fs.writeFileSync(path.join(releaseDir, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.writeFileSync(path.join(releaseDir, 'SHA256SUMS.txt'), `${artifactSha256}  ${filename}\n`);
+  fs.writeFileSync(path.join(releaseDir, 'RELEASE_NOTES.md'), `${notes}\n`);
+
+  return {
+    releaseDir,
+    cleanup: () => fs.rmSync(fixtureRoot, { recursive: true, force: true }),
+  };
+}
+
 async function testStreamingChecksum() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-release-hash-'));
   try {
@@ -47,8 +96,7 @@ async function testStreamingChecksum() {
   }
 }
 
-async function main() {
-  const releaseDir = path.resolve(optionValue('--dir') || path.join(root, 'dist', 'release-candidate'));
+async function validateReleaseDirectory(releaseDir) {
   const manifestPath = path.join(releaseDir, 'release-manifest.json');
   const checksumPath = path.join(releaseDir, 'SHA256SUMS.txt');
   const notesPath = path.join(releaseDir, 'RELEASE_NOTES.md');
@@ -95,6 +143,17 @@ async function main() {
 
   await testStreamingChecksum();
   console.log('Release metadata schema, provenance, path safety, notes, artifact checksum, and streaming checksum tests passed.');
+}
+
+async function main() {
+  const requestedDir = optionValue('--dir');
+  const sourceFixture = requestedDir ? null : createSourceFixture();
+  const releaseDir = path.resolve(requestedDir || sourceFixture.releaseDir);
+  try {
+    await validateReleaseDirectory(releaseDir);
+  } finally {
+    sourceFixture?.cleanup();
+  }
 }
 
 main().catch((error) => {
