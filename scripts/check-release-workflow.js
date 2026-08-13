@@ -119,6 +119,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(!/id-token:\s+write|attestations:\s+write/.test(clean), 'clean runner has build-only attestation permissions');
 
   assert(/if:\s+\$\{\{ inputs\.publish == true \}\}/.test(publish), 'publish job is not gated on publish=true');
+  assert(/runs-on:\s+macos-14/.test(publish), 'publish runner must be macos-14 for native DMG verification');
   assert(/contents:\s+write/.test(publish), 'publish contents permission is missing');
   assert(!/id-token:\s+write|attestations:\s+write|artifact-metadata:\s+write/.test(publish), 'publish job has unnecessary attestation permissions');
   assert(/PUBLISH_UNSIGNED_ALPHA/.test(publish), 'publication confirmation gate is missing');
@@ -126,6 +127,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(/refs\/heads\/main/.test(publish) && /origin\/main/.test(publish) && /GITHUB_SHA/.test(publish), 'publication main-current gate is missing');
   assert(/--prerelease/.test(publish) && /--latest=false/.test(publish), 'publication prerelease/latest semantics are missing');
   assert(/actions\/download-artifact@v4/.test(publish), 'publish job must download verified output');
+  assert(/node scripts\/check-public-release\.js --dir dist\/public-release --dmg/.test(publish), 'publish job native DMG verification gate is missing');
   assert(!/release:rc:arm64|electron-builder/.test(publish), 'publish job must not rebuild the artifact');
   const createRelease = stepBlock(publish, 'Create exact GitHub prerelease without rebuilding');
   assert(/git fetch origin main --force[\s\S]*test "\$\(git rev-parse origin\/main\)" = "\$GITHUB_SHA"[\s\S]*gh release create/.test(createRelease), 'release mutation step lacks an immediate main-current recheck');
