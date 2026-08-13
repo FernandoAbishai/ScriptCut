@@ -137,8 +137,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 
-      - name: Install FFmpeg
-        run: brew install ffmpeg
+      - name: Install release build prerequisites
+        run: brew install ffmpeg librsvg
 
       - name: Verify native runner architecture
         run: |

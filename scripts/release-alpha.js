@@ -258,6 +258,7 @@ async function main() {
   ensureReleaseDirs();
 
   runStep('Release candidate trust readiness', 'node', ['scripts/check-release-trust.js', '--candidate'], { env });
+  runStep('Generate and verify canonical macOS app icon', 'npm', ['run', 'release:icons'], { env });
   runStep('Prepare bundled FFmpeg', 'npm', ['run', 'release:ffmpeg'], { env });
   runStep('Prepare portable Python and core pack', 'npm', ['run', 'runtime:prepare:mac-arm64'], { env });
   runStep('Validate native release platform', 'node', ['scripts/release-platform.js', '--arch', 'arm64'], { env });

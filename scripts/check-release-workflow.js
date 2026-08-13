@@ -69,6 +69,7 @@ function validateReleaseArgumentSeparation(text) {
   assert(/if \(realModel\) transcriptionArgs\.push\('--real-model'\)/.test(text), 'packaged transcription must receive --real-model independently');
   assert(/if \(useGpu\) transcriptionArgs\.push\('--use-gpu'\)/.test(text), 'packaged transcription must receive --use-gpu independently');
   assert(!/realModel \? \['--real-model', '--use-gpu'\]/.test(text), 'release orchestrator must not couple --real-model with --use-gpu');
+  assert(/npm run release:icons/.test(text) || /'npm', \['run', 'release:icons'\]/.test(text), 'release orchestrator must generate and verify canonical macOS icons before packaging');
 }
 
 function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ciWorkflowPath, 'utf8') } = {}) {
