@@ -41,6 +41,12 @@ function commandExists(command) {
   return result.status === 0;
 }
 
+function assertPrerequisites() {
+  for (const command of ['rsvg-convert', 'magick', 'iconutil']) {
+    if (!commandExists(command)) fail(`${command} is required for canonical macOS icon generation`);
+  }
+}
+
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -153,6 +159,7 @@ function roundTripIcns(extractedIconsetPath, canonicalRasterPath) {
 }
 
 function main() {
+  assertPrerequisites();
   fs.mkdirSync(buildDir, { recursive: true });
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-icon-generation-'));
   const canonicalRasterPath = path.join(temporaryRoot, 'icon-1024.png');

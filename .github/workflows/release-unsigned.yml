@@ -57,7 +57,7 @@ jobs:
         run: npm ci --prefix frontend
 
       - name: Install release build prerequisites
-        run: brew install ffmpeg librsvg
+        run: brew install ffmpeg librsvg imagemagick
 
       - name: Validate release intent and monotonic alpha tag
         env:

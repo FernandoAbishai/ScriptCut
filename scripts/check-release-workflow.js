@@ -53,6 +53,11 @@ function validateOpenFileGuard(text, label, stepName) {
   assert(/SOFT_AFTER[\s\S]*?-lt[\s\S]*?SOFT_BEFORE/.test(beforeRelease), guardError('candidate build does not protect against lowering the existing soft limit'));
 }
 
+function validateIconBuildPrerequisites(text, label, stepName) {
+  const prerequisites = stepBlock(text, stepName);
+  assert(/brew install ffmpeg librsvg imagemagick/.test(prerequisites), `${label} release build prerequisites must install ffmpeg, librsvg, and imagemagick`);
+}
+
 function validateHostedCandidateInvocation(text) {
   const build = stepBlock(text, 'Build and verify ad-hoc self-contained release candidate');
   assert(!/PYTORCH_MPS_HIGH_WATERMARK_RATIO/.test(build), 'hosted candidate must not manipulate the MPS allocator');
@@ -98,6 +103,8 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(!/npm run release:rc:arm64 -- --real-model --use-gpu/.test(build), 'public hosted real-model validation must not request GPU execution');
   validateOpenFileGuard(text, 'release-unsigned.yml', 'Build ad-hoc self-contained candidate');
   validateOpenFileGuard(candidateWorkflowText, 'ci.yml', 'Build and verify ad-hoc self-contained release candidate');
+  validateIconBuildPrerequisites(text, 'release-unsigned.yml', 'Install release build prerequisites');
+  validateIconBuildPrerequisites(candidateWorkflowText, 'ci.yml', 'Install release build prerequisites');
 
   assert(/runs-on:\s+macos-14/.test(clean), 'clean verification runner must be macos-14');
   assert(/actions\/download-artifact@v4/.test(clean), 'clean runner must download the build artifact');

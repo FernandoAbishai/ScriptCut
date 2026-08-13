@@ -138,7 +138,7 @@ jobs:
         run: npm ci --prefix frontend
 
       - name: Install release build prerequisites
-        run: brew install ffmpeg librsvg
+        run: brew install ffmpeg librsvg imagemagick
 
       - name: Verify native runner architecture
         run: |
