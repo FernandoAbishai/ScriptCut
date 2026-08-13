@@ -277,6 +277,23 @@ jobs:
           hdiutil detach "$MOUNT_POINT" -force >/dev/null
           echo "gatekeeper_assessment_exit=$SPCTL_STATUS (diagnostic; unsigned public alpha is not expected to be Apple-accepted)"
 
+      - name: Run bounded packaged functional proof from exact DMG
+        run: |
+          set -euo pipefail
+          DMG="dist/public-release/$(node -p "require('./dist/public-release/release-manifest.json').artifact.filename")"
+          MOUNT_POINT="$RUNNER_TEMP/scriptcut-functional-mount"
+          mkdir -p "$MOUNT_POINT"
+          cleanup() {
+            hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
+          APP_PATH="$MOUNT_POINT/ScriptCut.app"
+          test -d "$APP_PATH"
+          echo "Exact mounted public app: $APP_PATH"
+          node scripts/smoke-packaged-release-identity.js --app "$APP_PATH"
+          node scripts/check-packaged-electron-backend.js --app "$APP_PATH"
+
   publish:
     name: Publish verified GitHub prerelease
     if: ${{ inputs.publish == true }}

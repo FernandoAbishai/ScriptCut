@@ -2,6 +2,9 @@
 
 This guide is for preparing a desktop release from the repository.
 
+The durable gate ownership and lifecycle matrix is documented in
+[Release QA](./RELEASE_QA.md).
+
 ## Current Release Status
 
 The release system uses an explicit identity contract while preserving the controlled public ad-hoc-signed macOS arm64 distribution path. This guide describes how qualifying public alphas are produced; it does not assert that every historical alpha already has the self-contained runtime. Inspect each release's notes and manifest. The workflow creates no tag or GitHub Release unless explicitly dispatched with publication gates. Apple Developer membership, Developer ID signing, and notarization are optional future enhancements, not prerequisites for the public ad-hoc alpha path. Source development is still supported with:
@@ -50,6 +53,11 @@ When packaging changes are included, run:
 ```bash
 npm run qa:desktop:package
 ```
+
+These local and developer commands produce QA builds only. They are not public
+release artifacts. The authoritative candidate command is
+`npm run release:rc:arm64`; the authoritative public release is the GitHub
+Actions **Release unsigned alpha** workflow.
 
 Check ad-hoc candidate readiness:
 
@@ -110,7 +118,9 @@ The dedicated `.github/workflows/release-unsigned.yml` workflow is `workflow_dis
 
 Required inputs are `release_tag`, `publish`, `real_model`, and `confirmation`. The tag must be `v<package.version>-alpha.<positive integer>` and must be greater than every existing alpha tag. `publish=false` is the safe dry-run mode: it may create attestations and a workflow artifact whose name includes `dry-run`, but it cannot create a tag, release, commit, or mutate `main`. Publication additionally requires `publish=true`, `real_model=true`, `confirmation=PUBLISH_UNSIGNED_ALPHA`, the workflow ref to be `main`, and a current `origin/main` equal to the dispatched commit. The publish job has contents write permission only, downloads the already verified artifact, creates a GitHub prerelease with `--prerelease --latest=false`, and verifies the exact tag, asset set, and digest after creation. It never rebuilds during publication.
 
-The post-merge closure procedure is a `publish=false` dry-run from current `main`. It is required before any separately authorized public publication and is not performed by this implementation PR.
+The closure procedure is a `publish=false` dry-run from current `main`. Run it
+before any separately authorized public publication; it creates no tag or
+GitHub Release.
 
 Title:
 

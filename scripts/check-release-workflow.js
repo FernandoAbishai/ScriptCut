@@ -35,6 +35,36 @@ function stepBlock(text, stepName) {
   return text.slice(after, next < 0 ? text.length : after + next);
 }
 
+function needsList(block, jobName) {
+  const match = block.match(/^\s+needs:\s*(.+)$/m);
+  assert(match, `${jobName} job dependency declaration is missing`);
+  return match[1]
+    .replace(/[\[\]]/g, '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function validateSourceCiGates(text) {
+  const checks = jobBlock(text, 'checks');
+  const requiredCommands = [
+    'npm run smoke:release-identity',
+    'npm run smoke:release-metadata',
+    'npm run smoke:public-release',
+    'npm run smoke:release-workflow',
+    'npm run smoke:runtime-contract',
+    'npm run smoke:renderer-policy',
+    'npm run smoke:model-manager',
+    'npm run lint',
+    'npm run build --prefix frontend',
+    'npm run smoke:backend',
+    'python -m compileall -q backend',
+  ];
+  for (const command of requiredCommands) {
+    assert(checks.includes(command), `normal PR CI is missing ${command}`);
+  }
+}
+
 function validateOpenFileGuard(text, label, stepName) {
   const build = stepBlock(text, stepName);
   const guardError = (suffix) => [label, suffix].join(' ');
@@ -89,6 +119,9 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   const build = jobBlock(text, 'build');
   const clean = jobBlock(text, 'clean-runner-verify');
   const publish = jobBlock(text, 'publish');
+  assert(needsList(clean, 'clean-runner-verify').length === 1 && needsList(clean, 'clean-runner-verify')[0] === 'build', 'clean runner must depend on build');
+  const publishNeeds = needsList(publish, 'publish');
+  assert(publishNeeds.includes('build') && publishNeeds.includes('clean-runner-verify'), 'publish job must depend on build and clean-runner-verify');
   assert(/runs-on:\s+macos-14/.test(build), 'build runner must be macos-14');
   assert(/contents:\s+read/.test(build), 'build contents permission must be read');
   assert(/id-token:\s+write/.test(build), 'build id-token permission must be write');
@@ -107,6 +140,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   validateIconBuildPrerequisites(candidateWorkflowText, 'ci.yml', 'Install release build prerequisites');
 
   assert(/runs-on:\s+macos-14/.test(clean), 'clean verification runner must be macos-14');
+  assert(/uname -m[\s\S]*?arm64/.test(clean) && /node -p process\.arch[\s\S]*?arm64/.test(clean), 'clean runner must verify native macOS arm64');
   assert(/actions\/download-artifact@v4/.test(clean), 'clean runner must download the build artifact');
   assert(/gh attestation verify/.test(clean), 'clean runner attestation verification is missing');
   assert(/--repo/.test(clean) && /--signer-workflow/.test(clean) && /--source-digest/.test(clean), 'clean runner does not constrain attestation identity enough');
@@ -114,6 +148,10 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert((clean.match(/--bundle/g) || []).length >= 2, 'clean runner must verify both downloaded local attestation bundles');
   assert(/DMG_BASENAME/.test(clean) && /release-manifest\.sigstore\.json/.test(clean), 'local DMG and manifest bundle paths are not both verified');
   assert(/hdiutil verify/.test(clean) || /hdiutil attach/.test(clean), 'clean runner DMG verification is missing');
+  assert(/test -d "\$APP_PATH"/.test(clean), 'clean runner must locate ScriptCut.app inside the mounted DMG');
+  assert(/smoke-packaged-release-identity\.js --app "\$APP_PATH"/.test(clean), 'clean runner packaged identity proof is missing');
+  assert(/check-packaged-electron-backend\.js --app "\$APP_PATH"/.test(clean), 'clean runner packaged backend startup proof is missing');
+  assert(!/--real-model|smoke-packaged-transcription|smoke-packaged-optional-capabilities|runtime:prepare|release:rc:arm64/.test(clean), 'clean runner must not repeat candidate or real-model validation');
   assert(/spctl --assess/.test(clean), 'clean runner Gatekeeper diagnostic is missing');
   assert(!/spctl --master-disable|xattr\s+-dr|sudo\s+spctl/.test(clean), 'Gatekeeper bypass command found');
   assert(!/id-token:\s+write|attestations:\s+write/.test(clean), 'clean runner has build-only attestation permissions');
@@ -143,6 +181,7 @@ function main() {
   validateWorkflowText(fs.readFileSync(workflowPath, 'utf8'), {
     candidateWorkflowText: fs.readFileSync(ciWorkflowPath, 'utf8'),
   });
+  validateSourceCiGates(fs.readFileSync(ciWorkflowPath, 'utf8'));
   validateHostedCandidateInvocation(fs.readFileSync(ciWorkflowPath, 'utf8'));
   validateReleaseArgumentSeparation(fs.readFileSync(releaseAlphaPath, 'utf8'));
   const releaseConfig = fs.readFileSync(releaseConfigPath, 'utf8');

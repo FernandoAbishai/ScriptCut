@@ -1,6 +1,12 @@
 # Desktop QA Checklist
 
-Use this checklist before publishing a desktop build or handing a build to creators.
+Use this checklist when manual physical creator qualification is required for a
+release candidate or public alpha. It is required for changes to installer or
+DMG layout, signing/trust behavior, runtime packaging, backend startup,
+renderer transport/CSP, model first-use flow, video open/preview,
+transcription, or core export. Release-system-only changes that do not alter
+the public artifact or creator runtime may mark it not required. See
+[Release QA](./RELEASE_QA.md) for the full gate lifecycle.
 
 ## Automated Gate
 
