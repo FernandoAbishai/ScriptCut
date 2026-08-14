@@ -116,7 +116,40 @@ Use `npm run dist:dir` when you only need an unpacked app bundle for local QA.
 
 The dedicated `.github/workflows/release-unsigned.yml` workflow is `workflow_dispatch` only. It builds on a native `macos-14` arm64 runner using the existing `npm run release:rc:arm64` candidate machinery, then stages the exact public DMG, public manifest, notes, checksum, and Sigstore attestation bundles. The resulting app uses an ad-hoc code signature for package integrity; the workflow name and input identifiers retain their existing compatibility names.
 
-Required inputs are `release_tag`, `publish`, `real_model`, and `confirmation`. The tag must be `v<package.version>-alpha.<positive integer>` and must be greater than every existing alpha tag. `publish=false` is the safe dry-run mode: it may create attestations and a workflow artifact whose name includes `dry-run`, but it cannot create a tag, release, commit, or mutate `main`. Publication additionally requires `publish=true`, `real_model=true`, `confirmation=PUBLISH_UNSIGNED_ALPHA`, the workflow ref to be `main`, and a current `origin/main` equal to the dispatched commit. The publish job has contents write permission only, downloads the already verified artifact, creates a GitHub prerelease with `--prerelease --latest=false`, and verifies the exact tag, asset set, and digest after creation. It never rebuilds during publication.
+Required inputs are `release_tag`, `publish`, `real_model`, and `confirmation`. Publication also requires the explicit human `creator_qualification` declaration `NOT_REQUIRED` or `PASSED_PHYSICAL_MAC`; the latter requires a non-empty `qualification_reference`. `NOT_REQUIRED` is valid only when [Release QA](./RELEASE_QA.md) says the physical creator gate is unnecessary. The declaration is not an automated physical test result. The tag must be `v<package.version>-alpha.<positive integer>` and must be greater than every existing alpha tag. `publish=false` is the safe dry-run mode: it may create attestations and a workflow artifact whose name includes `dry-run`, but it cannot create a tag, release, commit, or mutate `main`. Publication additionally requires `publish=true`, `real_model=true`, `confirmation=PUBLISH_UNSIGNED_ALPHA`, the workflow ref to be `main`, and a current `origin/main` equal to the dispatched commit. The publish job has contents write permission only, downloads the already verified artifact, creates a GitHub prerelease with `--prerelease --latest=false`, and runs the reusable `scripts/check-published-release.js` verifier after creation. It never rebuilds during publication.
+
+## Changelog and release lifecycle
+
+`CHANGELOG.md` is the single concise, human-maintained source for meaningful
+creator-facing changes. Keep current work under `Unreleased`; do not record
+every commit or internal refactor. Before publication, curate the relevant
+entries into an exact `## v<package.version>-alpha.<n>` section in a normal
+commit or PR. The public `RELEASE_NOTES.md` generator adds that section under
+`What's changed` while retaining the authoritative technical sections.
+
+The durable lifecycle is:
+
+```text
+Maintain CHANGELOG Unreleased
+→ prepare an exact releaseTag section
+→ merge to main
+→ run the public dry-run
+→ complete manual creator qualification when required
+→ publish with an explicit qualification declaration
+→ verify live GitHub release state
+→ retain closure evidence in Actions
+```
+
+Dry-runs may render `Unreleased` when an exact release section is not present,
+and label that content as planned. Publication refuses to proceed without the
+exact release section. The workflow never edits `CHANGELOG.md` or commits back
+to `main`.
+
+`release-manifest.json` remains artifact/build provenance. The GitHub tag,
+Release, and six public assets remain the published release authority.
+`scripts/check-published-release.js` verifies that live state, while
+`release-closure.json` records one successful verification and is retained as
+workflow evidence only; it is not a public release asset.
 
 The closure procedure is a `publish=false` dry-run from current `main`. Run it
 before any separately authorized public publication; it creates no tag or
@@ -157,6 +190,10 @@ Attach:
 - `dist/public-release/RELEASE_NOTES.md`
 - `dist/public-release/ScriptCut-v<version>-alpha.<n>-arm64.dmg.sigstore.json`
 - `dist/public-release/release-manifest.sigstore.json`
+
+The public release remains exactly these six assets. Closure evidence is
+uploaded to GitHub Actions under a separate evidence artifact with operational
+retention; it is not added to the GitHub Release.
 
 The public release manifest uses schema `scriptcut.release.v2` and records the ad-hoc structural signature, Apple Developer ID, and notarization truth, bundled runtime/core/FFmpeg/model provenance, final DMG SHA-256, release tag, source commit, and the DMG attestation reference. The DMG and manifest are each attested with the official GitHub artifact-attestation action; the workflow artifact bundles are retained for independent verification.
 

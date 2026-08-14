@@ -50,6 +50,8 @@ function validateSourceCiGates(text) {
   const requiredCommands = [
     'npm run smoke:release-identity',
     'npm run smoke:release-metadata',
+    'npm run smoke:release-notes',
+    'npm run smoke:published-release',
     'npm run smoke:public-release',
     'npm run smoke:release-workflow',
     'npm run smoke:runtime-contract',
@@ -113,7 +115,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   const trigger = text.slice(0, jobsStart);
   assert(/\non:\s*\n\s+workflow_dispatch:\s*\n/.test(trigger), 'workflow_dispatch-only trigger is missing');
   assert(!/^\s{2}(?:push|pull_request|schedule):/m.test(trigger), 'automatic trigger found');
-  ['release_tag', 'publish', 'real_model', 'confirmation'].forEach((input) => assert(new RegExp(`^\\s{6}${input}:`, 'm').test(trigger), `workflow input is missing: ${input}`));
+  ['release_tag', 'publish', 'real_model', 'confirmation', 'creator_qualification', 'qualification_reference'].forEach((input) => assert(new RegExp(`^\\s{6}${input}:`, 'm').test(trigger), `workflow input is missing: ${input}`));
   assert(/actions\/attest@v4/g.test(text) && (text.match(/actions\/attest@v4/g) || []).length === 2, 'workflow must attest exactly the DMG and manifest');
 
   const build = jobBlock(text, 'build');
@@ -138,6 +140,8 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   validateOpenFileGuard(candidateWorkflowText, 'ci.yml', 'Build and verify ad-hoc self-contained release candidate');
   validateIconBuildPrerequisites(text, 'release-unsigned.yml', 'Install release build prerequisites');
   validateIconBuildPrerequisites(candidateWorkflowText, 'ci.yml', 'Install release build prerequisites');
+  const prepareNotes = stepBlock(build, 'Prepare public release bundle');
+  assert(/PUBLISH/.test(prepareNotes) && /--require-release-notes/.test(prepareNotes), 'publication build must require exact curated release notes');
 
   assert(/runs-on:\s+macos-14/.test(clean), 'clean verification runner must be macos-14');
   assert(/uname -m[\s\S]*?arm64/.test(clean) && /node -p process\.arch[\s\S]*?arm64/.test(clean), 'clean runner must verify native macOS arm64');
@@ -162,6 +166,9 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(!/id-token:\s+write|attestations:\s+write|artifact-metadata:\s+write/.test(publish), 'publish job has unnecessary attestation permissions');
   assert(/PUBLISH_UNSIGNED_ALPHA/.test(publish), 'publication confirmation gate is missing');
   assert(/real_model/.test(publish), 'publication real-model gate is missing');
+  assert(/creator_qualification/.test(publish) && /NOT_REQUIRED/.test(publish) && /PASSED_PHYSICAL_MAC/.test(publish), 'publication creator qualification declaration is missing');
+  assert(/QUALIFICATION_REFERENCE/.test(publish) && /CREATOR_QUALIFICATION[\s\S]*?PASSED_PHYSICAL_MAC[\s\S]*?test -n "\$QUALIFICATION_REFERENCE"/.test(publish), 'physical qualification reference gate is missing');
+  assert((publish.match(/--validate-qualification/g) || []).length >= 1, 'publication qualification safety validation is missing');
   assert(/refs\/heads\/main/.test(publish) && /origin\/main/.test(publish) && /GITHUB_SHA/.test(publish), 'publication main-current gate is missing');
   assert(/--prerelease/.test(publish) && /--latest=false/.test(publish), 'publication prerelease/latest semantics are missing');
   assert(/actions\/download-artifact@v4/.test(publish), 'publish job must download verified output');
@@ -169,6 +176,22 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(!/release:rc:arm64|electron-builder/.test(publish), 'publish job must not rebuild the artifact');
   const createRelease = stepBlock(publish, 'Create exact GitHub prerelease without rebuilding');
   assert(/git fetch origin main --force[\s\S]*test "\$\(git rev-parse origin\/main\)" = "\$GITHUB_SHA"[\s\S]*gh release create/.test(createRelease), 'release mutation step lacks an immediate main-current recheck');
+  [
+    'dist/public-release/ScriptCut-${RELEASE_TAG}-arm64.dmg',
+    'dist/public-release/SHA256SUMS.txt',
+    'dist/public-release/release-manifest.json',
+    'dist/public-release/RELEASE_NOTES.md',
+    'dist/public-release/ScriptCut-${RELEASE_TAG}-arm64.dmg.sigstore.json',
+    'dist/public-release/release-manifest.sigstore.json',
+  ].forEach((asset) => assert(createRelease.includes(asset), `public release asset is missing from creation command: ${asset}`));
+  const closure = stepBlock(publish, 'Verify published release and write closure evidence');
+  const createIndex = publish.indexOf('- name: Create exact GitHub prerelease without rebuilding');
+  const closureIndex = publish.indexOf('- name: Verify published release and write closure evidence');
+  assert(createIndex >= 0 && closureIndex > createIndex, 'closure verification must run after release creation');
+  assert(/scripts\/check-published-release\.js/.test(closure) && /--output/.test(closure), 'publish job must run the reusable closure verifier');
+  assert(/GITHUB_STEP_SUMMARY/.test(closure) && /DMG SHA-256/.test(closure) && /post-publish verification: PASS/.test(closure), 'publish job summary must record closure evidence');
+  assert(/scriptcut-.*release-closure-evidence/.test(publish) && /retention-days/.test(publish), 'closure evidence artifact upload is missing');
+  assert(!/release-closure/.test(createRelease), 'closure evidence must not become a public release asset');
 
   assert(!/(APPLE_[A-Z_]+|CSC_[A-Z_]+|Developer ID|notarytool|private key|PUBLISH_UNSIGNED_ALPHA.*secret)/i.test(text), 'Apple credential or private-signing dependency found');
   return true;

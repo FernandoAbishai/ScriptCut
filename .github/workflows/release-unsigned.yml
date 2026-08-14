@@ -22,6 +22,16 @@ on:
         required: false
         default: ''
         type: string
+      creator_qualification:
+        description: "Human declaration required for publication: NOT_REQUIRED or PASSED_PHYSICAL_MAC"
+        required: false
+        default: ''
+        type: string
+      qualification_reference:
+        description: Durable issue, PR/comment URL, or test record for PASSED_PHYSICAL_MAC
+        required: false
+        default: ''
+        type: string
 
 permissions: {}
 
@@ -66,12 +76,17 @@ jobs:
           PUBLISH: ${{ inputs.publish }}
           REAL_MODEL: ${{ inputs.real_model }}
           CONFIRMATION: ${{ inputs.confirmation }}
+          CREATOR_QUALIFICATION: ${{ inputs.creator_qualification }}
+          QUALIFICATION_REFERENCE: ${{ inputs.qualification_reference }}
         run: |
           test "$(uname -m)" = "arm64"
           test "$(node -p process.arch)" = "arm64"
           git fetch --tags --force origin
           git tag --list > "$RUNNER_TEMP/scriptcut-existing-tags.txt"
           node scripts/prepare-public-release.js --validate-tag --tag "$RELEASE_TAG" --existing-tags-file "$RUNNER_TEMP/scriptcut-existing-tags.txt"
+          node scripts/check-published-release.js --validate-qualification \
+            --creator-qualification "$CREATOR_QUALIFICATION" \
+            --qualification-reference "$QUALIFICATION_REFERENCE"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists: $RELEASE_TAG"
             exit 1
@@ -80,6 +95,10 @@ jobs:
             test "$GITHUB_REF" = "refs/heads/main"
             test "$REAL_MODEL" = "true"
             test "$CONFIRMATION" = "PUBLISH_UNSIGNED_ALPHA"
+            test "$CREATOR_QUALIFICATION" = "NOT_REQUIRED" || test "$CREATOR_QUALIFICATION" = "PASSED_PHYSICAL_MAC"
+            if [ "$CREATOR_QUALIFICATION" = "PASSED_PHYSICAL_MAC" ]; then
+              test -n "$QUALIFICATION_REFERENCE"
+            fi
           fi
 
       - name: Build ad-hoc self-contained candidate
@@ -118,12 +137,18 @@ jobs:
       - name: Prepare public release bundle
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
+          NOTE_ARGS=()
+          if [ "$PUBLISH" = "true" ]; then
+            NOTE_ARGS+=(--require-release-notes)
+          fi
           node scripts/prepare-public-release.js \
             --tag "$RELEASE_TAG" \
             --candidate-dir dist/release-candidate \
             --output-dir dist/public-release \
-            --commit "$GITHUB_SHA"
+            --commit "$GITHUB_SHA" \
+            "${NOTE_ARGS[@]}"
 
       - name: Check public bundle before attestation
         run: |
@@ -325,10 +350,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           CONFIRMATION: ${{ inputs.confirmation }}
+          CREATOR_QUALIFICATION: ${{ inputs.creator_qualification }}
+          QUALIFICATION_REFERENCE: ${{ inputs.qualification_reference }}
         run: |
           test "$GITHUB_REF" = "refs/heads/main"
           test "$CONFIRMATION" = "PUBLISH_UNSIGNED_ALPHA"
           test "${{ inputs.real_model }}" = "true"
+          test "$CREATOR_QUALIFICATION" = "NOT_REQUIRED" || test "$CREATOR_QUALIFICATION" = "PASSED_PHYSICAL_MAC"
+          if [ "$CREATOR_QUALIFICATION" = "PASSED_PHYSICAL_MAC" ]; then
+            test -n "$QUALIFICATION_REFERENCE"
+          fi
+          node scripts/check-published-release.js --validate-qualification \
+            --creator-qualification "$CREATOR_QUALIFICATION" \
+            --qualification-reference "$QUALIFICATION_REFERENCE"
           git fetch origin main --tags --force
           test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
           git tag --list > "$RUNNER_TEMP/scriptcut-existing-tags.txt"
@@ -365,12 +399,42 @@ jobs:
             dist/public-release/ScriptCut-${RELEASE_TAG}-arm64.dmg.sigstore.json \
             dist/public-release/release-manifest.sigstore.json
 
-      - name: Verify published tag, prerelease state, assets, and digest
+      - name: Verify published release and write closure evidence
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          CREATOR_QUALIFICATION: ${{ inputs.creator_qualification }}
+          QUALIFICATION_REFERENCE: ${{ inputs.qualification_reference }}
         run: |
-          git fetch origin "refs/tags/$RELEASE_TAG"
-          test "$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}" | tail -n 1 | awk '{print $1}')" = "$GITHUB_SHA"
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,tagName,assets > "$RUNNER_TEMP/published-release.json"
-          node scripts/check-public-release.js --release-json "$RUNNER_TEMP/published-release.json" --dir dist/public-release
+          QUALIFICATION_ARGS=(--creator-qualification "$CREATOR_QUALIFICATION")
+          if [ -n "$QUALIFICATION_REFERENCE" ]; then
+            QUALIFICATION_ARGS+=(--qualification-reference "$QUALIFICATION_REFERENCE")
+          fi
+          node scripts/check-published-release.js \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --dir dist/public-release \
+            --output "$RUNNER_TEMP/release-closure.json" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            "${QUALIFICATION_ARGS[@]}"
+          {
+            echo "## Published release closure"
+            echo "- releaseTag: $RELEASE_TAG"
+            echo "- commit: $GITHUB_SHA"
+            echo "- DMG SHA-256: $(node -p "require('./dist/public-release/release-manifest.json').artifact.sha256")"
+            echo "- creator qualification: $CREATOR_QUALIFICATION"
+            if [ -n "$QUALIFICATION_REFERENCE" ]; then echo "- qualification reference: $QUALIFICATION_REFERENCE"; fi
+            echo "- release URL: $(node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('$RUNNER_TEMP/release-closure.json','utf8')); console.log(p.release.url)")"
+            echo "- post-publish verification: PASS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release closure evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: scriptcut-${{ inputs.release_tag }}-release-closure-evidence
+          if-no-files-found: error
+          retention-days: 30
+          path: ${{ runner.temp }}/release-closure.json

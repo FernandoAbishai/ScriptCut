@@ -33,3 +33,22 @@ Replace the example DMG name and `<commit-sha>` with the values in `release-mani
 ## First launch
 
 Because the public alpha is ad-hoc-signed but not signed with Apple Developer ID or notarized, macOS may block it. For a DMG downloaded from the official Releases feed, use **System Settings → Privacy & Security → Open Anyway** and confirm the prompt. Do not disable Gatekeeper or remove quarantine attributes.
+
+## Maintainer publication closure
+
+Creator verification above establishes artifact integrity and build provenance
+from the files in the public release. Maintainers use the separate
+`scripts/check-published-release.js` tool after publication to compare live
+GitHub state with the already verified local six-file bundle:
+
+```bash
+node scripts/check-published-release.js \
+  --repo FernandoAbishai/ScriptCut \
+  --tag v0.1.0-alpha.3 \
+  --commit <commit-sha> \
+  --dir dist/public-release \
+  --output release-closure.json
+```
+
+This is post-publication closure evidence, not an additional creator
+installation step and not a replacement for `release-manifest.json`.
