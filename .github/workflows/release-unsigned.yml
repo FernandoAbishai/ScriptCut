@@ -23,7 +23,7 @@ on:
         default: ''
         type: string
       creator_qualification:
-        description: Human declaration required for publication: NOT_REQUIRED or PASSED_PHYSICAL_MAC
+        description: "Human declaration required for publication: NOT_REQUIRED or PASSED_PHYSICAL_MAC"
         required: false
         default: ''
         type: string
