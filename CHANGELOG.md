@@ -13,7 +13,7 @@
 
 ### Fixed
 
-- Clean-runner release proof now has an explicit reusable path for checking the published GitHub state.
+- Post-publication release verification now has an explicit reusable check of the live GitHub release state.
 
 ## v0.1.0-alpha.3
 

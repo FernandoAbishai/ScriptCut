@@ -65,6 +65,13 @@ function sectionMarkdown(section) {
   return section.lines.join('\n').trim();
 }
 
+function hasMeaningfulContent(section) {
+  return Boolean(section?.lines.some((line) => {
+    const trimmed = line.trim();
+    return trimmed && !/^#{1,6}(?:[ \t]+|$)/.test(trimmed);
+  }));
+}
+
 function selectReleaseNotes({ releaseTag, publicationNotesRequired = false, changelogPath = DEFAULT_CHANGELOG_PATH } = {}) {
   if (!releaseTag || typeof releaseTag !== 'string') fail('releaseTag is required');
   const sections = parseChangelog(readChangelog(changelogPath));
@@ -73,16 +80,15 @@ function selectReleaseNotes({ releaseTag, publicationNotesRequired = false, chan
   const exactMarkdown = sectionMarkdown(exact);
 
   if (publicationNotesRequired) {
-    if (!exact) fail(`publication requires an exact changelog section for ${releaseTag}`);
-    if (!exactMarkdown) fail(`publication changelog section is empty: ${releaseTag}`);
+    if (!exact || !hasMeaningfulContent(exact)) fail(`publication changelog section is empty or heading-only: ${releaseTag}`);
     return { releaseTag, source: releaseTag, markdown: exactMarkdown, publicationNotesRequired: true };
   }
 
-  if (exact && exactMarkdown) {
+  if (exact && hasMeaningfulContent(exact)) {
     return { releaseTag, source: releaseTag, markdown: exactMarkdown, publicationNotesRequired: false };
   }
   const unreleasedMarkdown = sectionMarkdown(unreleased);
-  if (!unreleasedMarkdown) fail('Unreleased changelog section is empty');
+  if (!hasMeaningfulContent(unreleased)) fail('Unreleased changelog section is empty or heading-only');
   return { releaseTag, source: 'Unreleased', markdown: unreleasedMarkdown, publicationNotesRequired: false };
 }
 
@@ -90,6 +96,7 @@ module.exports = {
   DEFAULT_CHANGELOG_PATH,
   normalizeLineEndings,
   parseChangelog,
+  hasMeaningfulContent,
   selectReleaseNotes,
   sectionMarkdown,
 };

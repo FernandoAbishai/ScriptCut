@@ -93,6 +93,15 @@ async function main() {
     const empty = writeChangelog(fixtureRoot, '# Changelog\n\n## Unreleased\n\n- One.\n\n## v0.1.0-alpha.4\n\n');
     expectFailure(() => selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.4', publicationNotesRequired: true, changelogPath: empty }), 'empty exact release section');
 
+    const headingOnlyExact = writeChangelog(fixtureRoot, '# Changelog\n\n## Unreleased\n\n- Planned.\n\n## v0.1.0-alpha.4\n\n### Added\n');
+    expectFailure(() => selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.4', publicationNotesRequired: true, changelogPath: headingOnlyExact }), 'heading-only exact publication section');
+
+    const headingOnlyUnreleased = writeChangelog(fixtureRoot, '# Changelog\n\n## Unreleased\n\n### Fixed\n');
+    expectFailure(() => selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.5', changelogPath: headingOnlyUnreleased }), 'heading-only Unreleased section');
+
+    const headingAndBullet = writeChangelog(fixtureRoot, '# Changelog\n\n## Unreleased\n\n### Fixed\n\n- A real fix.\n');
+    assert(selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.5', changelogPath: headingAndBullet }).markdown.includes('- A real fix.'), 'subsection heading plus bullet was rejected');
+
     const plannedFixture = writeChangelog(fixtureRoot, '# Changelog\n\n## Unreleased\n\n### Added\n\n- Planned.\n\n');
     const candidateDir = writeCandidate(fixtureRoot);
     const outputDir = path.join(fixtureRoot, 'public');
