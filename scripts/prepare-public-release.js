@@ -11,6 +11,7 @@ const {
   readProductVersion,
   validateAlphaReleaseTag,
 } = require('./release-identity');
+const { selectReleaseNotes } = require('./release-notes');
 
 const root = path.join(__dirname, '..');
 const packagePath = path.join(root, 'package.json');
@@ -143,9 +144,21 @@ function publicManifest({ pkg, tag, commit, artifact, candidate, dmgAttestation 
   };
 }
 
-function publicNotes(manifest) {
+function publicNotes(manifest, { changelogPath, publicationNotesRequired = false } = {}) {
   const artifact = manifest.artifact.filename;
+  const curated = selectReleaseNotes({
+    releaseTag: manifest.releaseTag,
+    changelogPath,
+    publicationNotesRequired,
+  });
+  const dryRunLabel = curated.source === 'Unreleased'
+    ? `> Dry-run / planned release-note content from \`CHANGELOG.md\` → \`Unreleased\`; it is not part of a published release history.\n\n`
+    : '';
   return `# ScriptCut ${manifest.releaseTag} alpha
+
+## What's changed
+
+${dryRunLabel}${curated.markdown}
 
 ## ScriptCut alpha status
 
@@ -222,6 +235,8 @@ async function preparePublicRelease(options = {}) {
   const productVersion = readProductVersion(packagePath);
   if (pkg.version !== productVersion) fail('package version does not match canonical productVersion');
   const tag = options.tag || optionValue('--tag');
+  const publicationNotesRequired = options.publicationNotesRequired === true || hasOption('--require-release-notes');
+  const changelogPath = options.changelogPath || optionValue('--changelog');
   const existingTags = options.existingTags || readExistingTags(optionValue('--existing-tags-file'));
   const tagInfo = validateReleaseTag(tag, productVersion, existingTags);
   const candidateDir = path.resolve(options.candidateDir || optionValue('--candidate-dir') || path.join(root, 'dist', 'release-candidate'));
@@ -267,7 +282,7 @@ async function preparePublicRelease(options = {}) {
     : null;
   const manifest = publicManifest({ pkg, tag: tagInfo.releaseTag, commit, artifact, candidate: candidateManifest, dmgAttestation: attestation });
   fs.writeFileSync(path.join(outputDir, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  fs.writeFileSync(path.join(outputDir, 'RELEASE_NOTES.md'), publicNotes(manifest), 'utf8');
+  fs.writeFileSync(path.join(outputDir, 'RELEASE_NOTES.md'), publicNotes(manifest, { changelogPath, publicationNotesRequired }), 'utf8');
   fs.writeFileSync(path.join(outputDir, 'SHA256SUMS.txt'), `${artifact.sha256}  ${artifact.filename}\n`, 'utf8');
 
   return { tagInfo, outputDir, publicDmgPath, manifestPath: path.join(outputDir, 'release-manifest.json'), manifest };
@@ -288,6 +303,8 @@ async function main() {
     dmgAttestationUrl: optionValue('--dmg-attestation-url'),
     dmgAttestationId: optionValue('--dmg-attestation-id'),
     dmgAttestationBundle: optionValue('--dmg-attestation-bundle'),
+    publicationNotesRequired: hasOption('--require-release-notes'),
+    changelogPath: optionValue('--changelog'),
   });
   console.log(`Public release prepared: ${path.relative(root, result.outputDir)}`);
   console.log(`Public DMG: ${path.relative(root, result.publicDmgPath)}`);

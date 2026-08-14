@@ -15,6 +15,27 @@ The identity contract is intentionally unchanged:
 - A developer build, candidate, dry-run, qualified public artifact, and
   published release are different states.
 
+## Durable release lifecycle
+
+```text
+Maintain CHANGELOG Unreleased
+→ prepare an exact release-specific changelog section
+→ merge to main
+→ run the public dry-run
+→ complete manual creator qualification when required
+→ publish
+→ verify live GitHub release state
+→ retain closure evidence
+```
+
+`CHANGELOG.md` is intentionally lightweight: record meaningful creator-facing
+changes, compatibility, security, installation, or release-integrity changes;
+do not turn it into an exhaustive commit log. Before publication, curate the
+relevant `Unreleased` entries into the exact `releaseTag` section. Public notes
+are generated from that source. Dry-runs may use `Unreleased` when the exact
+section is not yet present, but publication requires the exact non-empty
+section and never mutates the changelog.
+
 ## Gate matrix
 
 | Gate | Owner stage | Runner | What it proves | Required | Conditional | Network / model download | Can mutate GitHub |
@@ -69,6 +90,14 @@ first-use flow, video open/preview, transcription, or the core export path.
 Release-system-only changes that do not alter the public artifact or creator
 runtime may mark creator qualification as not required.
 
+At publication time the maintainer must explicitly declare either
+`NOT_REQUIRED` or `PASSED_PHYSICAL_MAC`. `NOT_REQUIRED` is valid only when the
+policy above says the physical creator gate is unnecessary.
+`PASSED_PHYSICAL_MAC` is a human declaration, not an automated test result,
+and requires a durable `qualification_reference` such as an issue, PR/comment
+URL, or concise test record identifier. The workflow does not infer this value
+from changed filenames.
+
 Physical MPS validation is required only when the change touches Torch/MPS
 device behavior, Whisper MPS timing compatibility, GPU execution selection,
 MPS-specific transcription code, or native GPU dependency/runtime behavior.
@@ -101,6 +130,13 @@ There is no public npm publisher. Publication remains exclusively owned by
 `.github/workflows/release-unsigned.yml`, which builds once, stages exact
 candidate bytes, attests them, verifies them on a clean native runner, and
 publishes only the already verified artifact.
+
+After the release is created, `scripts/check-published-release.js` verifies the
+live tag, release, exact six-asset set, server-side asset digests, and exact
+release body. The successful publish job writes `release-closure.json` and a
+summary containing the release identity, DMG digest, qualification declaration,
+and release URL. The closure file is operational workflow evidence, not a
+second manifest, trust document, proof of human qualification, or public asset.
 
 ## Trust and mutation invariants
 

@@ -43,6 +43,8 @@
     "smoke:packaged-transcription": "node scripts/smoke-packaged-transcription.js --arch arm64",
     "smoke:packaged-optional-capabilities": "node scripts/smoke-packaged-optional-capabilities.js --arch arm64",
     "smoke:release-metadata": "node scripts/smoke-release-metadata.js",
+    "smoke:release-notes": "node scripts/smoke-release-notes.js",
+    "smoke:published-release": "node scripts/smoke-published-release.js",
     "smoke:release-identity": "node scripts/smoke-release-identity.js",
     "release:public:prepare": "node scripts/prepare-public-release.js",
     "check:public-release": "node scripts/check-public-release.js",

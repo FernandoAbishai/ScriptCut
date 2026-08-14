@@ -55,6 +55,12 @@ jobs:
       - name: Test public release metadata and documentation
         run: npm run smoke:public-release
 
+      - name: Test release changelog and curated notes
+        run: npm run smoke:release-notes
+
+      - name: Test published release closure verifier
+        run: npm run smoke:published-release
+
       - name: Test release metadata contract
         run: npm run smoke:release-metadata
 
