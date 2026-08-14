@@ -58,6 +58,7 @@ function writeFixture(rootDir) {
     codeSignature: { type: 'ad-hoc', structurallyValid: true, hardenedRuntime: false },
     ffmpeg: { platform: 'darwin', architecture: 'arm64', manifestSha256: '3'.repeat(64) },
     model: { id: 'whisper-base', revision: '4'.repeat(64), expectedBytes: 10, sha256: '4'.repeat(64), manifestSha256: '5'.repeat(64), embedded: false },
+    bundleSize: { schema: 'scriptcut.bundle-size.v1', appLogicalBytes: 100, dmgBytes: 80, compressionRatio: 0.8, largestPrimaryCategory: { name: 'electronFrameworks', logicalBytes: 60 } },
   }, null, 2)}\n`, 'utf8');
   return { candidateDir, outputDir };
 }
@@ -85,6 +86,7 @@ async function main() {
     const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'));
     const notes = fs.readFileSync(path.join(fixture.outputDir, 'RELEASE_NOTES.md'), 'utf8');
     validateManifest(manifest);
+    assert(manifest.bundleSize?.schema === 'scriptcut.bundle-size.v1', 'bundle-size summary was not propagated to public manifest');
     validateNotes(notes);
     assert(/--signer-workflow[\s\S]*--source-digest/.test(notes), 'generated RELEASE_NOTES omit constrained attestation verification');
     assert(!/--signer-repo/.test(notes), 'generated RELEASE_NOTES contain deprecated signer-repo constraint');

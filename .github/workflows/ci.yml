@@ -64,6 +64,9 @@ jobs:
       - name: Test release metadata contract
         run: npm run smoke:release-metadata
 
+      - name: Test bundle-size measurement contract
+        run: npm run smoke:bundle-size
+
       - name: Test canonical release identity
         run: npm run smoke:release-identity
 
@@ -205,3 +208,4 @@ jobs:
             dist/release-candidate/SHA256SUMS.txt
             dist/release-candidate/release-manifest.json
             dist/release-candidate/RELEASE_NOTES.md
+            dist/release-candidate/bundle-size-report.json

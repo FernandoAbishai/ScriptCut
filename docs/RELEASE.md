@@ -195,6 +195,12 @@ The public release remains exactly these six assets. Closure evidence is
 uploaded to GitHub Actions under a separate evidence artifact with operational
 retention; it is not added to the GitHub Release.
 
+Candidate builds also write `bundle-size-report.json` with deterministic
+logical-byte attribution. The candidate artifact includes that report. Public
+workflow runs retain it in a separate `scriptcut-<releaseTag>-bundle-size-evidence`
+Actions artifact; it is not staged under `dist/public-release`, added to the
+six public assets, or a publication blocker. See [Bundle-size measurement](./BUNDLE_SIZE.md).
+
 The public release manifest uses schema `scriptcut.release.v2` and records the ad-hoc structural signature, Apple Developer ID, and notarization truth, bundled runtime/core/FFmpeg/model provenance, final DMG SHA-256, release tag, source commit, and the DMG attestation reference. The DMG and manifest are each attested with the official GitHub artifact-attestation action; the workflow artifact bundles are retained for independent verification.
 
 ## Signing And Notarization

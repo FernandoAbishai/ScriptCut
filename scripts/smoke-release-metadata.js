@@ -49,6 +49,7 @@ function createSourceFixture() {
     notarized: false,
     codeSignature: { type: 'ad-hoc', structurallyValid: true, hardenedRuntime: false },
     model: { embedded: false, manifestSha256: '1'.repeat(64) },
+    bundleSize: { schema: 'scriptcut.bundle-size.v1', appLogicalBytes: 100, dmgBytes: 80, compressionRatio: 0.8, largestPrimaryCategory: { name: 'electronFrameworks', logicalBytes: 60 } },
     runtime: {
       mode: 'packaged-bundled',
       pythonSource: 'bundled',
@@ -115,6 +116,10 @@ async function validateReleaseDirectory(releaseDir) {
   assert(manifest.codeSignature?.type === 'ad-hoc' && manifest.codeSignature?.structurallyValid === true, 'candidate ad-hoc signature metadata is missing');
   assert(manifest.codeSignature?.hardenedRuntime === false, 'candidate metadata must record Hardened Runtime disabled');
   assert(manifest.model?.embedded === false, 'modelEmbedded must be false');
+  if (manifest.bundleSize) {
+    assert(manifest.bundleSize.schema === 'scriptcut.bundle-size.v1', 'bundle-size summary schema must be scriptcut.bundle-size.v1');
+    assert(Number.isInteger(manifest.bundleSize.appLogicalBytes) && Number.isInteger(manifest.bundleSize.dmgBytes), 'bundle-size summary byte values must be integers');
+  }
   assert(manifest.runtime?.mode === 'packaged-bundled', 'runtime mode must be packaged-bundled');
   assert(manifest.runtime?.pythonSource === 'bundled', 'Python source must be bundled');
   assert(manifest.runtime?.target?.platform === 'darwin' && manifest.runtime?.target?.arch === 'arm64', 'runtime target must be darwin-arm64');

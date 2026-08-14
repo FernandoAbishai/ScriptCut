@@ -93,6 +93,14 @@ function validateManifest(manifest, { allowPendingAttestation = false } = {}) {
   assert(manifest.runtime?.mode === 'packaged-bundled' && manifest.runtime?.pythonSource === 'bundled', 'runtime must be packaged-bundled');
   assert(manifest.runtime?.target?.platform === 'darwin' && manifest.runtime?.target?.arch === 'arm64', 'runtime target must be darwin arm64');
   assert(manifest.model?.embedded === false, 'model weights must not be embedded');
+  if (manifest.bundleSize) {
+    assert(manifest.bundleSize.schema === 'scriptcut.bundle-size.v1', 'bundle-size summary schema is invalid');
+    assert(Number.isInteger(manifest.bundleSize.appLogicalBytes) && manifest.bundleSize.appLogicalBytes > 0, 'bundle-size app logical bytes are invalid');
+    assert(Number.isInteger(manifest.bundleSize.dmgBytes) && manifest.bundleSize.dmgBytes > 0, 'bundle-size DMG bytes are invalid');
+    assert(typeof manifest.bundleSize.compressionRatio === 'number', 'bundle-size compression ratio is invalid');
+    assert(typeof manifest.bundleSize.largestPrimaryCategory?.name === 'string', 'bundle-size largest category is invalid');
+    assert(Number.isInteger(manifest.bundleSize.largestPrimaryCategory.logicalBytes), 'bundle-size largest category bytes are invalid');
+  }
   assert(/^[0-9a-f]{40}$/.test(manifest.commit), 'manifest commit must be a full SHA-1');
   assert(/^[0-9a-f]{64}$/.test(manifest.artifact?.sha256), 'artifact SHA-256 is missing');
   assert(Number.isInteger(manifest.artifact?.bytes) && manifest.artifact.bytes > 0, 'artifact byte count is missing');

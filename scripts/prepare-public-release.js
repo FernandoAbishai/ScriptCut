@@ -132,6 +132,7 @@ function publicManifest({ pkg, tag, commit, artifact, candidate, dmgAttestation 
       manifestSha256: candidate.model.manifestSha256,
       embedded: false,
     },
+    ...(candidate.bundleSize ? { bundleSize: candidate.bundleSize } : {}),
     provenance: {
       provider: 'github-artifact-attestation-sigstore',
       repository: 'FernandoAbishai/ScriptCut',

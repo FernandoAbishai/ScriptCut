@@ -50,6 +50,7 @@ function validateSourceCiGates(text) {
   const requiredCommands = [
     'npm run smoke:release-identity',
     'npm run smoke:release-metadata',
+    'npm run smoke:bundle-size',
     'npm run smoke:release-notes',
     'npm run smoke:published-release',
     'npm run smoke:public-release',
@@ -107,6 +108,7 @@ function validateReleaseArgumentSeparation(text) {
   assert(/if \(useGpu\) transcriptionArgs\.push\('--use-gpu'\)/.test(text), 'packaged transcription must receive --use-gpu independently');
   assert(!/realModel \? \['--real-model', '--use-gpu'\]/.test(text), 'release orchestrator must not couple --real-model with --use-gpu');
   assert(/npm run release:icons/.test(text) || /'npm', \['run', 'release:icons'\]/.test(text), 'release orchestrator must generate and verify canonical macOS icons before packaging');
+  assert(/measureBundleSize/.test(text) && /bundle-size-report\.json/.test(text), 'release orchestrator must generate bundle-size evidence');
 }
 
 function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ciWorkflowPath, 'utf8') } = {}) {
@@ -132,6 +134,10 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(!/contents:\s+write/.test(build), 'build must not have contents write');
   assert(/actions\/attest@v4/.test(build), 'build attestation action is missing');
   assert(/actions\/upload-artifact@v4/.test(build), 'build workflow artifact upload is missing');
+  assert(/bundle-size-report\.json/.test(build), 'candidate/public workflow size evidence is missing');
+  assert(/scriptcut-\$\{\{ inputs\.release_tag \}\}-bundle-size-evidence/.test(build), 'public size evidence artifact naming is missing');
+  assert(!/dist\/public-release\/bundle-size-report\.json/.test(build), 'size evidence must remain outside dist/public-release');
+  assert(/dist\/release-candidate\/bundle-size-report\.json/.test(candidateWorkflowText), 'candidate artifact must include bundle-size-report.json');
   assert(/-arm64-dry-run/.test(build), 'dry-run artifact naming is missing');
   assert(/-arm64-public/.test(build), 'public artifact naming is missing');
   assert(/npm run release:rc:arm64 -- --real-model/.test(build), 'public hosted real-model validation must invoke --real-model');
