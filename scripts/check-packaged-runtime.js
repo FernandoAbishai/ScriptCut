@@ -207,6 +207,7 @@ function inspectPackage(appPath) {
   const backendSize = directorySize(backendRoot);
   const binSize = directorySize(path.join(resourcesPath, 'bin'));
   const appSize = directorySize(appPath);
+  console.log('Size diagnostics are non-canonical; use bundle-size-report.json for logical-byte release evidence.');
   console.log(`Packaged app: mac-arm64 (${appSize} bytes)`);
   console.log(`Portable Python: ${runtimeSize} bytes`);
   console.log(`Core pack: ${coreSize} bytes`);

@@ -46,6 +46,7 @@ section and never mutates the changelog.
 | Deterministic model-manager smoke | SOURCE / PR | `ubuntu-latest` | Managed model storage, resume, cancellation, integrity, redirect policy, and path safety against a local fixture server | Yes for PR CI | No | Loopback fixture only; no real model download | No |
 | Native candidate build | CANDIDATE | `macos-14` arm64 | The requested commit produces the self-contained native macOS arm64 candidate | Yes before public qualification | No | Package prerequisites use the network; real model is optional for a candidate invocation | No |
 | Packaged candidate gates | CANDIDATE | `macos-14` arm64 | Packaged runtime, bundled backend, Electron-like startup, renderer transport/CSP, optional-capability isolation, FFmpeg, transcription, icon, DMG, metadata, identity, and signing readiness | Yes for a candidate | No | No model download unless the candidate is invoked with `--real-model` | No |
+| Bundle-size evidence | CANDIDATE / PUBLIC DRY-RUN | Native candidate runner | Exact `.app` logical bytes, DMG bytes, disjoint category attribution, and trend evidence | Yes as maintainer evidence | No | No model download; no optimization or size budget | No |
 | Candidate real-model gate | CANDIDATE | `macos-14` arm64 | First acquisition, verified model, real transcription, offline reuse, repair, and reacquisition when explicitly requested | No for every candidate | Yes: `--real-model` or an implementation change to real-model orchestration | Downloads the real model when enabled; hosted execution is CPU-only | No |
 | Public build, stage, and attestation | PUBLIC DRY-RUN | `macos-14` arm64 | One built candidate is transformed into the exact public bundle, with checksums, manifest, DMG and manifest attestations, and no rebuild after staging | Yes for a public dry-run or publication | `workflow_dispatch`; `publish=false` is the non-publishing mode | Network required for actions, GitHub attestations, and `real_model=true` validation | Attestation and workflow-artifact records only; `publish=false` cannot create a tag, release, commit, or main mutation |
 | Transferred public bundle checksum, manifest, DMG, and attestation verification | CLEAN ARTIFACT | `macos-14` arm64 | The exact transferred public bundle still has the expected shape, bytes, provenance, and native DMG validity | Yes for a public dry-run or publication | No once the public workflow is run | Network required for GitHub attestation verification; no model download | No |
@@ -75,6 +76,13 @@ The native candidate command is:
 ```bash
 npm run release:rc:arm64
 ```
+
+After the packaged runtime and DMG gates pass, the candidate writes
+`dist/release-candidate/bundle-size-report.json`. The public workflow keeps
+the exact six-file public bundle and uploads the detailed report separately as
+Actions evidence. Successful evidence generation is part of candidate
+integrity; the measured size is informational only. Size increases do not fail
+publication, and no size budget or threshold is enforced.
 
 Use `npm run release:rc:arm64 -- --real-model` only when the extended model
 gate is required. Hosted runners may prove the CPU real-model baseline and a

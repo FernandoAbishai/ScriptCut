@@ -5,6 +5,7 @@
 ### Added
 
 - Canonical release-note and post-publication closure verification for the public alpha workflow.
+- Machine-readable bundle-size attribution and release size evidence for candidate and public workflow review.
 
 ### Changed
 

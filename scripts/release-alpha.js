@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { inspectPackage } = require('./check-packaged-runtime');
+const { measureBundleSize } = require('./measure-bundle-size');
 const { formatCandidateArtifactFilename, readProductVersion } = require('./release-identity');
 
 const root = path.join(__dirname, '..');
@@ -137,7 +138,7 @@ function readProvenance() {
   };
 }
 
-async function createReleaseManifest(pkg, artifact, checksums, provenance) {
+async function createReleaseManifest(pkg, artifact, checksums, provenance, bundleSize) {
   const manifest = {
     schema: 'scriptcut.release.v1',
     productName: pkg.build?.productName || pkg.name,
@@ -177,6 +178,16 @@ async function createReleaseManifest(pkg, artifact, checksums, provenance) {
       sha256: provenance.model.sha256,
       manifestSha256: await checksumFile(provenance.modelManifestPath),
       embedded: false,
+    },
+    bundleSize: {
+      schema: bundleSize.schema,
+      appLogicalBytes: bundleSize.appLogicalBytes,
+      dmgBytes: bundleSize.dmgBytes,
+      compressionRatio: bundleSize.compressionRatio,
+      largestPrimaryCategory: {
+        name: bundleSize.summary.largestPrimaryCategory.name,
+        logicalBytes: bundleSize.summary.largestPrimaryCategory.logicalBytes,
+      },
     },
     codeSignature: {
       type: 'ad-hoc',
@@ -222,6 +233,7 @@ Creators do not need to install Python, run pip, download FFmpeg, configure PATH
 - ${artifact.filename}
 - SHA256SUMS.txt
 - release-manifest.json
+- bundle-size-report.json (maintainer measurement evidence)
 
 Artifact SHA-256: \`${checksums.sha256}\`
 Runtime mode: \`${manifest.runtime.mode}\`; Python source: \`${manifest.runtime.pythonSource}\`; target: \`${manifest.runtime.target.platform}-${manifest.runtime.target.arch}\`.
@@ -309,7 +321,13 @@ async function main() {
   };
   const checksums = await writeChecksums(artifact);
   const provenance = readProvenance();
-  const { manifestPath, manifest } = await createReleaseManifest(pkg, artifact, checksums, provenance);
+  const bundleSizePath = path.join(releaseMetadataDir, 'bundle-size-report.json');
+  const bundleSize = measureBundleSize({
+    appPath: outputs.appPath,
+    dmgPath: outputs.dmgPath,
+    outputPath: bundleSizePath,
+  });
+  const { manifestPath, manifest } = await createReleaseManifest(pkg, artifact, checksums, provenance, bundleSize);
   const notesPath = writeReleaseNotes(pkg, artifact, checksums, manifest);
   runStep('Release metadata smoke', 'node', ['scripts/smoke-release-metadata.js', '--dir', releaseMetadataDir], { env });
 

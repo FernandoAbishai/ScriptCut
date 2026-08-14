@@ -216,6 +216,14 @@ jobs:
             dist/public-release/RELEASE_NOTES.md
             dist/public-release/*.sigstore.json
 
+      - name: Upload bundle-size evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: scriptcut-${{ inputs.release_tag }}-bundle-size-evidence
+          if-no-files-found: error
+          retention-days: 30
+          path: dist/release-candidate/bundle-size-report.json
+
   clean-runner-verify:
     name: Verify bundle on clean native arm64 runner
     needs: build
