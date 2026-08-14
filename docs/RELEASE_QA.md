@@ -80,8 +80,9 @@ npm run release:rc:arm64
 After the packaged runtime and DMG gates pass, the candidate writes
 `dist/release-candidate/bundle-size-report.json`. The public workflow keeps
 the exact six-file public bundle and uploads the detailed report separately as
-Actions evidence. Bundle-size measurement is informational and is not a
-publication blocker.
+Actions evidence. Successful evidence generation is part of candidate
+integrity; the measured size is informational only. Size increases do not fail
+publication, and no size budget or threshold is enforced.
 
 Use `npm run release:rc:arm64 -- --real-model` only when the extended model
 gate is required. Hosted runners may prove the CPU real-model baseline and a
