@@ -153,6 +153,15 @@ const manifestSource = panelSource.slice(panelSource.indexOf('async function wri
 assert.match(panelSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
 assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)/);
 assert.doesNotMatch(panelSource, /Promise\.all\([^)]*export/);
+assert.match(panelSource, /const exportBusy = isBatchExporting \|\| exportingDraftId !== null/);
+assert.match(panelSource, /exportBusy=\{exportBusy\}/);
+assert.match(panelSource, /disabled=\{exportBusy \|\| readyDraftCount === 0\}/);
+assert.match(panelSource, /disabled=\{!canExport \|\| exportBusy \|\| isExporting \|\| exportActive\}/);
+assert.match(panelSource, /disabled=\{exportBusy\}/);
+assert.ok((panelSource.match(/if \(exportBusy\) return;/g) || []).length >= 3, 'export handlers have defensive busy guards');
+assert.match(panelSource, /onClick=\{stopBatchExport\}/);
+assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)[\s\S]*?await handleExportClip/);
+assert.doesNotMatch(panelSource, /\/jobs\/export-batch|\/export\/v2/);
 assert.match(panelSource, /failedCount/);
 assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
 assert.match(panelSource, /if \(stopBatchExportRef\.current\) break/);

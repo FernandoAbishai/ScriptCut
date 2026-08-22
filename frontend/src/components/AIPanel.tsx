@@ -807,6 +807,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     failed: 0,
     stopping: false,
   });
+  const exportBusy = isBatchExporting || exportingDraftId !== null;
   const stopBatchExportRef = useRef(false);
   const [publishingCopyDraftId, setPublishingCopyDraftId] = useState<string | null>(null);
   const clipQueueSummary = useMemo(() => getClipQueueSummary(clipDrafts), [clipDrafts]);
@@ -1074,6 +1075,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const retryDraftExport = useCallback(
     async (draft: ClipDraft) => {
+      if (exportBusy) return;
       const job = clipExportJobs[draft.id];
       setExportingDraftId(draft.id);
       try {
@@ -1121,7 +1123,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         setExportingDraftId(null);
       }
     },
-    [backendUrl, clipExportJobs, handleExportClip, pollClipExportJob, updateClipDraft],
+    [backendUrl, clipExportJobs, exportBusy, handleExportClip, pollClipExportJob, updateClipDraft],
   );
 
   const createClipDraft = useCallback(
@@ -1247,6 +1249,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const handleExportDraft = useCallback(
     async (draft: ClipDraft) => {
+      if (exportBusy) return;
       const validation = validateClipDraftForExport(draft, words, videoPath);
       if (!validation.ready) {
         setCreatorNotice({ tone: 'warning', title: 'Clip isn’t ready to export', message: 'Review the readiness details before exporting.', technicalDetails: validation.reasons.join('\n'), onDismiss: () => setCreatorNotice(null) });
@@ -1264,10 +1267,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         setExportingDraftId(null);
       }
     },
-    [handleExportClip, videoPath, words],
+    [exportBusy, handleExportClip, videoPath, words],
   );
 
   const handleExportAllDrafts = useCallback(async () => {
+    if (exportBusy) return;
     const exportableDrafts = getClipBatchExportCandidates(clipDrafts, words, videoPath);
     if (exportableDrafts.length === 0) return;
     stopBatchExportRef.current = false;
@@ -1348,7 +1352,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       stopBatchExportRef.current = false;
       setBatchExportProgress((current) => ({ ...current, stopping: false }));
     }
-  }, [clipDrafts, clipExportDirectory, handleExportClip, videoPath, words]);
+  }, [clipDrafts, clipExportDirectory, exportBusy, handleExportClip, videoPath, words]);
 
   const stopBatchExport = useCallback(() => {
     stopBatchExportRef.current = true;
@@ -1839,7 +1843,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                       )}
                       <button
                         onClick={handleExportAllDrafts}
-                        disabled={isBatchExporting || readyDraftCount === 0}
+                        disabled={exportBusy || readyDraftCount === 0}
                         className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
                       >
                         {isBatchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -1909,6 +1913,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                         key={draft.id}
                         draft={draft}
                         isExporting={exportingDraftId === draft.id}
+                        exportBusy={exportBusy}
                         exportJob={clipExportJobs[draft.id]}
                         backendUrl={backendUrl}
                         backgroundCapabilities={backgroundCapabilities}
@@ -2029,6 +2034,7 @@ function EditPlanReviewItem({
 function ClipDraftCard({
   draft,
   isExporting,
+  exportBusy,
   isGeneratingPublishingCopy,
   exportJob,
   backendUrl,
@@ -2056,6 +2062,7 @@ function ClipDraftCard({
 }: {
   draft: ClipDraft;
   isExporting: boolean;
+  exportBusy: boolean;
   isGeneratingPublishingCopy: boolean;
   exportJob?: ExportJob;
   backendUrl: string;
@@ -2523,7 +2530,7 @@ function ClipDraftCard({
         </button>
         <button
           onClick={onExport}
-          disabled={!canExport || isExporting || exportActive}
+          disabled={!canExport || exportBusy || isExporting || exportActive}
           className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
         >
           {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -2539,7 +2546,8 @@ function ClipDraftCard({
         ) : exportRetryable ? (
           <button
             onClick={onRetryExport}
-            className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30"
+            disabled={exportBusy}
+            className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
           >
             <RotateCcw className="w-3 h-3" /> Retry export
           </button>
