@@ -27,6 +27,7 @@ const {
   getActiveCaptionChunk,
   getActiveKaraokeWord,
   getCaptionPreviewGeometry,
+  getCapturedSourceAspectRatio,
   getClipFramePreviewStyle,
   getEffectiveCaptionAnimation,
   updateClipPresentationPreviewForDraft,
@@ -61,6 +62,10 @@ assert.deepEqual(getClipFramePreviewStyle('source', { x: 0, y: 100 }), {
   objectFit: 'contain',
   objectPosition: '50% 50%',
 });
+assert.equal(getCapturedSourceAspectRatio(1440, 1080), 4 / 3);
+assert.equal(getCapturedSourceAspectRatio(1080, 1920), 9 / 16);
+assert.equal(getCapturedSourceAspectRatio(0, 1080), null);
+assert.equal(getCapturedSourceAspectRatio(Number.NaN, 1080), null);
 assert.deepEqual(getClipFramePreviewStyle('vertical', { x: 0, y: 50 }), {
   objectFit: 'cover',
   objectPosition: '0% 50%',
@@ -171,6 +176,10 @@ assert.match(playerSource, /aspect-\[9\/16\]/);
 assert.match(playerSource, /aspect-square/);
 assert.match(playerSource, /ClipPresentationOverlay/);
 assert.match(playerSource, /getClipFramePreviewStyle/);
+assert.match(playerSource, /onLoadedMetadata=\{handleLoadedMetadata\}/);
+assert.doesNotMatch(playerSource, /onLoadedMetadata=\{clipPresentationPreview \? handleLoadedMetadata : undefined\}/);
+assert.match(playerSource, /aspectRatio: sourceAspectRatio/);
+assert.match(playerSource, /setSourceAspectRatio\(SAFE_SOURCE_ASPECT_RATIO\)/);
 assert.match(overlaySource, /pointer-events-none/);
 assert.match(overlaySource, /SRT sidecar/);
 assert.match(overlaySource, /Export will include an SRT caption file instead/);

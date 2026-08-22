@@ -2,9 +2,11 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useVideoSync } from '../hooks/useVideoSync';
 import { getPlaybackTimeState, previewToSourceTime } from '../utils/playback';
-import { getClipFramePreviewStyle } from '../utils/clipPresentation';
+import { getCapturedSourceAspectRatio, getClipFramePreviewStyle } from '../utils/clipPresentation';
 import ClipPresentationOverlay, { type BurnInCapability } from './ClipPresentationOverlay';
 import { Play, Pause, Scissors, SkipBack, SkipForward, Volume2 } from 'lucide-react';
+
+const SAFE_SOURCE_ASPECT_RATIO = 16 / 9;
 
 export default function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -27,7 +29,7 @@ export default function VideoPlayer() {
 
   const frameRef = useRef<HTMLDivElement>(null);
   const [displayTime, setDisplayTime] = useState(0);
-  const [sourceAspectRatio, setSourceAspectRatio] = useState(16 / 9);
+  const [sourceAspectRatio, setSourceAspectRatio] = useState(SAFE_SOURCE_ASPECT_RATIO);
   const [burnInCapability, setBurnInCapability] = useState<BurnInCapability>('unknown');
   const hasPlaybackEdits =
     deletedRanges.length > 0 ||
@@ -45,6 +47,10 @@ export default function VideoPlayer() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [videoUrl, duration, deletedRanges, previewCuts]);
+
+  useEffect(() => {
+    setSourceAspectRatio(SAFE_SOURCE_ASPECT_RATIO);
+  }, [videoUrl]);
 
   useEffect(() => {
     if (clipPresentationCaptions !== 'burn-in') {
@@ -71,7 +77,8 @@ export default function VideoPlayer() {
 
   const handleLoadedMetadata = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const { videoWidth, videoHeight } = event.currentTarget;
-    if (videoWidth > 0 && videoHeight > 0) setSourceAspectRatio(videoWidth / videoHeight);
+    const nextAspectRatio = getCapturedSourceAspectRatio(videoWidth, videoHeight);
+    if (nextAspectRatio !== null) setSourceAspectRatio(nextAspectRatio);
   }, []);
 
   const formatTime = (seconds: number) => {
@@ -134,7 +141,7 @@ export default function VideoPlayer() {
               : undefined}
             playsInline
             onClick={togglePlay}
-            onLoadedMetadata={clipPresentationPreview ? handleLoadedMetadata : undefined}
+            onLoadedMetadata={handleLoadedMetadata}
           />
           {clipPresentationPreview && (
             <ClipPresentationOverlay

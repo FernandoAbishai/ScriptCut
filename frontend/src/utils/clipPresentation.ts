@@ -62,6 +62,13 @@ export function getClipFramePreviewStyle(
   };
 }
 
+export function getCapturedSourceAspectRatio(videoWidth: number, videoHeight: number) {
+  if (!Number.isFinite(videoWidth) || !Number.isFinite(videoHeight) || videoWidth <= 0 || videoHeight <= 0) {
+    return null;
+  }
+  return videoWidth / videoHeight;
+}
+
 export function buildClipPresentationPreview(
   key: string,
   clip: ClipPresentationSource,
