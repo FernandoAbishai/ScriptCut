@@ -152,6 +152,7 @@
                   "captionStyle": { "$ref": "#/definitions/captionStyle" },
                   "backgroundRemoval": { "$ref": "#/definitions/backgroundRemoval" },
                   "hook": { "type": "string" },
+                  "titleSuggestions": { "type": "array", "items": { "type": "string" }, "maxItems": 3 },
                   "description": { "type": "string" },
                   "caption": { "type": "string" },
                   "hashtags": { "type": "array", "items": { "type": "string" } },

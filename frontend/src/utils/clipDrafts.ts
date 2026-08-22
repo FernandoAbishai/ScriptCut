@@ -187,7 +187,7 @@ export function getClipDraftReadinessScore(
   const validation = validateClipDraftForExport(draft, words, videoPath);
 
   if (validation.ready) {
-    score += 30;
+    score += 50;
   } else {
     reasons.push(...validation.reasons);
   }
@@ -199,25 +199,15 @@ export function getClipDraftReadinessScore(
   }
 
   if (draft.aspectRatio === 'vertical' && draft.resolution === '1080p' && draft.format === 'mp4') {
-    score += 15;
+    score += 20;
   } else {
     reasons.push('Use vertical 1080p MP4 for Shorts/Reels/TikTok.');
   }
 
-  if ((draft.captions || 'none') === 'burn-in') {
-    score += 10;
+  if ((draft.captions || 'none') !== 'none') {
+    score += 15;
   } else {
     reasons.push('Enable creator captions for social viewing.');
-  }
-
-  if ((draft.hook || '').trim() && (draft.caption || '').trim() && (draft.hashtags || []).length > 0) {
-    score += 20;
-  } else {
-    reasons.push('Package hook, caption, and hashtags before export.');
-  }
-
-  if ((draft.status || 'draft') === 'packaged' || (draft.status || 'draft') === 'exported') {
-    score += 10;
   }
 
   const boundedScore = Math.max(0, Math.min(100, score));

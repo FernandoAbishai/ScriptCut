@@ -192,6 +192,7 @@ export interface ClipDraft extends ClipSuggestion {
   captionStyle?: CaptionStyle;
   backgroundRemoval?: BackgroundRemovalOptions;
   hook?: string;
+  titleSuggestions?: string[];
   description?: string;
   caption?: string;
   hashtags?: string[];
