@@ -39,6 +39,11 @@ import {
   removeMatchingClipSuggestions,
   type ClipWorkspaceStage,
 } from '../utils/clipWorkspace';
+import {
+  getClipBatchExportCandidates,
+  getClipBatchProgressSummary,
+  type ClipBatchProgressInput,
+} from '../utils/clipBatchExport';
 import CaptionPreview from './CaptionPreview';
 import ClipReviewWorkspace from './ClipReviewWorkspace';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
@@ -99,7 +104,15 @@ type ClipMetadataResult = {
 type BatchExportResult = {
   draft: ClipDraft;
   outputPath?: string;
+  srtPath?: string;
+  warnings?: string[];
   error?: string;
+};
+
+type ClipExportOutput = {
+  outputPath: string;
+  srtPath?: string;
+  warnings: string[];
 };
 
 const CLIP_CAPTION_PRESETS: Record<NonNullable<CaptionStyle['preset']>, CaptionStyle> = {
@@ -149,7 +162,6 @@ const SHORTS_DRAFT_DEFAULTS = {
   platform: 'shorts',
 } satisfies Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'platform'>;
 
-const EXPORTABLE_DRAFT_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged', 'failed']);
 const CLIP_EXPORT_DIRECTORY_KEY = 'scriptcut.clipExport.directory';
 
 function getClipQueueSummary(drafts: ClipDraft[]) {
@@ -788,17 +800,19 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [exportingDraftId, setExportingDraftId] = useState<string | null>(null);
   const [clipExportJobs, setClipExportJobs] = useState<Record<string, ExportJob>>({});
   const [isBatchExporting, setBatchExporting] = useState(false);
-  const [batchExportProgress, setBatchExportProgress] = useState({ completed: 0, total: 0, stopping: false });
+  const [batchExportProgress, setBatchExportProgress] = useState<ClipBatchProgressInput>({
+    processed: 0,
+    total: 0,
+    exported: 0,
+    failed: 0,
+    stopping: false,
+  });
+  const exportBusy = isBatchExporting || exportingDraftId !== null;
   const stopBatchExportRef = useRef(false);
   const [publishingCopyDraftId, setPublishingCopyDraftId] = useState<string | null>(null);
   const clipQueueSummary = useMemo(() => getClipQueueSummary(clipDrafts), [clipDrafts]);
   const readyDraftCount = useMemo(
-    () =>
-      clipDrafts.filter(
-        (draft) =>
-          EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft') &&
-          validateClipDraftForExport(draft, words, videoPath).ready,
-      ).length,
+    () => getClipBatchExportCandidates(clipDrafts, words, videoPath).length,
     [clipDrafts, videoPath, words],
   );
   const clipStageDrafts = useMemo(
@@ -914,8 +928,12 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         }
 
         if (job.status === 'succeeded') {
+          const outputPath = job.result?.output_path?.trim() || '';
+          if (!outputPath) {
+            throw new Error('Export completed without a confirmed output file. Retry this clip.');
+          }
           return {
-            outputPath: job.result?.output_path || '',
+            outputPath,
             srtPath: job.result?.srt_path,
             warnings: job.result?.warnings || [],
           };
@@ -1024,7 +1042,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             onDismiss: () => setCreatorNotice(null),
           });
         }
-        return output.outputPath;
+        return output;
       } catch (err) {
         console.error(err);
         const message = err instanceof Error ? err.message : String(err);
@@ -1057,25 +1075,33 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const retryDraftExport = useCallback(
     async (draft: ClipDraft) => {
+      if (exportBusy) return;
       const job = clipExportJobs[draft.id];
-      if (!job || !['failed', 'canceled'].includes(job.status)) return;
       setExportingDraftId(draft.id);
       try {
-        const res = await fetch(`${backendUrl}/jobs/${job.id}/retry`, { method: 'POST' });
-        if (!res.ok) throw new Error(`Retry failed: ${res.statusText}`);
-        const { job_id: jobId } = await res.json();
-        setClipExportJobs((current) => ({
-          ...current,
-          [draft.id]: {
-            id: jobId,
-            status: 'queued',
-            progress: 0,
-            message: 'Retry queued',
-            logs: [],
-          },
-        }));
         updateClipDraft(draft.id, { status: 'exporting', lastError: undefined });
-        const output = await pollClipExportJob(jobId, draft.id);
+        let output: ClipExportOutput;
+        if (job && ['failed', 'canceled'].includes(job.status)) {
+          const res = await fetch(`${backendUrl}/jobs/${job.id}/retry`, { method: 'POST' });
+          if (res.ok) {
+            const { job_id: jobId } = await res.json();
+            setClipExportJobs((current) => ({
+              ...current,
+              [draft.id]: {
+                id: jobId,
+                status: 'queued',
+                progress: 0,
+                message: 'Retry queued',
+                logs: [],
+              },
+            }));
+            output = await pollClipExportJob(jobId, draft.id);
+          } else {
+            output = await handleExportClip(draft, draft, true);
+          }
+        } else {
+          output = await handleExportClip(draft, draft, true);
+        }
         updateClipDraft(draft.id, {
           status: 'exported',
           exportPath: output.outputPath,
@@ -1097,7 +1123,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         setExportingDraftId(null);
       }
     },
-    [backendUrl, clipExportJobs, pollClipExportJob, updateClipDraft],
+    [backendUrl, clipExportJobs, exportBusy, handleExportClip, pollClipExportJob, updateClipDraft],
   );
 
   const createClipDraft = useCallback(
@@ -1223,6 +1249,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const handleExportDraft = useCallback(
     async (draft: ClipDraft) => {
+      if (exportBusy) return;
       const validation = validateClipDraftForExport(draft, words, videoPath);
       if (!validation.ready) {
         setCreatorNotice({ tone: 'warning', title: 'Clip isn’t ready to export', message: 'Review the readiness details before exporting.', technicalDetails: validation.reasons.join('\n'), onDismiss: () => setCreatorNotice(null) });
@@ -1240,19 +1267,24 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         setExportingDraftId(null);
       }
     },
-    [handleExportClip, videoPath, words],
+    [exportBusy, handleExportClip, videoPath, words],
   );
 
   const handleExportAllDrafts = useCallback(async () => {
-    const exportableDrafts = clipDrafts.filter(
-      (draft) =>
-        EXPORTABLE_DRAFT_STATUSES.has(draft.status || 'draft') &&
-        validateClipDraftForExport(draft, words, videoPath).ready,
-    );
+    if (exportBusy) return;
+    const exportableDrafts = getClipBatchExportCandidates(clipDrafts, words, videoPath);
     if (exportableDrafts.length === 0) return;
     stopBatchExportRef.current = false;
     setBatchExporting(true);
-    setBatchExportProgress({ completed: 0, total: exportableDrafts.length, stopping: false });
+    setBatchExportProgress(
+      getClipBatchProgressSummary({
+        processed: 0,
+        total: exportableDrafts.length,
+        exported: 0,
+        failed: 0,
+        stopping: false,
+      }),
+    );
     const results: BatchExportResult[] = [];
     try {
       for (let index = 0; index < exportableDrafts.length; index++) {
@@ -1265,25 +1297,50 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           return next;
         });
         try {
-          const outputPath = await handleExportClip(draft, draft, true);
-          results.push({ draft, outputPath });
+          const output = await handleExportClip(draft, draft, true);
+          results.push({ draft, outputPath: output.outputPath, srtPath: output.srtPath, warnings: output.warnings });
         } catch (err) {
           results.push({ draft, error: err instanceof Error ? err.message : String(err) });
         }
-        setBatchExportProgress((current) => ({ ...current, completed: index + 1 }));
+        setBatchExportProgress(
+          getClipBatchProgressSummary({
+            processed: index + 1,
+            total: exportableDrafts.length,
+            exported: results.filter((result) => result.outputPath).length,
+            failed: results.filter((result) => result.error).length,
+            stopping: stopBatchExportRef.current,
+          }),
+        );
       }
       const successCount = results.filter((result) => result.outputPath).length;
       const failedCount = results.filter((result) => result.error).length;
-      const manifestPath = await writeClipBatchManifest({
-        directory: clipExportDirectory || (videoPath ? getPathDirectory(videoPath) : ''),
-        videoPath,
-        results,
-        words,
-      });
+      const remainingDrafts = exportableDrafts.slice(results.length);
+      const stopped = stopBatchExportRef.current && remainingDrafts.length > 0;
+      let manifestPath = '';
+      let manifestWarning = '';
+      try {
+        manifestPath = await writeClipBatchManifest({
+          directory: clipExportDirectory || (videoPath ? getPathDirectory(videoPath) : ''),
+          videoPath,
+          results,
+          words,
+          plannedDraftIds: exportableDrafts.map((draft) => draft.id),
+          remainingDraftIds: remainingDrafts.map((draft) => draft.id),
+          stopped,
+        });
+      } catch (err) {
+        console.error('Clip batch manifest failed:', err);
+        manifestWarning = "Clips were exported, but ScriptCut couldn't save the batch manifest.";
+      }
+      const warningDetails = [
+        ...results.flatMap((result) => result.warnings || []),
+        manifestWarning,
+      ].filter(Boolean);
       setCreatorNotice({
-        tone: failedCount > 0 ? 'warning' : 'success',
-        title: stopBatchExportRef.current ? 'Batch export stopped' : 'Batch export finished',
-        message: `${successCount} exported, ${failedCount} failed.${manifestPath ? ` Manifest saved to ${manifestPath}.` : ''}`,
+        tone: failedCount > 0 || manifestWarning ? 'warning' : 'success',
+        title: stopped ? 'Export stopped' : 'Export finished',
+        message: `${successCount} exported, ${failedCount} failed.${stopped ? ` ${remainingDrafts.length} remaining.` : ''}${manifestPath ? ` Manifest saved to ${manifestPath}.` : ''}`,
+        technicalDetails: warningDetails.length > 0 ? warningDetails.join('\n') : undefined,
         onDismiss: () => setCreatorNotice(null),
       });
     } catch (err) {
@@ -1295,7 +1352,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       stopBatchExportRef.current = false;
       setBatchExportProgress((current) => ({ ...current, stopping: false }));
     }
-  }, [clipDrafts, clipExportDirectory, handleExportClip, videoPath, words]);
+  }, [clipDrafts, clipExportDirectory, exportBusy, handleExportClip, videoPath, words]);
 
   const stopBatchExport = useCallback(() => {
     stopBatchExportRef.current = true;
@@ -1786,11 +1843,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                       )}
                       <button
                         onClick={handleExportAllDrafts}
-                        disabled={isBatchExporting || readyDraftCount === 0}
+                        disabled={exportBusy || readyDraftCount === 0}
                         className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
                       >
                         {isBatchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                        Export Ready Clips
+                        {clipQueueSummary.exported > 0 || clipQueueSummary.failed > 0 ? 'Export remaining' : 'Export all ready clips'}
                       </button>
                     </div>
                   )}
@@ -1831,11 +1888,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                     {isBatchExporting && (
                       <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
                         <div className="flex justify-between gap-2">
-                          <span>Exporting {Math.min(batchExportProgress.completed + 1, batchExportProgress.total)} of {batchExportProgress.total}</span>
-                          <span>{batchExportProgress.stopping ? 'Stopping after current clip' : `${batchExportProgress.completed}/${batchExportProgress.total} done`}</span>
+                          <span>Exporting {Math.min(batchExportProgress.processed + 1, batchExportProgress.total)} of {batchExportProgress.total}</span>
+                          <span>{batchExportProgress.stopping ? 'Stopping after current clip' : `${batchExportProgress.exported} exported · ${batchExportProgress.failed} failed · ${batchExportProgress.total - batchExportProgress.processed} remaining`}</span>
+                        </div>
+                        <div className="flex justify-between gap-2 text-[10px]">
+                          <span>{batchExportProgress.exported} exported · {batchExportProgress.failed} failed · {batchExportProgress.total - batchExportProgress.processed} remaining</span>
+                          <span>{batchExportProgress.processed}/{batchExportProgress.total} processed</span>
                         </div>
                         <div className="h-1.5 overflow-hidden rounded bg-editor-border">
-                          <div className="h-full bg-editor-success" style={{ width: `${Math.max(4, Math.min(100, batchExportProgress.total ? (batchExportProgress.completed / batchExportProgress.total) * 100 : 0))}%` }} />
+                          <div className="h-full bg-editor-success" style={{ width: `${Math.max(4, Math.min(100, batchExportProgress.total ? (batchExportProgress.processed / batchExportProgress.total) * 100 : 0))}%` }} />
                         </div>
                       </div>
                     )}
@@ -1852,6 +1913,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                         key={draft.id}
                         draft={draft}
                         isExporting={exportingDraftId === draft.id}
+                        exportBusy={exportBusy}
                         exportJob={clipExportJobs[draft.id]}
                         backendUrl={backendUrl}
                         backgroundCapabilities={backgroundCapabilities}
@@ -1972,6 +2034,7 @@ function EditPlanReviewItem({
 function ClipDraftCard({
   draft,
   isExporting,
+  exportBusy,
   isGeneratingPublishingCopy,
   exportJob,
   backendUrl,
@@ -1999,6 +2062,7 @@ function ClipDraftCard({
 }: {
   draft: ClipDraft;
   isExporting: boolean;
+  exportBusy: boolean;
   isGeneratingPublishingCopy: boolean;
   exportJob?: ExportJob;
   backendUrl: string;
@@ -2025,8 +2089,8 @@ function ClipDraftCard({
   onRemove: () => void;
 }) {
   const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running' || exportJob?.status === 'canceling';
-  const exportRetryable = exportJob?.status === 'failed' || exportJob?.status === 'canceled';
   const status = draft.status || 'draft';
+  const exportRetryable = status === 'failed' || exportJob?.status === 'failed' || exportJob?.status === 'canceled';
   const isSuggested = status === 'suggested';
   const canExport = exportValidation.ready && !isSuggested;
   const socialPack = buildSocialPublishingPack(draft);
@@ -2466,7 +2530,7 @@ function ClipDraftCard({
         </button>
         <button
           onClick={onExport}
-          disabled={!canExport || isExporting || exportActive}
+          disabled={!canExport || exportBusy || isExporting || exportActive}
           className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
         >
           {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -2482,9 +2546,10 @@ function ClipDraftCard({
         ) : exportRetryable ? (
           <button
             onClick={onRetryExport}
-            className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30"
+            disabled={exportBusy}
+            className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
           >
-            <RotateCcw className="w-3 h-3" /> Retry
+            <RotateCcw className="w-3 h-3" /> Retry export
           </button>
         ) : (
           <button
@@ -3020,11 +3085,17 @@ async function writeClipBatchManifest({
   videoPath,
   results,
   words,
+  plannedDraftIds,
+  remainingDraftIds,
+  stopped,
 }: {
   directory: string;
   videoPath: string | null;
   results: BatchExportResult[];
   words: Word[];
+  plannedDraftIds: string[];
+  remainingDraftIds: string[];
+  stopped: boolean;
 }) {
   if (!directory || !window.electronAPI?.writeClipManifest) return '';
   const manifestPath = joinPath(directory, `scriptcut_clip_manifest_${timestampForFilename()}.json`);
@@ -3037,12 +3108,18 @@ async function writeClipBatchManifest({
       total: results.length,
       exported: results.filter((result) => result.outputPath).length,
       failed: results.filter((result) => result.error).length,
+      planned: plannedDraftIds.length,
+      processed: results.length,
+      remaining: remainingDraftIds.length,
+      stopped,
     },
-    clips: results.map(({ draft, outputPath, error }) => ({
+    remainingDraftIds,
+    clips: results.map(({ draft, outputPath, srtPath, warnings, error }) => ({
       id: draft.id,
       title: draft.title,
       status: outputPath ? 'exported' : 'failed',
       outputPath,
+      srtPath,
       error,
       startTime: draft.startTime,
       endTime: draft.endTime,
@@ -3076,6 +3153,7 @@ async function writeClipBatchManifest({
         captions: draft.captions || 'none',
         enhanceAudio: !!draft.enhanceAudio,
       },
+      warnings: warnings || [],
       transcript: getClipTranscript(words, draft),
     })),
   };

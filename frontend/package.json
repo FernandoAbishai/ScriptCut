@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:clip-drafts": "node scripts/smoke-clip-drafts.mjs",
+    "test:clip-batch-export": "node scripts/smoke-clip-batch-export.mjs",
     "test:clip-publishing": "node scripts/smoke-clip-publishing.mjs",
     "test:clip-presentation": "node scripts/smoke-clip-presentation.mjs",
     "test:home-onboarding": "node scripts/smoke-home-onboarding.mjs",
