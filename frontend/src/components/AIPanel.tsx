@@ -25,6 +25,7 @@ import {
   getUnmatchedLegacyClipSuggestions,
   isSameClipRange,
   isClipDraftInStage,
+  readClipDiscoveryResult,
   removeMatchingClipSuggestions,
   type ClipWorkspaceStage,
 } from '../utils/clipWorkspace';
@@ -48,6 +49,14 @@ type AIJob<T> = {
 type AIJobContext = {
   label: string;
   draftId?: string;
+};
+
+type ClipDiscoveryResult = {
+  clips?: ClipSuggestion[];
+  requestedCount?: number;
+  returnedCount?: number;
+  shortfall?: number;
+  rejectedCount?: number;
 };
 
 type ExportJob = {
@@ -543,6 +552,32 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     words,
   ]);
 
+  const applyClipDiscoveryResult = useCallback((data: ClipDiscoveryResult, idPrefix = 'suggested_clip') => {
+    const discovery = readClipDiscoveryResult(data);
+    const { clips, returnedCount } = discovery;
+    setClipSuggestions(clips);
+    setClipDrafts((current) => appendDiscoveredClipDrafts(current, clips, idPrefix));
+    setClipStage(discovery.stage);
+
+    if (returnedCount === 0) {
+      setCreatorNotice({
+        tone: 'warning',
+        title: 'No reliable suggestions found',
+        message: 'ScriptCut couldn\'t find a reliable clip suggestion this time. Try again or choose a moment directly from the transcript.',
+        onDismiss: () => setCreatorNotice(null),
+      });
+    } else if (discovery.shortfall > 0) {
+      setCreatorNotice({
+        tone: 'info',
+        title: `Found ${returnedCount} strong suggestion${returnedCount === 1 ? '' : 's'}`,
+        message: 'ScriptCut left out invalid or overlapping moments instead of filling the queue with weaker clips.',
+        onDismiss: () => setCreatorNotice(null),
+      });
+    } else {
+      setCreatorNotice(null);
+    }
+  }, [setClipDrafts, setClipStage, setClipSuggestions]);
+
   const cancelAIJob = useCallback(async () => {
     if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
     const res = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/cancel`, { method: 'POST' });
@@ -588,7 +623,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
-      const data = await startAIJob<{ clips?: ClipSuggestion[] }>(
+      const data = await startAIJob<ClipDiscoveryResult>(
         '/jobs/ai/create-clip',
         {
           transcript,
@@ -602,25 +637,19 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           model: config.model,
           api_key: config.apiKey || undefined,
           base_url: config.baseUrl || undefined,
-          target_duration: 60,
           platform: 'shorts',
-          min_duration: 30,
-          max_duration: 90,
         },
         'Clip discovery',
         { label: 'Clip discovery' },
       );
-      const clips = data.clips || [];
-      setClipSuggestions(clips);
-      setClipDrafts((current) => appendDiscoveredClipDrafts(current, clips, 'suggested_clip'));
-      setClipStage('review');
+      applyClipDiscoveryResult(data);
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
       setProcessing(false);
     }
-  }, [words, defaultProvider, providers, setProcessing, setClipSuggestions, setClipDrafts, setClipStage, startAIJob]);
+  }, [applyClipDiscoveryResult, words, defaultProvider, providers, setProcessing, startAIJob]);
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
@@ -1228,11 +1257,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       if (activeAIJob.kind === 'ai:filler-removal') {
         setFillerResult(result as FillerWordResult);
       } else if (activeAIJob.kind === 'ai:create-clip') {
-        const clipResult = result as { clips?: ClipSuggestion[] };
-        const clips = clipResult.clips || [];
-        setClipSuggestions(clips);
-        setClipDrafts((current) => appendDiscoveredClipDrafts(current, clips, 'suggested_clip_retry'));
-        setClipStage('review');
+        applyClipDiscoveryResult(result as ClipDiscoveryResult, 'suggested_clip_retry');
       } else if (activeAIJob.kind === 'ai:edit-plan') {
         setEditPlanResult(result as EditPlanResult);
       } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
@@ -1256,11 +1281,9 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     }
   }, [
     activeAIJob,
+    applyClipDiscoveryResult,
     backendUrl,
     pollAIJob,
-    setClipDrafts,
-    setClipSuggestions,
-    setClipStage,
     setEditPlanResult,
     setFillerResult,
     setProcessing,
@@ -1818,7 +1841,9 @@ function ClipSuggestionReviewCard({
     <div className="space-y-2 rounded bg-editor-surface px-3 py-3 text-xs">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-semibold text-editor-text">{draft.title}</div>
+          <div className="truncate font-semibold text-editor-text">
+            {draft.rank ? `#${draft.rank} ` : ''}{draft.title}
+          </div>
           <div className="mt-1 text-[10px] text-editor-text-muted">
             {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)} · {Math.round(draft.endTime - draft.startTime)}s
           </div>

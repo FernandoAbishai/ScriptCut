@@ -4,10 +4,19 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from network_security import validate_provider_url
 from services.ai_provider import AIProvider, detect_filler_words, create_clip_suggestion, create_clip_metadata, create_edit_plan
+from services.clip_discovery import (
+    DISCOVERY_MAX_DURATION,
+    DISCOVERY_MIN_DURATION,
+    DISCOVERY_TARGET_COUNT,
+    DISCOVERY_TARGET_DURATION,
+    DEFAULT_DISCOVERY_POLICY,
+    DiscoveryPolicy,
+    normalize_clip_discovery,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,11 +46,24 @@ class ClipRequest(BaseModel):
     model: Optional[str] = None
     api_key: Optional[str] = None
     base_url: Optional[str] = None
-    target_duration: int = 60
+    target_duration: int = Field(default=DISCOVERY_TARGET_DURATION, gt=0)
     platform: Optional[str] = None
     instruction: Optional[str] = None
-    min_duration: Optional[int] = None
-    max_duration: Optional[int] = None
+    min_duration: int = Field(default=DISCOVERY_MIN_DURATION, gt=0)
+    max_duration: int = Field(default=DISCOVERY_MAX_DURATION, gt=0)
+    desired_count: int = Field(default=DISCOVERY_TARGET_COUNT, gt=0)
+
+    @model_validator(mode="after")
+    def validate_discovery_policy(self):
+        DiscoveryPolicy(
+            target_duration=self.target_duration,
+            min_duration=self.min_duration,
+            max_duration=self.max_duration,
+            desired_count=self.desired_count,
+            provider_candidate_pool=DEFAULT_DISCOVERY_POLICY.provider_candidate_pool,
+            overlap_threshold=DEFAULT_DISCOVERY_POLICY.overlap_threshold,
+        )
+        return self
 
 
 class ClipMetadataRequest(BaseModel):
@@ -143,7 +165,7 @@ def run_create_clip(req: ClipRequest, progress_callback=None):
     _progress(progress_callback, 10, "Preparing clip discovery")
     words_dicts = [w.model_dump() for w in req.words]
     _progress(progress_callback, 35, "Calling AI provider")
-    result = create_clip_suggestion(
+    raw_result = create_clip_suggestion(
         transcript=req.transcript,
         words=words_dicts,
         target_duration=req.target_duration,
@@ -155,7 +177,17 @@ def run_create_clip(req: ClipRequest, progress_callback=None):
         model=req.model,
         api_key=req.api_key,
         base_url=_safe_base_url(req.provider, req.base_url),
+        candidate_count=DEFAULT_DISCOVERY_POLICY.provider_candidate_pool,
     )
+    policy = DiscoveryPolicy(
+        target_duration=req.target_duration,
+        min_duration=req.min_duration,
+        max_duration=req.max_duration,
+        desired_count=req.desired_count,
+        provider_candidate_pool=DEFAULT_DISCOVERY_POLICY.provider_candidate_pool,
+        overlap_threshold=DEFAULT_DISCOVERY_POLICY.overlap_threshold,
+    )
+    result = normalize_clip_discovery(raw_result, words_dicts, policy)
     _progress(progress_callback, 100, "Clip discovery complete")
     return result
 

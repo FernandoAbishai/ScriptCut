@@ -9,6 +9,7 @@
 
 ### Changed
 
+- Clip discovery now validates and ranks distinct transcript-grounded suggestions and targets a five-clip review queue.
 - Release qualification now separates product identity, public release identity, and maintainer evidence.
 - Public release preparation can use curated, creator-oriented changes without duplicating them in generator code.
 

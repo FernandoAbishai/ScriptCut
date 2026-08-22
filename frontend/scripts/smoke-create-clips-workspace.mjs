@@ -13,6 +13,10 @@ const panelSource = readSource('../src/components/AIPanel.tsx');
 const appSource = readSource('../src/App.tsx');
 const transcriptSource = readSource('../src/components/TranscriptEditor.tsx');
 const workspaceSource = readSource('../src/utils/clipWorkspace.ts');
+const autosaveSource = readSource('../src/hooks/useProjectAutosave.ts');
+const clipDraftsSource = readSource('../src/utils/clipDrafts.ts');
+const projectTypeSource = readSource('../src/types/project.ts');
+const projectSchemaSource = readSource('../../shared/project-schema.json');
 
 assert.match(panelSource, /export default function AIPanel\(\{ mode = 'general' \}/);
 assert.match(panelSource, /getInitialClipWorkspaceStage\(clipDrafts, clipSuggestions\)/);
@@ -24,7 +28,7 @@ assert.match(panelSource, /Preview, approve to create a draft, or remove it/);
 assert.doesNotMatch(panelSource, /Preview, rename, approve/);
 assert.match(panelSource, /Prepare approved clips/);
 assert.match(panelSource, /Export Ready Clips/);
-assert.match(panelSource, /setClipStage\('review'\)/);
+assert.match(panelSource, /setClipStage\(discovery\.stage\)/);
 assert.match(panelSource, /setClipStage\('prepare'\)/);
 assert.match(panelSource, /Review \{readyDraftCount\} ready/);
 assert.match(panelSource, /appendDiscoveredClipDrafts/);
@@ -38,6 +42,25 @@ assert.match(panelSource, /removeMatchingClipSuggestions/);
 assert.match(panelSource, /createClipDraft\(clip, 'ai', undefined, false\)/);
 assert.doesNotMatch(panelSource, /clipQueueSummary\.suggested === 0/);
 assert.match(transcriptSource, /source: 'transcript-selection'/);
+assert.match(panelSource, /type ClipDiscoveryResult/);
+assert.match(panelSource, /requestedCount\?: number/);
+assert.match(panelSource, /returnedCount\?: number/);
+assert.match(panelSource, /shortfall\?: number/);
+assert.match(panelSource, /applyClipDiscoveryResult/);
+assert.match(panelSource, /readClipDiscoveryResult/);
+assert.match(workspaceSource, /stage: clips\.length > 0 \? 'review' : 'find'/);
+assert.match(panelSource, /invalid or overlapping moments instead of filling the queue with weaker clips/);
+assert.match(panelSource, /couldn\\'t find a reliable clip suggestion/);
+assert.doesNotMatch(panelSource, /min_duration:\s*30/);
+assert.doesNotMatch(panelSource, /max_duration:\s*90/);
+assert.match(autosaveSource, /clip-\$\{clip\.startWordIndex\}-\$\{clip\.endWordIndex\}/);
+assert.match(autosaveSource, /rank: Number\.isInteger\(clip\.rank\)/);
+assert.match(clipDraftsSource, /duration >= 15 && duration <= 60/);
+assert.match(clipDraftsSource, /Keep social clips between about 15 and 60 seconds/);
+assert.match(projectTypeSource, /id\?: string/);
+assert.match(projectTypeSource, /rank\?: number/);
+assert.match(projectTypeSource, /duration\?: number/);
+assert.match(projectSchemaSource, /"duration": \{ "type": "number", "minimum": 0 \}/);
 assert.match(panelSource, /validateClipDraftForExport\(draft, words, videoPath\)/);
 assert.match(panelSource, /EXPORTABLE_DRAFT_STATUSES\.has\(draft\.status \|\| 'draft'\)/);
 assert.match(panelSource, /\/jobs\/ai\/clip-metadata/);
@@ -61,6 +84,7 @@ const {
   getPendingReviewCount,
   getUnmatchedLegacyClipSuggestions,
   isClipDraftInStage,
+  readClipDiscoveryResult,
   removeMatchingClipSuggestions,
 } = module.exports;
 
@@ -82,6 +106,22 @@ const reviewSuggestionThree = { ...suggestion, title: 'Third moment', startWordI
 const secondSuggestedDraft = { ...reviewSuggestionTwo, id: 'clip_5', status: 'suggested' };
 
 assert.equal(getInitialClipWorkspaceStage([], []), 'find');
+const rankedDiscovery = readClipDiscoveryResult({
+  clips: [
+    { ...suggestion, id: 'clip-10-20', rank: 2 },
+    { ...suggestion, id: 'clip-0-4', rank: 1 },
+  ],
+  requestedCount: 5,
+});
+assert.equal(rankedDiscovery.stage, 'review');
+assert.equal(rankedDiscovery.requestedCount, 5);
+assert.equal(rankedDiscovery.returnedCount, 2);
+assert.equal(rankedDiscovery.shortfall, 3);
+assert.deepEqual(rankedDiscovery.clips.map((clip) => clip.id), ['clip-10-20', 'clip-0-4']);
+const emptyDiscovery = readClipDiscoveryResult({ clips: [], requestedCount: 5 });
+assert.equal(emptyDiscovery.stage, 'find');
+assert.equal(emptyDiscovery.returnedCount, 0);
+assert.equal(emptyDiscovery.shortfall, 5);
 assert.equal(getInitialClipWorkspaceStage([matchingDraft], []), 'review');
 assert.equal(getInitialClipWorkspaceStage([approvedDraft], []), 'prepare');
 assert.equal(getInitialClipWorkspaceStage([manualDraft], []), 'prepare');

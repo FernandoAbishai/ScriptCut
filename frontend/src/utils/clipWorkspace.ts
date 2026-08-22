@@ -2,6 +2,27 @@ import type { ClipDraft, ClipDraftStatus, ClipSuggestion } from '../types/projec
 
 export type ClipWorkspaceStage = 'find' | 'review' | 'prepare' | 'export';
 
+export function readClipDiscoveryResult(result: unknown): {
+  clips: ClipSuggestion[];
+  requestedCount: number;
+  returnedCount: number;
+  shortfall: number;
+  stage: ClipWorkspaceStage;
+} {
+  const candidate = result && typeof result === 'object' ? result as { clips?: unknown; requestedCount?: unknown } : {};
+  const clips = Array.isArray(candidate.clips) ? candidate.clips as ClipSuggestion[] : [];
+  const requestedCount = typeof candidate.requestedCount === 'number' && Number.isInteger(candidate.requestedCount) && candidate.requestedCount > 0
+    ? candidate.requestedCount
+    : 5;
+  return {
+    clips,
+    requestedCount,
+    returnedCount: clips.length,
+    shortfall: Math.max(0, requestedCount - clips.length),
+    stage: clips.length > 0 ? 'review' : 'find',
+  };
+}
+
 const REVIEW_STATUSES = new Set<ClipDraftStatus>(['suggested']);
 const PREPARE_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged']);
 const EXPORT_STATUSES = new Set<ClipDraftStatus>(['exporting', 'exported', 'failed']);

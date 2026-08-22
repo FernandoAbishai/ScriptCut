@@ -521,11 +521,9 @@ class BackendSmokeTests(unittest.TestCase):
                 ai_router.WordInfo(index=0, word="hello", start=0, end=0.5),
                 ai_router.WordInfo(index=1, word="world", start=30.5, end=31),
             ],
-            target_duration=60,
+            target_duration=45,
             platform="shorts",
             instruction="favor surprising hooks",
-            min_duration=30,
-            max_duration=90,
         )
 
         with patch.object(ai_provider.AIProvider, "complete", side_effect=fake_complete):
@@ -533,7 +531,9 @@ class BackendSmokeTests(unittest.TestCase):
 
         self.assertEqual(len(result["clips"]), 1)
         self.assertIn("shorts", captured["prompt"])
-        self.assertIn("30-90 seconds", captured["prompt"])
+        self.assertIn("45 seconds", captured["prompt"])
+        self.assertIn("15-60 seconds", captured["prompt"])
+        self.assertIn("8 ranked candidates", captured["prompt"])
         self.assertIn("favor surprising hooks", captured["prompt"])
 
     def test_director_edit_plan_returns_clip_package(self) -> None:
