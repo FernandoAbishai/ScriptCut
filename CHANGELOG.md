@@ -9,6 +9,7 @@
 
 ### Changed
 
+- Publishing copy is now optional and resilient; AI copy generation no longer controls clip export readiness.
 - Clip discovery now validates and ranks distinct transcript-grounded suggestions and targets a five-clip review queue.
 - Clip review now previews exact clip ranges and preserves Approve/Skip decisions.
 - Release qualification now separates product identity, public release identity, and maintainer evidence.

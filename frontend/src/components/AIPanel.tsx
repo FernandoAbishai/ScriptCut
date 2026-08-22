@@ -12,6 +12,10 @@ import {
   normalizeClipDraftRange,
   validateClipDraftForExport,
 } from '../utils/clipDrafts';
+import {
+  getPublishingCopyState,
+  mergeGeneratedPublishingCopy,
+} from '../utils/clipPublishing';
 import { buildSocialPublishingPack, type SocialPlatform } from '../utils/socialPublishing';
 import {
   buildHookFrameCandidates,
@@ -148,7 +152,7 @@ function getClipQueueSummary(drafts: ClipDraft[]) {
   return {
     suggested: drafts.filter((draft) => (draft.status || 'draft') === 'suggested').length,
     approved: drafts.filter((draft) => ['draft', 'packaged', 'failed'].includes(draft.status || 'draft')).length,
-    packaged: drafts.filter((draft) => (draft.status || 'draft') === 'packaged').length,
+    copyReady: drafts.filter((draft) => getPublishingCopyState(draft).ready).length,
     exported: drafts.filter((draft) => (draft.status || 'draft') === 'exported').length,
     failed: drafts.filter((draft) => (draft.status || 'draft') === 'failed').length,
   };
@@ -780,7 +784,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [isBatchExporting, setBatchExporting] = useState(false);
   const [batchExportProgress, setBatchExportProgress] = useState({ completed: 0, total: 0, stopping: false });
   const stopBatchExportRef = useRef(false);
-  const [packagingDraftId, setPackagingDraftId] = useState<string | null>(null);
+  const [publishingCopyDraftId, setPublishingCopyDraftId] = useState<string | null>(null);
   const clipQueueSummary = useMemo(() => getClipQueueSummary(clipDrafts), [clipDrafts]);
   const readyDraftCount = useMemo(
     () =>
@@ -1135,17 +1139,17 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setClipStage('prepare');
   }, [clipExportDirectory, setClipDrafts, setClipStage, speakerTurnClips, words]);
 
-  const copyClipPackage = useCallback(
+  const copyPublishingCopy = useCallback(
     async (draft: ClipDraft) => {
-      const packageText = formatClipPackage(
+      const publishingCopyText = formatPublishingCopy(
         draft,
         words.slice(draft.startWordIndex, draft.endWordIndex + 1),
       );
       try {
-        await navigator.clipboard.writeText(packageText);
-        setCreatorNotice({ tone: 'success', title: 'Copied', message: 'Clip package copied to the clipboard.', onDismiss: () => setCreatorNotice(null) });
+        await navigator.clipboard.writeText(publishingCopyText);
+        setCreatorNotice({ tone: 'success', title: 'Copied', message: 'Publishing copy copied to the clipboard.', onDismiss: () => setCreatorNotice(null) });
       } catch (err) {
-        console.error('Clip package copy failed:', err);
+        console.error('Publishing copy failed:', err);
         setCreatorNotice({ ...getCreatorErrorPresentation('clipboard', err), onDismiss: () => setCreatorNotice(null) });
       }
     },
@@ -1267,16 +1271,16 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setBatchExportProgress((current) => ({ ...current, stopping: true }));
   }, []);
 
-  const packageClipDraft = useCallback(
+  const generatePublishingCopy = useCallback(
     async (draft: ClipDraft) => {
-      setPackagingDraftId(draft.id);
+      setPublishingCopyDraftId(draft.id);
       try {
         const config = providers[defaultProvider];
         const transcript = words
           .slice(draft.startWordIndex, draft.endWordIndex + 1)
           .map((word) => word.word)
           .join(' ');
-        if (!transcript.trim()) throw new Error('This draft has no transcript text to package.');
+        if (!transcript.trim()) throw new Error('This draft has no transcript text for publishing copy.');
         const data = await startAIJob<ClipMetadataResult>(
           '/jobs/ai/clip-metadata',
           {
@@ -1286,24 +1290,17 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             api_key: config.apiKey || undefined,
             base_url: config.baseUrl || undefined,
           },
-          'Clip packaging',
-          { label: 'Clip packaging', draftId: draft.id },
+          'Generate publishing copy',
+          { label: 'Generate publishing copy', draftId: draft.id },
         );
-        updateClipDraft(draft.id, {
-          hook: data.hook || '',
-          title: data.titles?.[0] || draft.title,
-          description: data.description || '',
-          caption: data.caption || '',
-          hashtags: data.hashtags || [],
-          status: 'packaged',
-          lastError: undefined,
-        });
+        const patch = mergeGeneratedPublishingCopy(draft, data);
+        if (!patch) throw new Error('Publishing copy generation returned no usable copy.');
+        updateClipDraft(draft.id, patch);
       } catch (err) {
         console.error(err);
-        updateClipDraft(draft.id, { lastError: err instanceof Error ? err.message : String(err) });
         setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
       } finally {
-        setPackagingDraftId(null);
+        setPublishingCopyDraftId(null);
       }
     },
     [defaultProvider, providers, startAIJob, updateClipDraft, words],
@@ -1328,15 +1325,9 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         setEditPlanResult(result as EditPlanResult);
       } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
         const metadata = result as ClipMetadataResult;
-        const patch: Partial<ClipDraft> = {
-          hook: metadata.hook || '',
-          description: metadata.description || '',
-          caption: metadata.caption || '',
-          hashtags: metadata.hashtags || [],
-        };
-        if (metadata.titles?.[0]) patch.title = metadata.titles[0];
-        patch.status = 'packaged';
-        patch.lastError = undefined;
+        const draft = clipDrafts.find((item) => item.id === activeAIJob.draftId);
+        const patch = draft ? mergeGeneratedPublishingCopy(draft, metadata) : null;
+        if (!patch) throw new Error('Publishing copy generation returned no usable copy.');
         updateClipDraft(activeAIJob.draftId, patch);
       }
     } catch (err) {
@@ -1349,6 +1340,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     activeAIJob,
     applyClipDiscoveryResult,
     backendUrl,
+    clipDrafts,
     pollAIJob,
     setEditPlanResult,
     setFillerResult,
@@ -1694,7 +1686,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
               <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
                 <QueueStat label="Suggested" value={clipQueueSummary.suggested} />
                 <QueueStat label="Approved" value={clipQueueSummary.approved} />
-                <QueueStat label="Packaged" value={clipQueueSummary.packaged} />
+                <QueueStat label="Copy ready" value={clipQueueSummary.copyReady} />
                 <QueueStat label="Ready" value={readyDraftCount} />
                 <QueueStat label="Failed" value={clipQueueSummary.failed} warning={clipQueueSummary.failed > 0} />
               </div>
@@ -1751,7 +1743,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                   <div>
                     <h3 className="text-xs font-medium">Your clips</h3>
                     <p className="mt-1 text-[10px] text-editor-text-muted">
-                      {clipStage === 'prepare' ? 'Trim, package, and check readiness before exporting.' : 'Export only clips that pass the existing readiness checks.'}
+                      {clipStage === 'prepare' ? 'Review the clip, adjust its settings, and optionally generate publishing copy.' : 'Export only clips that pass the existing readiness checks.'}
                     </p>
                   </div>
                   {clipStage === 'export' && (
@@ -1845,14 +1837,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                         onExport={() => handleExportDraft(draft)}
                         onCancelExport={() => cancelDraftExport(draft.id)}
                         onRetryExport={() => retryDraftExport(draft)}
-                        onPackage={() => packageClipDraft(draft)}
-                        onCopyPackage={() => copyClipPackage(draft)}
+                        onGeneratePublishingCopy={() => generatePublishingCopy(draft)}
+                        onCopyPublishingCopy={() => copyPublishingCopy(draft)}
                         onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
                         onPreviewHookFrame={(time) => previewHookFrame(time)}
                         onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
                         onDuplicate={() => duplicateClipDraft(draft)}
                         onRemove={() => removeClipDraft(draft.id)}
-                        isPackaging={packagingDraftId === draft.id}
+                        isGeneratingPublishingCopy={publishingCopyDraftId === draft.id}
                       />
                     ))}
                   </div>
@@ -1949,7 +1941,7 @@ function EditPlanReviewItem({
 function ClipDraftCard({
   draft,
   isExporting,
-  isPackaging,
+  isGeneratingPublishingCopy,
   exportJob,
   backendUrl,
   backgroundCapabilities,
@@ -1966,8 +1958,8 @@ function ClipDraftCard({
   onExport,
   onCancelExport,
   onRetryExport,
-  onPackage,
-  onCopyPackage,
+  onGeneratePublishingCopy,
+  onCopyPublishingCopy,
   onCopySocialPackage,
   onPreviewHookFrame,
   onCopyHookFrame,
@@ -1976,7 +1968,7 @@ function ClipDraftCard({
 }: {
   draft: ClipDraft;
   isExporting: boolean;
-  isPackaging: boolean;
+  isGeneratingPublishingCopy: boolean;
   exportJob?: ExportJob;
   backendUrl: string;
   backgroundCapabilities: BackgroundCapabilities | null;
@@ -1993,8 +1985,8 @@ function ClipDraftCard({
   onExport: () => void;
   onCancelExport: () => void;
   onRetryExport: () => void;
-  onPackage: () => void;
-  onCopyPackage: () => void;
+  onGeneratePublishingCopy: () => void;
+  onCopyPublishingCopy: () => void;
   onCopySocialPackage: (platform?: SocialPlatform) => void;
   onPreviewHookFrame: (time: number) => void;
   onCopyHookFrame: (frame?: HookFrameCandidate) => void;
@@ -2007,6 +1999,14 @@ function ClipDraftCard({
   const isSuggested = status === 'suggested';
   const canExport = exportValidation.ready && !isSuggested;
   const socialPack = buildSocialPublishingPack(draft);
+  const publishingCopyState = getPublishingCopyState(draft);
+  const hasGeneratedPublishingCopy = Boolean(
+    draft.hook?.trim() ||
+    draft.description?.trim() ||
+    draft.caption?.trim() ||
+    draft.hashtags?.some((tag) => tag.trim()) ||
+    draft.titleSuggestions?.length,
+  );
   const hookFrames = buildHookFrameCandidates(draft);
   const selectedHookFrame = getSelectedHookFrame(draft);
 
@@ -2020,11 +2020,38 @@ function ClipDraftCard({
         />
         <ClipStatusBadge status={status} />
       </div>
+      {draft.titleSuggestions && draft.titleSuggestions.length > 0 && (
+        <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
+          <div className="font-medium text-editor-text">Title suggestions</div>
+          <div className="flex flex-wrap gap-1">
+            {draft.titleSuggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => onChange({ title: suggestion })}
+                className="rounded bg-editor-border px-1.5 py-1 text-left text-[10px] text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
+              >
+                Use “{suggestion}”
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between text-[10px] text-editor-text-muted">
         <span>
           {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)}
         </span>
         <span>{Math.round(draft.endTime - draft.startTime)}s</span>
+      </div>
+      <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
+        <div className="flex items-center justify-between gap-2">
+          <span>Publishing copy</span>
+          <span className={publishingCopyState.ready ? 'text-editor-success' : 'text-editor-text-muted'}>
+            {publishingCopyState.ready ? 'Copy ready' : 'Optional'}
+          </span>
+        </div>
+        {!publishingCopyState.ready && (
+          <div>Missing: {publishingCopyState.missingFields.join(', ')}</div>
+        )}
       </div>
       <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
         <div className="flex items-center justify-between gap-2">
@@ -2393,18 +2420,18 @@ function ClipDraftCard({
           <Play className="w-3 h-3" /> Preview
         </button>
         <button
-          onClick={onPackage}
-          disabled={isSuggested || isPackaging}
+          onClick={onGeneratePublishingCopy}
+          disabled={isSuggested || isGeneratingPublishingCopy}
           className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
         >
-          {isPackaging ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-          Package
+          {isGeneratingPublishingCopy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+          {isGeneratingPublishingCopy ? 'Generating copy...' : hasGeneratedPublishingCopy ? 'Refresh publishing copy' : 'Generate publishing copy'}
         </button>
         <button
-          onClick={onCopyPackage}
+          onClick={onCopyPublishingCopy}
           className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
         >
-          <Clipboard className="w-3 h-3" /> Copy
+          <Clipboard className="w-3 h-3" /> Copy details
         </button>
         <button
           onClick={onExport}
@@ -2669,7 +2696,7 @@ function ClipStatusBadge({ status }: { status: ClipDraftStatus }) {
   const labels: Record<ClipDraftStatus, string> = {
     suggested: 'Suggested',
     draft: 'Approved',
-    packaged: 'Packaged',
+    packaged: 'Approved',
     exporting: 'Exporting',
     exported: 'Exported',
     failed: 'Failed',
@@ -2900,7 +2927,7 @@ function isEditSuggestionAlreadyCut(suggestion: EditPlanSuggestion, deletedWordM
   return true;
 }
 
-function formatClipPackage(draft: ClipDraft, words: Word[]) {
+function formatPublishingCopy(draft: ClipDraft, words: Word[]) {
   const transcript = words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim();
   const hashtags = (draft.hashtags || [])
     .map((tag) => `#${tag.replace(/^#/, '')}`)
@@ -3050,7 +3077,9 @@ function AIJobStatusCard({
 }) {
   const canCancel = job.status === 'queued' || job.status === 'running';
   const canRetry = job.status === 'failed' || job.status === 'canceled';
-  const latestLogs = (job.logs || []).slice(-4);
+  const latestLogs = (job.logs || [])
+    .filter((log) => !log.message.includes('Traceback (most recent call last):'))
+    .slice(-4);
 
   return (
     <div className="mb-4 space-y-2 rounded bg-editor-surface px-3 py-2 text-xs">

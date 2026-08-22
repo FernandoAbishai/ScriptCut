@@ -8,6 +8,8 @@ from typing import Optional, List
 
 import requests
 
+from services.clip_metadata import normalize_clip_metadata
+
 logger = logging.getLogger(__name__)
 
 
@@ -452,8 +454,8 @@ def create_clip_metadata(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> dict:
-    """Generate social publishing metadata for a selected clip transcript."""
-    prompt = f"""Create social video metadata for this clip transcript:
+    """Generate optional publishing copy for a selected clip transcript."""
+    prompt = f"""Create optional social publishing copy for this clip transcript:
 
 {transcript}
 
@@ -468,7 +470,7 @@ Return ONLY a valid JSON object with this exact structure:
 
 Make it specific to the transcript. Avoid clickbait that the transcript cannot support."""
 
-    system = "You are a concise social video packaging expert. Return only valid JSON, no explanation."
+    system = "You are a concise social publishing copy expert. Return only valid JSON, no explanation."
 
     result_text = AIProvider.complete(
         prompt=prompt,
@@ -481,31 +483,12 @@ Make it specific to the transcript. Avoid clickbait that the transcript cannot s
     )
 
     try:
-        start = result_text.find("{")
-        end = result_text.rfind("}") + 1
-        if start >= 0 and end > start:
-            parsed = json.loads(result_text[start:end])
-            titles = parsed.get("titles", [])
-            if isinstance(titles, str):
-                titles = [titles]
-            if not isinstance(titles, list):
-                titles = []
-            hashtags = parsed.get("hashtags", [])
-            if isinstance(hashtags, str):
-                hashtags = hashtags.replace(",", " ").split()
-            if not isinstance(hashtags, list):
-                hashtags = []
-            return {
-                "hook": str(parsed.get("hook", "")),
-                "titles": [str(title) for title in titles if str(title).strip()][:3],
-                "description": str(parsed.get("description", "")),
-                "caption": str(parsed.get("caption", "")),
-                "hashtags": [str(tag).strip().lstrip("#") for tag in hashtags if str(tag).strip()][:8],
-            }
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse clip metadata: {result_text[:200]}")
+        parsed = json.loads(result_text)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Clip metadata provider response was not valid JSON")
+        raise ValueError("Clip metadata provider returned invalid JSON.") from None
 
-    return {"hook": "", "titles": [], "description": "", "caption": "", "hashtags": []}
+    return normalize_clip_metadata(parsed)
 
 
 def create_edit_plan(

@@ -87,10 +87,10 @@ assert.match(ai, /appendDiscoveredClipDrafts/);
 assert.match(ai, /setCreatorNotice/);
 assert.match(ai, /setCreatorNotice\(null\);\s*const startRes/);
 assert.match(ai, /setCreatorNotice\(null\);\s*setProcessing\(true, `Retrying/);
-const packageClipDraftBody = ai.match(/const packageClipDraft = useCallback\(([\s\S]*?)\n  \);\n\n  const retryAIJob/)?.[1] || '';
-assert.match(packageClipDraftBody, /getCreatorErrorPresentation\('ai-action', err\)/);
-assert.doesNotMatch(packageClipDraftBody, /getCreatorErrorPresentation\('clip-action', err\)/);
-assert.match(ai, /updateClipDraft\(draft\.id, \{ lastError:/);
+const generatePublishingCopyBody = ai.match(/const generatePublishingCopy = useCallback\(([\s\S]*?)\n  \);\n\n  const retryAIJob/)?.[1] || '';
+assert.match(generatePublishingCopyBody, /getCreatorErrorPresentation\('ai-action', err\)/);
+assert.doesNotMatch(generatePublishingCopyBody, /getCreatorErrorPresentation\('clip-action', err\)/);
+assert.doesNotMatch(generatePublishingCopyBody, /lastError/);
 
 assert.match(app, /const openRecentProject = async \(project: RecentProject\)/);
 const recentProjectBody = app.match(/const openRecentProject = async \(project: RecentProject\) => \{([\s\S]*?)\n  \};\n\n  const applyWorkflowIntent/)?.[1] || '';

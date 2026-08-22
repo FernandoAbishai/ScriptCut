@@ -79,7 +79,7 @@ assert.deepEqual(
 );
 
 const weakScore = getClipDraftReadinessScore(draft, words, '/tmp/video.mp4');
-assert.equal(weakScore.label, 'Needs work');
+assert.equal(weakScore.label, 'Review');
 const strongScore = getClipDraftReadinessScore(
   {
     ...draft,

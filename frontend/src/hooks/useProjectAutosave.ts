@@ -3,6 +3,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, EditPlanResult, FillerWordResult, ProjectExportOptions, ProjectFile, Segment, Word } from '../types/project';
 import { normalizeClipReviewDecisions } from '../utils/clipWorkspace';
+import { normalizeTitleSuggestions } from '../utils/clipPublishing';
 
 const AUTOSAVE_INTERVAL_MS = 5000;
 const PROJECT_APP = 'ScriptCut';
@@ -421,6 +422,7 @@ function normalizeClipDrafts(drafts: ClipDraft[]) {
       exportPath: typeof draft.exportPath === 'string' ? draft.exportPath : undefined,
       exportedAt: typeof draft.exportedAt === 'string' ? draft.exportedAt : undefined,
       lastError: typeof draft.lastError === 'string' ? draft.lastError : undefined,
+      titleSuggestions: normalizeTitleSuggestions(draft.titleSuggestions),
       format: oneOf(draft.format, ['mp4', 'mov', 'webm'], 'mp4'),
       resolution: oneOf(draft.resolution, ['720p', '1080p', '4k'], '1080p'),
       aspectRatio: oneOf(draft.aspectRatio, ['source', 'vertical', 'square'], 'vertical'),

@@ -193,7 +193,7 @@ def run_create_clip(req: ClipRequest, progress_callback=None):
 
 
 def run_clip_metadata(req: ClipMetadataRequest, progress_callback=None):
-    _progress(progress_callback, 10, "Preparing clip package")
+    _progress(progress_callback, 10, "Preparing publishing copy")
     _progress(progress_callback, 35, "Calling AI provider")
     result = create_clip_metadata(
         transcript=req.transcript,
@@ -202,7 +202,7 @@ def run_clip_metadata(req: ClipMetadataRequest, progress_callback=None):
         api_key=req.api_key,
         base_url=_safe_base_url(req.provider, req.base_url),
     )
-    _progress(progress_callback, 100, "Clip package complete")
+    _progress(progress_callback, 100, "Publishing copy ready")
     return result
 
 
