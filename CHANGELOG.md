@@ -6,6 +6,7 @@
 
 - Canonical release-note and post-publication closure verification for the public alpha workflow.
 - Machine-readable bundle-size attribution and release size evidence for candidate and public workflow review.
+- Clip preview now shows the actual social crop and live caption composition before export.
 
 ### Changed
 

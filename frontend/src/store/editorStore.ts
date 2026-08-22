@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
 import type { Word, Segment, DeletedRange, EditOperation, EditOperationKind, ProjectExportOptions, TranscriptionResult } from '../types/project';
+import type { ClipPresentationPreview } from '../utils/clipPresentation';
 
 interface EditorState {
   videoPath: string | null;
@@ -27,6 +28,7 @@ interface EditorState {
   previewRangeEnd: number | null;
   previewCuts: boolean;
   previewAspectRatio: 'source' | 'vertical' | 'square';
+  clipPresentationPreview: ClipPresentationPreview | null;
 
   selectedWordIndices: number[];
   hoveredWordIndex: number | null;
@@ -51,6 +53,8 @@ interface EditorActions {
   clearPreviewRange: () => void;
   setPreviewCuts: (enabled: boolean) => void;
   setPreviewAspectRatio: (aspectRatio: EditorState['previewAspectRatio']) => void;
+  setClipPresentationPreview: (preview: ClipPresentationPreview) => void;
+  clearClipPresentationPreview: () => void;
   setExportOptions: (options: ProjectExportOptions | ((current: ProjectExportOptions) => ProjectExportOptions)) => void;
   setSelectedWordIndices: (indices: number[]) => void;
   setHoveredWordIndex: (index: number | null) => void;
@@ -134,6 +138,7 @@ const initialState: EditorState = {
   previewRangeEnd: null,
   previewCuts: true,
   previewAspectRatio: 'source',
+  clipPresentationPreview: null,
   selectedWordIndices: [],
   hoveredWordIndex: null,
   isTranscribing: false,
@@ -214,6 +219,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       clearPreviewRange: () => set({ previewRangeEnd: null }),
       setPreviewCuts: (enabled) => set({ previewCuts: enabled }),
       setPreviewAspectRatio: (aspectRatio) => set({ previewAspectRatio: aspectRatio }),
+      setClipPresentationPreview: (preview) => set({ clipPresentationPreview: preview }),
+      clearClipPresentationPreview: () => set({ clipPresentationPreview: null }),
       setExportOptions: (options) =>
         set((state) => ({
           exportOptions: typeof options === 'function' ? options(state.exportOptions) : options,

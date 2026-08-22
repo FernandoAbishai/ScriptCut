@@ -2,6 +2,8 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useVideoSync } from '../hooks/useVideoSync';
 import { getPlaybackTimeState, previewToSourceTime } from '../utils/playback';
+import { getClipFramePreviewStyle } from '../utils/clipPresentation';
+import ClipPresentationOverlay, { type BurnInCapability } from './ClipPresentationOverlay';
 import { Play, Pause, Scissors, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 
 export default function VideoPlayer() {
@@ -9,15 +11,24 @@ export default function VideoPlayer() {
   const videoUrl = useEditorStore((s) => s.videoUrl);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const duration = useEditorStore((s) => s.duration);
+  const words = useEditorStore((s) => s.words);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
   const editOperations = useEditorStore((s) => s.editOperations);
   const previewCuts = useEditorStore((s) => s.previewCuts);
   const previewAspectRatio = useEditorStore((s) => s.previewAspectRatio);
   const previewReframe = useEditorStore((s) => s.exportOptions.reframe || { x: 50, y: 50 });
+  const clipPresentationPreview = useEditorStore((s) => s.clipPresentationPreview);
+  const clipPresentationCaptions = useEditorStore((s) => s.clipPresentationPreview?.captions);
+  const clipPresentationKey = useEditorStore((s) => s.clipPresentationPreview?.key);
+  const currentTime = useEditorStore((s) => s.currentTime);
+  const backendUrl = useEditorStore((s) => s.backendUrl);
   const setPreviewCuts = useEditorStore((s) => s.setPreviewCuts);
   const { seekTo, togglePlay } = useVideoSync(videoRef);
 
+  const frameRef = useRef<HTMLDivElement>(null);
   const [displayTime, setDisplayTime] = useState(0);
+  const [sourceAspectRatio, setSourceAspectRatio] = useState(16 / 9);
+  const [burnInCapability, setBurnInCapability] = useState<BurnInCapability>('unknown');
   const hasPlaybackEdits =
     deletedRanges.length > 0 ||
     editOperations.some((operation) => operation.kind === 'mute' || operation.kind === 'room-tone');
@@ -34,6 +45,34 @@ export default function VideoPlayer() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [videoUrl, duration, deletedRanges, previewCuts]);
+
+  useEffect(() => {
+    if (clipPresentationCaptions !== 'burn-in') {
+      setBurnInCapability('unknown');
+      return;
+    }
+
+    let canceled = false;
+    setBurnInCapability('unknown');
+    fetch(`${backendUrl}/system/checks`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { checks?: { captions?: { ok?: unknown } } } | null) => {
+        if (canceled) return;
+        setBurnInCapability(data?.checks?.captions?.ok === true ? 'available' : data?.checks?.captions?.ok === false ? 'unavailable' : 'unknown');
+      })
+      .catch(() => {
+        if (!canceled) setBurnInCapability('unknown');
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [backendUrl, clipPresentationCaptions, clipPresentationKey]);
+
+  const handleLoadedMetadata = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const { videoWidth, videoHeight } = event.currentTarget;
+    if (videoWidth > 0 && videoHeight > 0) setSourceAspectRatio(videoWidth / videoHeight);
+  }, []);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -73,14 +112,54 @@ export default function VideoPlayer() {
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex-1 relative flex items-center justify-center bg-black rounded-lg overflow-hidden min-h-0">
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          className="max-w-full max-h-full object-contain"
-          playsInline
-          onClick={togglePlay}
-        />
-        {previewAspectRatio !== 'source' && (
+        <div
+          ref={clipPresentationPreview ? frameRef : undefined}
+          className={clipPresentationPreview
+            ? `relative h-full max-h-full max-w-full ${
+                clipPresentationPreview.aspectRatio === 'vertical'
+                  ? 'aspect-[9/16]'
+                  : clipPresentationPreview.aspectRatio === 'square'
+                    ? 'aspect-square'
+                    : ''
+              }`
+            : 'contents'}
+          style={clipPresentationPreview?.aspectRatio === 'source' ? { aspectRatio: sourceAspectRatio } : undefined}
+        >
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            className={clipPresentationPreview ? 'h-full w-full' : 'max-w-full max-h-full object-contain'}
+            style={clipPresentationPreview
+              ? getClipFramePreviewStyle(clipPresentationPreview.aspectRatio, clipPresentationPreview.reframe)
+              : undefined}
+            playsInline
+            onClick={togglePlay}
+            onLoadedMetadata={clipPresentationPreview ? handleLoadedMetadata : undefined}
+          />
+          {clipPresentationPreview && (
+            <ClipPresentationOverlay
+              preview={clipPresentationPreview}
+              words={words}
+              deletedRanges={deletedRanges}
+              editOperations={editOperations}
+              currentTime={currentTime}
+              frameRef={frameRef}
+              burnInCapability={burnInCapability}
+            />
+          )}
+          {clipPresentationPreview && clipPresentationPreview.aspectRatio !== 'source' && (
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute inset-x-0 top-[12%] border-t border-white/20" />
+              <div className="absolute inset-x-0 bottom-[12%] border-t border-white/20" />
+              <div className="absolute inset-y-0 left-[10%] border-l border-white/15" />
+              <div className="absolute inset-y-0 right-[10%] border-l border-white/15" />
+              <span className="absolute left-2 top-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
+                {clipPresentationPreview.aspectRatio === 'vertical' ? '9:16 composition guide' : '1:1 composition guide'}
+              </span>
+            </div>
+          )}
+        </div>
+        {!clipPresentationPreview && previewAspectRatio !== 'source' && (
           <div className="pointer-events-none absolute inset-3 overflow-hidden">
             <div
               className={`absolute max-h-full max-w-full border-2 border-editor-accent/80 bg-black/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)] ${
