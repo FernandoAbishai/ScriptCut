@@ -1,4 +1,9 @@
-import type { ClipDraft, ClipDraftStatus, ClipSuggestion } from '../types/project';
+import type {
+  ClipDraft,
+  ClipDraftStatus,
+  ClipReviewDecision,
+  ClipSuggestion,
+} from '../types/project';
 
 export type ClipWorkspaceStage = 'find' | 'review' | 'prepare' | 'export';
 
@@ -27,6 +32,33 @@ const REVIEW_STATUSES = new Set<ClipDraftStatus>(['suggested']);
 const PREPARE_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged']);
 const EXPORT_STATUSES = new Set<ClipDraftStatus>(['exporting', 'exported', 'failed']);
 
+export type ClipReviewItem = ClipSuggestion;
+
+export function getClipReviewKey(
+  clip: Pick<ClipSuggestion, 'startWordIndex' | 'endWordIndex'>,
+) {
+  return `clip-${clip.startWordIndex}-${clip.endWordIndex}`;
+}
+
+export function getClipPreviewRange(
+  clip: Pick<ClipSuggestion, 'startTime' | 'endTime'>,
+): { start: number; end: number } | null {
+  if (!Number.isFinite(clip.startTime) || !Number.isFinite(clip.endTime)) return null;
+  if (clip.endTime <= clip.startTime) return null;
+  return { start: clip.startTime, end: clip.endTime };
+}
+
+export function normalizeClipReviewDecisions(decisions: unknown): Record<string, ClipReviewDecision> {
+  if (!decisions || typeof decisions !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(decisions).filter(
+      ([key, decision]) =>
+        typeof key === 'string' && key.trim().length > 0 &&
+        (decision === 'approved' || decision === 'skipped'),
+    ),
+  ) as Record<string, ClipReviewDecision>;
+}
+
 export function getInitialClipWorkspaceStage(
   drafts: ClipDraft[],
   suggestions: ClipSuggestion[] = [],
@@ -53,6 +85,68 @@ export function getUnmatchedLegacyClipSuggestions(
   return suggestions.filter(
     (suggestion) => !drafts.some((draft) => isSameClipRange(draft, suggestion)),
   );
+}
+
+function getReviewCandidates(
+  drafts: ClipDraft[],
+  suggestions: ClipSuggestion[] = [],
+): ClipReviewItem[] {
+  const candidates: ClipReviewItem[] = [];
+  const seen = new Set<string>();
+  const draftKeys = new Set(drafts.map((draft) => getClipReviewKey(draft)));
+
+  for (const draft of drafts) {
+    if (!REVIEW_STATUSES.has(draft.status || 'draft')) continue;
+    const key = getClipReviewKey(draft);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(draft);
+  }
+
+  for (const suggestion of suggestions) {
+    const key = getClipReviewKey(suggestion);
+    if (seen.has(key) || draftKeys.has(key)) continue;
+    seen.add(key);
+    candidates.push(suggestion);
+  }
+
+  return candidates;
+}
+
+export function getPendingReviewItems(
+  drafts: ClipDraft[],
+  suggestions: ClipSuggestion[] = [],
+  decisions: Record<string, ClipReviewDecision> = {},
+): ClipReviewItem[] {
+  return getReviewCandidates(drafts, suggestions).filter(
+    (clip) => decisions[getClipReviewKey(clip)] !== 'approved' && decisions[getClipReviewKey(clip)] !== 'skipped',
+  );
+}
+
+export function getSkippedReviewItems(
+  drafts: ClipDraft[],
+  suggestions: ClipSuggestion[] = [],
+  decisions: Record<string, ClipReviewDecision> = {},
+): ClipReviewItem[] {
+  return getReviewCandidates(drafts, suggestions).filter(
+    (clip) => decisions[getClipReviewKey(clip)] === 'skipped',
+  );
+}
+
+export function getReviewCounts(
+  drafts: ClipDraft[],
+  suggestions: ClipSuggestion[] = [],
+  decisions: Record<string, ClipReviewDecision> = {},
+) {
+  const candidates = getReviewCandidates(drafts, suggestions);
+  return {
+    pending: candidates.filter((clip) => {
+      const decision = decisions[getClipReviewKey(clip)];
+      return decision !== 'approved' && decision !== 'skipped';
+    }).length,
+    skipped: candidates.filter((clip) => decisions[getClipReviewKey(clip)] === 'skipped').length,
+    approved: candidates.filter((clip) => decisions[getClipReviewKey(clip)] === 'approved').length,
+  };
 }
 
 export function getPendingReviewCount(
