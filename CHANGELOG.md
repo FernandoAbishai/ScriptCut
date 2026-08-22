@@ -10,6 +10,7 @@
 
 ### Changed
 
+- Batch clip export now preserves completed clips and makes interrupted or failed exports easy to resume.
 - Publishing copy is now optional and resilient; AI copy generation no longer controls clip export readiness.
 - Clip discovery now validates and ranks distinct transcript-grounded suggestions and targets a five-clip review queue.
 - Clip review now previews exact clip ranges and preserves Approve/Skip decisions.

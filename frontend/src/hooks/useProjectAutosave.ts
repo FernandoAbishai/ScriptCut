@@ -4,6 +4,7 @@ import { useAIStore } from '../store/aiStore';
 import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, EditPlanResult, FillerWordResult, ProjectExportOptions, ProjectFile, Segment, Word } from '../types/project';
 import { normalizeClipReviewDecisions } from '../utils/clipWorkspace';
 import { normalizeTitleSuggestions } from '../utils/clipPublishing';
+import { recoverInterruptedClipDraft } from '../utils/clipBatchExport';
 
 const AUTOSAVE_INTERVAL_MS = 5000;
 const PROJECT_APP = 'ScriptCut';
@@ -414,7 +415,7 @@ function normalizeClipSuggestions(suggestions: ClipSuggestion[]) {
 function normalizeClipDrafts(drafts: ClipDraft[]) {
   return drafts
     .filter((draft) => typeof draft.id === 'string')
-    .map((draft) => ({
+    .map((draft) => recoverInterruptedClipDraft({
       ...draft,
       status: oneOf(draft.status, ['suggested', 'draft', 'packaged', 'exporting', 'exported', 'failed'], 'draft'),
       platform: oneOf(draft.platform, ['shorts', 'generic'], 'shorts'),
