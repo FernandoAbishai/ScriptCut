@@ -482,16 +482,10 @@ Make it specific to the transcript. Avoid clickbait that the transcript cannot s
         temperature=0.6,
     )
 
-    start = result_text.find("{") if isinstance(result_text, str) else -1
-    end = result_text.rfind("}") + 1 if isinstance(result_text, str) else 0
-    if start < 0 or end <= start:
-        logger.warning("Clip metadata provider response was not a JSON object")
-        raise ValueError("Clip metadata provider returned invalid JSON.")
-
     try:
-        parsed = json.loads(result_text[start:end])
+        parsed = json.loads(result_text)
     except (json.JSONDecodeError, TypeError):
-        logger.warning("Clip metadata provider response contained invalid JSON")
+        logger.warning("Clip metadata provider response was not valid JSON")
         raise ValueError("Clip metadata provider returned invalid JSON.") from None
 
     return normalize_clip_metadata(parsed)

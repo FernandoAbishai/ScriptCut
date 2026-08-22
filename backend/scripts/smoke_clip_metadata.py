@@ -49,6 +49,16 @@ class ClipMetadataSmokeTests(unittest.TestCase):
             {"caption": "Useful caption", "hashtags": ["ai"]},
         )
 
+    def test_complete_top_level_object_and_partial_provider_results_succeed(self) -> None:
+        with patch.object(ai_provider.AIProvider, "complete", return_value='{"hook":"Valid hook"}'):
+            self.assertEqual(ai_provider.create_clip_metadata("transcript"), {"hook": "Valid hook"})
+
+        with patch.object(ai_provider.AIProvider, "complete", return_value='{"caption":"Useful partial copy"}'):
+            self.assertEqual(
+                ai_provider.create_clip_metadata("transcript"),
+                {"caption": "Useful partial copy"},
+            )
+
     def test_empty_or_malformed_metadata_fails_without_raw_output_logging(self) -> None:
         for value in (None, [], {}, {"hook": " ", "titles": [], "hashtags": []}, {"hook": 42}):
             with self.assertRaisesRegex(ValueError, "publishing copy|non-object"):
@@ -62,8 +72,17 @@ class ClipMetadataSmokeTests(unittest.TestCase):
         self.assertTrue(captured.output)
         self.assertNotIn(raw_provider_output, "\n".join(captured.output))
 
-    def test_json_array_and_all_empty_provider_results_fail(self) -> None:
-        for provider_output in (json.dumps([]), json.dumps({}), json.dumps({"hook": "", "titles": [" "]})):
+    def test_non_object_or_empty_provider_results_fail(self) -> None:
+        for provider_output in (
+            json.dumps([]),
+            json.dumps([{"hook": "Valid-looking copy"}]),
+            json.dumps(None),
+            json.dumps("scalar"),
+            json.dumps(42),
+            '{"hook":"broken"',
+            json.dumps({}),
+            json.dumps({"hook": "", "titles": [" "]}),
+        ):
             with patch.object(ai_provider.AIProvider, "complete", return_value=provider_output):
                 with self.assertRaises(ValueError):
                     ai_provider.create_clip_metadata("transcript")
