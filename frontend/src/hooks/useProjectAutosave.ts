@@ -391,7 +391,19 @@ function normalizeClipSuggestions(suggestions: ClipSuggestion[]) {
       typeof clip.startTime === 'number' &&
       typeof clip.endTime === 'number' &&
       typeof clip.reason === 'string',
-  );
+  ).map((clip, index) => {
+    const derivedDuration = clip.endTime - clip.startTime;
+    return {
+      ...clip,
+      id: typeof clip.id === 'string' && clip.id.trim()
+        ? clip.id
+        : `clip-${clip.startWordIndex}-${clip.endWordIndex}`,
+      rank: Number.isInteger(clip.rank) && (clip.rank || 0) > 0 ? clip.rank : index + 1,
+      duration: typeof clip.duration === 'number' && Number.isFinite(clip.duration)
+        ? clip.duration
+        : Number.isFinite(derivedDuration) ? derivedDuration : undefined,
+    };
+  });
 }
 
 function normalizeClipDrafts(drafts: ClipDraft[]) {

@@ -383,15 +383,16 @@ def _coerce_confidence(value: object, word: str) -> float:
 def create_clip_suggestion(
     transcript: str,
     words: List[dict],
-    target_duration: int = 60,
+    target_duration: int = 45,
     platform: Optional[str] = None,
     instruction: Optional[str] = None,
-    min_duration: Optional[int] = None,
-    max_duration: Optional[int] = None,
+    min_duration: Optional[int] = 15,
+    max_duration: Optional[int] = 60,
     provider: str = "ollama",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    candidate_count: int = 8,
 ) -> dict:
     """
     Use an LLM to find the best clip segments in a transcript.
@@ -407,19 +408,19 @@ def create_clip_suggestion(
     )
     instruction_guidance = f"\nCreator instruction: {instruction.strip()}" if instruction and instruction.strip() else ""
 
-    prompt = f"""Analyze this transcript and find the most engaging segment(s) for {platform_name} short-form video.
+    prompt = f"""Analyze this transcript and find the strongest moments for {platform_name} short-form video.
 
 Look for: compelling stories, surprising facts, emotional moments, clear explanations, humor, or quotable statements.
 {duration_guidance}
-Prefer self-contained clips that make sense without extra context and start with a strong spoken hook.{instruction_guidance}
+Prefer self-contained spoken moments with enough opening context to stand alone and a strong spoken hook. Avoid substantially overlapping moments. Return the best candidate first.{instruction_guidance}
 
 Words with indices and timestamps:
 {word_list}
 
-Return ONLY a valid JSON object:
-{{"clips": [{{"title": "short catchy title", "startWordIndex": integer, "endWordIndex": integer, "startTime": float, "endTime": float, "reason": "why this segment is engaging"}}]}}
+Return ONLY a valid JSON object with exactly one clips array containing up to {candidate_count} ranked candidates:
+{{"clips": [{{"title": "short useful title", "startWordIndex": integer, "endWordIndex": integer, "reason": "why this complete moment is useful to a creator"}}]}}
 
-Suggest 1-3 clips. Favor vertical social clips with strong retention potential."""
+Suggest {candidate_count} candidates when the transcript supports them. Each candidate should be roughly {min_duration or max(15, target_duration - 15)}-{max_duration or target_duration + 15} seconds. Favor complete thoughts over isolated fragments."""
 
     system = "You are a viral content expert. Return only valid JSON, no explanation."
 

@@ -158,11 +158,14 @@ export interface EditPlanResult {
 export type EditPlanReviewDecision = 'accepted' | 'rejected';
 
 export interface ClipSuggestion {
+  id?: string;
+  rank?: number;
   title: string;
   startWordIndex: number;
   endWordIndex: number;
   startTime: number;
   endTime: number;
+  duration?: number;
   reason: string;
 }
 

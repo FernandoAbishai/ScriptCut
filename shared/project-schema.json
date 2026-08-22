@@ -173,11 +173,14 @@
       "type": "object",
       "required": ["title", "startWordIndex", "endWordIndex", "startTime", "endTime", "reason"],
       "properties": {
+        "id": { "type": "string" },
+        "rank": { "type": "integer", "minimum": 1 },
         "title": { "type": "string" },
         "startWordIndex": { "type": "integer" },
         "endWordIndex": { "type": "integer" },
         "startTime": { "type": "number" },
         "endTime": { "type": "number" },
+        "duration": { "type": "number", "minimum": 0 },
         "reason": { "type": "string" }
       }
     },

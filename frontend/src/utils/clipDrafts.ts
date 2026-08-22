@@ -192,10 +192,10 @@ export function getClipDraftReadinessScore(
     reasons.push(...validation.reasons);
   }
 
-  if (duration >= 12 && duration <= 60) {
+  if (duration >= 15 && duration <= 60) {
     score += 15;
   } else {
-    reasons.push(duration < 12 ? 'Shorts usually need at least 12 seconds.' : 'Trim closer to 60 seconds for shorts.');
+    reasons.push('Keep social clips between about 15 and 60 seconds.');
   }
 
   if (draft.aspectRatio === 'vertical' && draft.resolution === '1080p' && draft.format === 'mp4') {
