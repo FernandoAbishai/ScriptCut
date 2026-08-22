@@ -55,6 +55,9 @@ assert.equal(originalState.previewDuration, 20);
 
 assert.match(panelSource, /requestPreviewRange\(previewRange\.start, previewRange\.end\)/);
 assert.doesNotMatch(panelSource, /requestSeek\(clip\.startTime/);
+assert.match(panelSource, /const activeReviewPreviewKey =\s*isPlaying && previewRangeEnd !== null \? activeClipPreviewKey : null/);
+assert.match(panelSource, /activePreviewKey=\{activeReviewPreviewKey\}/);
+assert.doesNotMatch(panelSource, /activePreviewKey=\{activeClipPreviewKey\}/);
 assert.match(editorStoreSource, /requestPreviewRange: \(start, end\)/);
 assert.match(editorStoreSource, /previewRangeEnd: Math\.max\(start, end\)/);
 assert.match(editorStoreSource, /play: true/);

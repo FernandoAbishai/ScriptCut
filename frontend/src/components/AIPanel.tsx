@@ -172,6 +172,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     getCaptionHiddenIndices,
     setSelectedWordIndices,
     activeWordIndex,
+    isPlaying,
+    previewRangeEnd,
   } = useEditorStore();
   const {
     defaultProvider,
@@ -211,6 +213,9 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [activeClipPreviewKey, setActiveClipPreviewKey] = useState<string | null>(null);
   const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
   const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
+
+  const activeReviewPreviewKey =
+    isPlaying && previewRangeEnd !== null ? activeClipPreviewKey : null;
 
   useEffect(() => {
     setActiveTab(mode === 'clips' ? 'clips' : 'edit');
@@ -1729,7 +1734,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                 pendingItems={pendingReviewItems}
                 skippedItems={skippedReviewItems}
                 approvedClipCount={clipQueueSummary.approved}
-                activePreviewKey={activeClipPreviewKey}
+                activePreviewKey={activeReviewPreviewKey}
                 words={words}
                 onPreview={handlePreviewClip}
                 onApprove={approveReviewItem}
