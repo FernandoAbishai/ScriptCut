@@ -16,6 +16,10 @@ import {
   getPublishingCopyState,
   mergeGeneratedPublishingCopy,
 } from '../utils/clipPublishing';
+import {
+  buildClipPresentationPreview,
+  updateClipPresentationPreviewForDraft,
+} from '../utils/clipPresentation';
 import { buildSocialPublishingPack, type SocialPlatform } from '../utils/socialPublishing';
 import {
   buildHookFrameCandidates,
@@ -170,8 +174,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     restoreRange,
     requestSeek,
     requestPreviewRange,
-    setPreviewAspectRatio,
-    setExportOptions,
+    setClipPresentationPreview,
+    clearClipPresentationPreview,
     getMutedRanges,
     getCaptionHiddenIndices,
     setSelectedWordIndices,
@@ -224,6 +228,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   useEffect(() => {
     setActiveTab(mode === 'clips' ? 'clips' : 'edit');
   }, [mode]);
+
+  useEffect(() => {
+    if (mode === 'clips') return () => clearClipPresentationPreview();
+    clearClipPresentationPreview();
+  }, [clearClipPresentationPreview, mode]);
 
   const pendingReviewItems = useMemo(
     () => getPendingReviewItems(clipDrafts, clipSuggestions, clipReviewDecisions),
@@ -761,22 +770,19 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       }
       const draftSettings = clip as Partial<ClipDraft>;
       setActiveClipPreviewKey(getClipReviewKey(clip));
-      if (draftSettings.id) {
-        setActiveClipDraftId(draftSettings.id);
-      }
+      setActiveClipDraftId(draftSettings.id || null);
       setSelectedWordIndices(getWordIndicesForClip(words, clip));
-      if (isPreviewAspectRatio(draftSettings.aspectRatio)) {
-        const aspectRatio = draftSettings.aspectRatio;
-        setPreviewAspectRatio(aspectRatio);
-        setExportOptions((current) => ({
-          ...current,
-          aspectRatio,
-          reframe: draftSettings.reframe || current.reframe || { x: 50, y: 50 },
-        }));
-      }
+      setClipPresentationPreview(
+        buildClipPresentationPreview(getClipReviewKey(clip), clip, {
+          aspectRatio: SHORTS_DRAFT_DEFAULTS.aspectRatio,
+          reframe: SHORTS_DRAFT_DEFAULTS.reframe,
+          captions: SHORTS_DRAFT_DEFAULTS.captions,
+          captionStyle: SHORTS_DRAFT_DEFAULTS.captionStyle,
+        }),
+      );
       requestPreviewRange(previewRange.start, previewRange.end);
     },
-    [requestPreviewRange, setCreatorNotice, setExportOptions, setPreviewAspectRatio, setSelectedWordIndices, words],
+    [requestPreviewRange, setClipPresentationPreview, setCreatorNotice, setSelectedWordIndices, words],
   );
 
   const [exportingDraftId, setExportingDraftId] = useState<string | null>(null);
@@ -799,6 +805,28 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     () => clipDrafts.filter((draft) => isClipDraftInStage(draft, clipStage)),
     [clipDrafts, clipStage],
   );
+
+  useEffect(() => {
+    if (!activeClipDraftId) return;
+    const draft = clipDrafts.find((candidate) => candidate.id === activeClipDraftId);
+    const preview = useEditorStore.getState().clipPresentationPreview;
+    if (!draft || !preview || preview.draftId !== draft.id) return;
+
+    const nextPreview = updateClipPresentationPreviewForDraft(preview, draft);
+    if (!nextPreview) return;
+    if (
+      nextPreview.startWordIndex === preview.startWordIndex &&
+      nextPreview.endWordIndex === preview.endWordIndex &&
+      nextPreview.aspectRatio === preview.aspectRatio &&
+      nextPreview.reframe.x === preview.reframe.x &&
+      nextPreview.reframe.y === preview.reframe.y &&
+      nextPreview.captions === preview.captions &&
+      nextPreview.captionStyle === preview.captionStyle
+    ) {
+      return;
+    }
+    setClipPresentationPreview(nextPreview);
+  }, [activeClipDraftId, clipDrafts, setClipPresentationPreview]);
 
   const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
     setClipDrafts((current) =>
@@ -853,11 +881,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const removeClipDraft = useCallback((id: string) => {
     const removedDraft = clipDrafts.find((draft) => draft.id === id);
     setActiveClipDraftId((current) => (current === id ? null : current));
+    if (useEditorStore.getState().clipPresentationPreview?.draftId === id) {
+      clearClipPresentationPreview();
+    }
     setClipDrafts((current) => current.filter((draft) => draft.id !== id));
     if (removedDraft && (removedDraft.source === 'ai' || removedDraft.status === 'suggested')) {
       setClipSuggestions(removeMatchingClipSuggestions(clipSuggestions, removedDraft));
     }
-  }, [clipDrafts, clipSuggestions, setClipDrafts, setClipSuggestions]);
+  }, [clearClipPresentationPreview, clipDrafts, clipSuggestions, setClipDrafts, setClipSuggestions]);
 
   const trimClipDraft = useCallback(
     (draft: ClipDraft, patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => {
@@ -2914,10 +2945,6 @@ function getBackendFileUrl(backendUrl: string, path?: string) {
 function getFileNameFromPath(path: string, fallback: string) {
   const normalized = path.replace(/\\/g, '/');
   return normalized.split('/').filter(Boolean).pop() || fallback;
-}
-
-function isPreviewAspectRatio(value: unknown): value is ClipDraft['aspectRatio'] {
-  return value === 'source' || value === 'vertical' || value === 'square';
 }
 
 function isEditSuggestionAlreadyCut(suggestion: EditPlanSuggestion, deletedWordMap: Map<number, string>) {

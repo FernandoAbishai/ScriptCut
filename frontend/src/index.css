@@ -35,3 +35,24 @@ body {
 video::-webkit-media-controls {
   display: none !important;
 }
+
+@keyframes clip-caption-pop {
+  from {
+    opacity: 0.82;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.clip-caption-pop {
+  animation: clip-caption-pop 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clip-caption-pop {
+    animation: none;
+  }
+}
