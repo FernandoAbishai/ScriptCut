@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision, EditPlanResult, EditPlanReviewDecision } from '../types/project';
+import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision, EditPlanResult, EditPlanReviewDecision, ClipReviewDecision } from '../types/project';
+import { normalizeClipReviewDecisions } from '../utils/clipWorkspace';
 
 const ENCRYPTED_KEY_PREFIX = 'scriptcut_enc_';
 const LEGACY_ENCRYPTED_KEY_PREFIX = 'aive_enc_';
@@ -33,6 +34,7 @@ interface AIState {
   editPlanDecisions: Record<string, EditPlanReviewDecision>;
   clipSuggestions: ClipSuggestion[];
   clipDrafts: ClipDraft[];
+  clipReviewDecisions: Record<string, ClipReviewDecision>;
   isProcessing: boolean;
   processingMessage: string;
   _keysHydrated: boolean;
@@ -57,6 +59,11 @@ interface AIActions {
   ) => void;
   setClipSuggestions: (suggestions: ClipSuggestion[]) => void;
   setClipDrafts: (drafts: ClipDraft[] | ((current: ClipDraft[]) => ClipDraft[])) => void;
+  setClipReviewDecisions: (
+    decisions:
+      | Record<string, ClipReviewDecision>
+      | ((current: Record<string, ClipReviewDecision>) => Record<string, ClipReviewDecision>),
+  ) => void;
   setProcessing: (active: boolean, message?: string) => void;
   loadProjectAIState: (workspace?: ProjectAIWorkspace) => void;
   hydrateKeys: () => Promise<void>;
@@ -107,6 +114,7 @@ export const useAIStore = create<AIState & AIActions>()(
       editPlanDecisions: {},
       clipSuggestions: [],
       clipDrafts: [],
+      clipReviewDecisions: {},
       isProcessing: false,
       processingMessage: '',
       _keysHydrated: false,
@@ -153,6 +161,15 @@ export const useAIStore = create<AIState & AIActions>()(
           clipDrafts: typeof drafts === 'function' ? drafts(state.clipDrafts) : drafts,
         })),
 
+      setClipReviewDecisions: (decisions) =>
+        set((state) => {
+          const next =
+            typeof decisions === 'function'
+              ? decisions(state.clipReviewDecisions)
+              : decisions;
+          return { clipReviewDecisions: normalizeClipReviewDecisions(next) };
+        }),
+
       setProcessing: (active, message) =>
         set({ isProcessing: active, processingMessage: message ?? '' }),
 
@@ -166,6 +183,7 @@ export const useAIStore = create<AIState & AIActions>()(
           editPlanDecisions: workspace?.editPlanDecisions ?? {},
           clipSuggestions: workspace?.clipSuggestions ?? [],
           clipDrafts: workspace?.clipDrafts ?? [],
+          clipReviewDecisions: normalizeClipReviewDecisions(workspace?.clipReviewDecisions),
           isProcessing: false,
           processingMessage: '',
         }),

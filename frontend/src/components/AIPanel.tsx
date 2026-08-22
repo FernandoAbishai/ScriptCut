@@ -21,8 +21,10 @@ import {
 } from '../utils/hookFrames';
 import {
   getInitialClipWorkspaceStage,
-  getPendingReviewCount,
-  getUnmatchedLegacyClipSuggestions,
+  getClipPreviewRange,
+  getClipReviewKey,
+  getPendingReviewItems,
+  getSkippedReviewItems,
   isSameClipRange,
   isClipDraftInStage,
   readClipDiscoveryResult,
@@ -30,6 +32,7 @@ import {
   type ClipWorkspaceStage,
 } from '../utils/clipWorkspace';
 import CaptionPreview from './CaptionPreview';
+import ClipReviewWorkspace from './ClipReviewWorkspace';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 
@@ -162,6 +165,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     deleteWordRange,
     restoreRange,
     requestSeek,
+    requestPreviewRange,
     setPreviewAspectRatio,
     setExportOptions,
     getMutedRanges,
@@ -180,6 +184,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     editPlanDecisions,
     clipSuggestions,
     clipDrafts,
+    clipReviewDecisions,
     isProcessing,
     processingMessage,
     setCustomFillerWords,
@@ -190,6 +195,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setEditPlanDecisions,
     setClipSuggestions,
     setClipDrafts,
+    setClipReviewDecisions,
     setProcessing,
   } = useAIStore();
 
@@ -202,6 +208,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
+  const [activeClipPreviewKey, setActiveClipPreviewKey] = useState<string | null>(null);
   const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
   const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
 
@@ -209,13 +216,13 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setActiveTab(mode === 'clips' ? 'clips' : 'edit');
   }, [mode]);
 
-  const unmatchedLegacySuggestions = useMemo(
-    () => getUnmatchedLegacyClipSuggestions(clipSuggestions, clipDrafts),
-    [clipDrafts, clipSuggestions],
+  const pendingReviewItems = useMemo(
+    () => getPendingReviewItems(clipDrafts, clipSuggestions, clipReviewDecisions),
+    [clipDrafts, clipReviewDecisions, clipSuggestions],
   );
-  const pendingReviewCount = useMemo(
-    () => getPendingReviewCount(clipDrafts, clipSuggestions),
-    [clipDrafts, clipSuggestions],
+  const skippedReviewItems = useMemo(
+    () => getSkippedReviewItems(clipDrafts, clipSuggestions, clipReviewDecisions),
+    [clipDrafts, clipReviewDecisions, clipSuggestions],
   );
   const deletedWordMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -555,8 +562,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const applyClipDiscoveryResult = useCallback((data: ClipDiscoveryResult, idPrefix = 'suggested_clip') => {
     const discovery = readClipDiscoveryResult(data);
     const { clips, returnedCount } = discovery;
+    setClipReviewDecisions({});
     setClipSuggestions(clips);
-    setClipDrafts((current) => appendDiscoveredClipDrafts(current, clips, idPrefix));
+    setClipDrafts((current) =>
+      appendDiscoveredClipDrafts(
+        current.filter((draft) => (draft.status || 'draft') !== 'suggested'),
+        clips,
+        idPrefix,
+      ),
+    );
     setClipStage(discovery.stage);
 
     if (returnedCount === 0) {
@@ -576,7 +590,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     } else {
       setCreatorNotice(null);
     }
-  }, [setClipDrafts, setClipStage, setClipSuggestions]);
+  }, [setClipDrafts, setClipReviewDecisions, setClipStage, setClipSuggestions]);
 
   const cancelAIJob = useCallback(async () => {
     if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
@@ -726,7 +740,18 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const handlePreviewClip = useCallback(
     (clip: ClipSuggestion) => {
+      const previewRange = getClipPreviewRange(clip);
+      if (!previewRange) {
+        setCreatorNotice({
+          tone: 'warning',
+          title: 'Clip preview unavailable',
+          message: 'This moment has an invalid range. Choose another moment or adjust the clip before previewing.',
+          onDismiss: () => setCreatorNotice(null),
+        });
+        return;
+      }
       const draftSettings = clip as Partial<ClipDraft>;
+      setActiveClipPreviewKey(getClipReviewKey(clip));
       if (draftSettings.id) {
         setActiveClipDraftId(draftSettings.id);
       }
@@ -740,9 +765,9 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           reframe: draftSettings.reframe || current.reframe || { x: 50, y: 50 },
         }));
       }
-      requestSeek(clip.startTime, 'forward', true);
+      requestPreviewRange(previewRange.start, previewRange.end);
     },
-    [requestSeek, setExportOptions, setPreviewAspectRatio, setSelectedWordIndices, words],
+    [requestPreviewRange, setCreatorNotice, setExportOptions, setPreviewAspectRatio, setSelectedWordIndices, words],
   );
 
   const [exportingDraftId, setExportingDraftId] = useState<string | null>(null);
@@ -1052,6 +1077,42 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const approveLegacySuggestion = useCallback(
     (clip: ClipSuggestion) => createClipDraft(clip, 'ai', undefined, false),
     [createClipDraft],
+  );
+
+  const approveReviewItem = useCallback(
+    (clip: ClipSuggestion) => {
+      const matchingDraft = clipDrafts.find(
+        (draft) => (draft.status || 'draft') === 'suggested' && isSameClipRange(draft, clip),
+      );
+      if (matchingDraft) approveClipDraft(matchingDraft.id);
+      else approveLegacySuggestion(clip);
+      setClipReviewDecisions((current) => ({
+        ...current,
+        [getClipReviewKey(clip)]: 'approved',
+      }));
+    },
+    [approveClipDraft, approveLegacySuggestion, clipDrafts, setClipReviewDecisions],
+  );
+
+  const skipReviewItem = useCallback(
+    (clip: ClipSuggestion) => {
+      setClipReviewDecisions((current) => ({
+        ...current,
+        [getClipReviewKey(clip)]: 'skipped',
+      }));
+    },
+    [setClipReviewDecisions],
+  );
+
+  const restoreSkippedReviewItem = useCallback(
+    (clip: ClipSuggestion) => {
+      setClipReviewDecisions((current) => {
+        const next = { ...current };
+        delete next[getClipReviewKey(clip)];
+        return next;
+      });
+    },
+    [setClipReviewDecisions],
   );
 
   const createSpeakerTurnDrafts = useCallback(() => {
@@ -1606,7 +1667,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             <div className="grid grid-cols-4 gap-1" aria-label="Clip workspace stages">
               {([
                 { stage: 'find', label: 'Find' },
-                { stage: 'review', label: `Review ${pendingReviewCount}` },
+                { stage: 'review', label: `Review ${pendingReviewItems.length}` },
                 { stage: 'prepare', label: `Prepare ${clipQueueSummary.approved}` },
                 { stage: 'export', label: `Export ${readyDraftCount} ready` },
               ] as Array<{ stage: ClipWorkspaceStage; label: string }>).map(({ stage, label }) => (
@@ -1664,43 +1725,19 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             )}
 
             {clipStage === 'review' && (
-              <div className="space-y-3">
-                <p className="text-xs leading-5 text-editor-text-muted">
-                  Review each suggested moment. Preview, approve to create a draft, or remove it. Suggested moments cannot be exported until approved.
-                </p>
-                {clipStageDrafts.map((draft) => (
-                  <ClipSuggestionReviewCard
-                    key={draft.id}
-                    draft={draft}
-                    transcript={getClipTranscript(words, draft)}
-                    onPreview={() => handlePreviewClip(draft)}
-                    onApprove={() => approveClipDraft(draft.id)}
-                    onRemove={() => removeClipDraft(draft.id)}
-                  />
-                ))}
-                {unmatchedLegacySuggestions.map((clip, index) => (
-                  <ClipSuggestionReviewCard
-                    key={`legacy-${clip.startWordIndex}-${clip.endWordIndex}-${index}`}
-                    draft={{ ...createShortsClipDraft(clip, `legacy_${index}`, 'suggested') }}
-                    transcript={getClipTranscript(words, clip)}
-                    onPreview={() => handlePreviewClip(clip)}
-                    onApprove={() => approveLegacySuggestion(clip)}
-                    onRemove={() => setClipSuggestions(clipSuggestions.filter((candidate) => candidate !== clip))}
-                  />
-                ))}
-                {clipStageDrafts.length === 0 && unmatchedLegacySuggestions.length === 0 && (
-                  <div className="space-y-2 rounded bg-editor-surface px-3 py-3 text-xs text-editor-text-muted">
-                    <p>No moments are waiting for review.</p>
-                    <button
-                      onClick={() => setClipStage('prepare')}
-                      disabled={clipQueueSummary.approved === 0}
-                      className="rounded bg-editor-success/20 px-2 py-1.5 text-editor-success disabled:opacity-40"
-                    >
-                      Prepare approved clips
-                    </button>
-                  </div>
-                )}
-              </div>
+              <ClipReviewWorkspace
+                pendingItems={pendingReviewItems}
+                skippedItems={skippedReviewItems}
+                approvedClipCount={clipQueueSummary.approved}
+                activePreviewKey={activeClipPreviewKey}
+                words={words}
+                onPreview={handlePreviewClip}
+                onApprove={approveReviewItem}
+                onSkip={skipReviewItem}
+                onRestore={restoreSkippedReviewItem}
+                onPrepareApproved={() => setClipStage('prepare')}
+                onFindMore={() => setClipStage('find')}
+              />
             )}
 
             {(clipStage === 'prepare' || clipStage === 'export') && (
@@ -1819,51 +1856,6 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             )}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function ClipSuggestionReviewCard({
-  draft,
-  transcript,
-  onPreview,
-  onApprove,
-  onRemove,
-}: {
-  draft: ClipDraft;
-  transcript: string;
-  onPreview: () => void;
-  onApprove: () => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="space-y-2 rounded bg-editor-surface px-3 py-3 text-xs">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate font-semibold text-editor-text">
-            {draft.rank ? `#${draft.rank} ` : ''}{draft.title}
-          </div>
-          <div className="mt-1 text-[10px] text-editor-text-muted">
-            {formatClipTime(draft.startTime)} - {formatClipTime(draft.endTime)} · {Math.round(draft.endTime - draft.startTime)}s
-          </div>
-        </div>
-        <ClipStatusBadge status="suggested" />
-      </div>
-      <p className="text-[11px] leading-snug text-editor-text-muted">{draft.reason}</p>
-      <p className="line-clamp-3 rounded bg-editor-bg px-2 py-1.5 text-[11px] leading-snug text-editor-text-muted">
-        {transcript || 'No transcript text available for this moment.'}
-      </p>
-      <div className="grid grid-cols-3 gap-1">
-        <button onClick={onPreview} className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-[11px] text-editor-accent hover:bg-editor-accent/30">
-          <Play className="w-3 h-3" /> Preview
-        </button>
-        <button onClick={onApprove} className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-[11px] text-editor-success hover:bg-editor-success/30">
-          <Check className="w-3 h-3" /> Approve
-        </button>
-        <button onClick={onRemove} className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-[11px] text-editor-text-muted hover:bg-editor-bg">
-          <X className="w-3 h-3" /> Remove
-        </button>
       </div>
     </div>
   );

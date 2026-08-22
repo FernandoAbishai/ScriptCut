@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, EditPlanResult, FillerWordResult, ProjectExportOptions, ProjectFile, Segment, Word } from '../types/project';
+import { normalizeClipReviewDecisions } from '../utils/clipWorkspace';
 
 const AUTOSAVE_INTERVAL_MS = 5000;
 const PROJECT_APP = 'ScriptCut';
@@ -186,6 +187,7 @@ export function createProjectSnapshot() {
       editPlanDecisions: aiState.editPlanDecisions,
       clipSuggestions: aiState.clipSuggestions,
       clipDrafts: aiState.clipDrafts,
+      clipReviewDecisions: aiState.clipReviewDecisions,
     },
     language: state.language,
     createdAt: state.projectCreatedAt || now,
@@ -310,6 +312,7 @@ function normalizeAIWorkspace(workspace: ProjectFile['aiWorkspace']) {
       editPlanDecisions: {},
       clipSuggestions: [],
       clipDrafts: [],
+      clipReviewDecisions: {},
     };
   }
 
@@ -324,6 +327,7 @@ function normalizeAIWorkspace(workspace: ProjectFile['aiWorkspace']) {
     editPlanDecisions: normalizeEditPlanDecisions(workspace.editPlanDecisions),
     clipSuggestions: normalizeClipSuggestions(workspace.clipSuggestions || []),
     clipDrafts: normalizeClipDrafts(workspace.clipDrafts || []),
+    clipReviewDecisions: normalizeClipReviewDecisions(workspace.clipReviewDecisions),
   };
 }
 
@@ -516,6 +520,7 @@ export function useProjectAutosave() {
   const editPlanDecisions = useAIStore((s) => s.editPlanDecisions);
   const clipSuggestions = useAIStore((s) => s.clipSuggestions);
   const clipDrafts = useAIStore((s) => s.clipDrafts);
+  const clipReviewDecisions = useAIStore((s) => s.clipReviewDecisions);
   const lastSavedRef = useRef('');
   const [autosave, setAutosave] = useState<AutosaveState>({
     status: 'idle',
@@ -600,6 +605,7 @@ export function useProjectAutosave() {
     editPlanDecisions,
     clipSuggestions,
     clipDrafts,
+    clipReviewDecisions,
   ]);
 
   return autosave;

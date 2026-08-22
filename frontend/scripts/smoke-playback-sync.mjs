@@ -9,6 +9,9 @@ const ts = require('typescript');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const sourcePath = resolve(__dirname, '../src/utils/playback.ts');
 const source = readFileSync(sourcePath, 'utf8');
+const panelSource = readFileSync(resolve(__dirname, '../src/components/AIPanel.tsx'), 'utf8');
+const editorStoreSource = readFileSync(resolve(__dirname, '../src/store/editorStore.ts'), 'utf8');
+const videoSyncSource = readFileSync(resolve(__dirname, '../src/hooks/useVideoSync.ts'), 'utf8');
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
@@ -49,3 +52,15 @@ assert.ok(Math.abs(state.progress - 0.8) < 0.0001);
 const originalState = getPlaybackTimeState(17, 20, deletedRanges, false);
 assert.equal(originalState.previewTime, 17);
 assert.equal(originalState.previewDuration, 20);
+
+assert.match(panelSource, /requestPreviewRange\(previewRange\.start, previewRange\.end\)/);
+assert.doesNotMatch(panelSource, /requestSeek\(clip\.startTime/);
+assert.match(editorStoreSource, /requestPreviewRange: \(start, end\)/);
+assert.match(editorStoreSource, /previewRangeEnd: Math\.max\(start, end\)/);
+assert.match(editorStoreSource, /play: true/);
+assert.match(editorStoreSource, /requestSeek: \(time, direction = 'forward', play = false\)/);
+assert.match(editorStoreSource, /previewRangeEnd: null/);
+assert.match(videoSyncSource, /previewRangeEnd !== null && t >= previewRangeEnd/);
+assert.match(videoSyncSource, /clearPreviewRange\(\);/);
+assert.match(videoSyncSource, /video\.pause\(\);/);
+assert.doesNotMatch(panelSource, /setTimeout\([^\n]*previewRangeEnd/);

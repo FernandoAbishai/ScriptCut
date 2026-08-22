@@ -62,6 +62,7 @@ export interface ProjectAIWorkspace {
   editPlanDecisions?: Record<string, EditPlanReviewDecision>;
   clipSuggestions?: ClipSuggestion[];
   clipDrafts?: ClipDraft[];
+  clipReviewDecisions?: Record<string, ClipReviewDecision>;
 }
 
 export interface TranscriptionResult {
@@ -156,6 +157,8 @@ export interface EditPlanResult {
 }
 
 export type EditPlanReviewDecision = 'accepted' | 'rejected';
+
+export type ClipReviewDecision = 'approved' | 'skipped';
 
 export interface ClipSuggestion {
   id?: string;
