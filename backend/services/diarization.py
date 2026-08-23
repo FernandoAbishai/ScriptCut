@@ -3,6 +3,7 @@ Speaker diarization service using pyannote.audio.
 Refactored from the original repo -- removed Streamlit dependency.
 """
 
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -15,6 +16,35 @@ from utils.gpu_utils import get_optimal_device
 logger = logging.getLogger(__name__)
 
 _pipeline_cache = {}
+_DIARIZATION_MODEL = "pyannote/speaker-diarization-3.0"
+
+
+def _redact_error(error: Exception, secret: Optional[str]) -> str:
+    message = str(error)
+    return message.replace(secret, "[REDACTED]") if secret else message
+
+
+def _load_pipeline(Pipeline, hf_token: str):
+    """Load the diarization pipeline across pyannote.audio API generations."""
+    from_pretrained = Pipeline.from_pretrained
+    parameters = inspect.signature(from_pretrained).parameters
+    if "token" in parameters:
+        auth_argument = "token"
+    elif "use_auth_token" in parameters:
+        auth_argument = "use_auth_token"
+    else:
+        raise TypeError(
+            "Unsupported pyannote Pipeline.from_pretrained API: "
+            "expected token or use_auth_token"
+        )
+
+    return from_pretrained(_DIARIZATION_MODEL, **{auth_argument: hf_token})
+
+
+def _normalize_diarization_result(result):
+    """Return the regular Annotation for pyannote 3.x and 4.x results."""
+    diarization = getattr(result, "speaker_diarization", None)
+    return diarization if diarization is not None else result
 
 
 def _get_pipeline(hf_token: str, device: torch.device):
@@ -25,17 +55,17 @@ def _get_pipeline(hf_token: str, device: torch.device):
     try:
         from pyannote.audio import Pipeline
 
-        pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.0",
-            use_auth_token=hf_token,
-        )
+        pipeline = _load_pipeline(Pipeline, hf_token)
         if device.type == "cuda":
             pipeline = pipeline.to(device)
 
         _pipeline_cache[cache_key] = pipeline
         return pipeline
     except Exception as e:
-        logger.error(f"Failed to load diarization pipeline: {e}")
+        logger.error(
+            "Failed to load diarization pipeline: %s",
+            _redact_error(e, hf_token),
+        )
         return None
 
 
@@ -66,14 +96,18 @@ def diarize_and_label(
     logger.info(f"Running diarization on {audio_path}")
 
     try:
-        diarization = pipeline(str(audio_path), num_speakers=num_speakers)
+        result = pipeline(str(audio_path), num_speakers=num_speakers)
+        diarization = _normalize_diarization_result(result)
+        speaker_map = [
+            (turn.start, turn.end, speaker)
+            for turn, _, speaker in diarization.itertracks(yield_label=True)
+        ]
     except Exception as e:
-        logger.error(f"Diarization failed: {e}")
+        logger.error(
+            "Diarization execution failed: %s",
+            _redact_error(e, hf_token),
+        )
         return transcription_result
-
-    speaker_map = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        speaker_map.append((turn.start, turn.end, speaker))
 
     def _find_speaker(start: float, end: float) -> str:
         best_overlap = 0
