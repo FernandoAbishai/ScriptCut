@@ -57,7 +57,7 @@ The derived overall result is:
 | F — Batch partial failure | Multiple eligible clips with one controlled failure | Successful items remain successful, failed item is understandable/retryable, serial exports, and finish-current-then-stop |
 | G — Caption fallback | Fixture where caption delivery mode can be inspected | Honest burn-in/fallback representation, inspectable delivery mode, no false burn-in claim, readability, and safe-area checks |
 
-The runner requires every matrix check, including every `manual` check. Manual checks cannot be omitted or inferred from source strings. They must contain an explicit human observation in the evidence field.
+The runner requires every matrix check, including every `manual` check. Manual checks cannot be omitted or inferred from source strings. For manual checks with status `PASS` or `FAIL`, the evidence must start with `Human observation: ` and include an observation after the prefix. This is an explicit provenance marker, not an attempt to detect whether a human actually wrote the text. Manual `NOT RUN` checks retain a not-run explanation and block qualification. Automated checks do not require this prefix.
 
 ## Stages
 

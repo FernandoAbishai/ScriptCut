@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   CHECK_DEFINITIONS,
   CHECK_IDS,
+  HUMAN_OBSERVATION_PREFIX,
   MANUAL_CHECK_IDS,
   PROJECT_SCHEMA,
   QUALIFICATION_FORMAT,
@@ -19,7 +20,11 @@ allPass.run = { id: 'smoke-all-pass', createdAt: '2026-08-22T00:00:00.000Z', com
 allPass.checks = allPass.checks.map((item) => ({
   ...item,
   status: item.required ? 'PASS' : 'NOT APPLICABLE',
-  evidence: item.required ? 'Deterministic/manual smoke evidence recorded.' : 'Provider-specific optional check was not applicable.',
+  evidence: item.kind === 'manual'
+    ? `${HUMAN_OBSERVATION_PREFIX}Smoke fixture records an explicit creator observation.`
+    : item.required
+      ? 'Deterministic smoke evidence recorded.'
+      : 'Provider-specific optional check was not applicable.',
 }));
 allPass.overall = { status: 'PASS', evidence: 'All mandatory checks passed.' };
 
@@ -36,6 +41,8 @@ assert.equal(STAGES.length, 12);
 assert.equal(template.fixtures.find((fixture) => fixture.scenario === 'A').durationMinutes, 10);
 assert.equal(template.fixtures.find((fixture) => fixture.scenario === 'B').durationMinutes, 30);
 assert.equal(template.fixtures.find((fixture) => fixture.scenario === 'C').durationMinutes, 60);
+assert.match(allPass.checks.find((item) => item.kind === 'manual').evidence, /^Human observation: /);
+assert.equal(allPass.checks.find((item) => item.kind === 'automated').evidence, 'Deterministic smoke evidence recorded.');
 
 const withStatus = (status, checkId) => ({
   ...allPass,
@@ -55,6 +62,66 @@ const mandatoryNotRun = validateQualificationEvidence({
 });
 assert.equal(mandatoryNotRun.valid, false);
 assert.match(mandatoryNotRun.errors.join('\n'), /contradicts required checks; expected NOT RUN/);
+
+const manualCheckId = MANUAL_CHECK_IDS[0];
+const manualFail = validateQualificationEvidence({
+  ...allPass,
+  checks: allPass.checks.map((item) => (
+    item.id === manualCheckId
+      ? { ...item, status: 'FAIL', evidence: `${HUMAN_OBSERVATION_PREFIX}The creator rejected this output during visual review.` }
+      : item
+  )),
+  overall: { status: 'FAIL', evidence: 'A mandatory manual observation failed.' },
+});
+assert.equal(manualFail.valid, true, manualFail.errors.join('\n'));
+assert.equal(manualFail.summary.overall, 'FAIL');
+
+const genericManualEvidence = validateQualificationEvidence({
+  ...allPass,
+  checks: allPass.checks.map((item) => (
+    item.id === manualCheckId ? { ...item, evidence: 'test passed' } : item
+  )),
+});
+assert.equal(genericManualEvidence.valid, false);
+assert.match(genericManualEvidence.errors.join('\n'), /must start with "Human observation:/);
+
+const automatedLookingManualEvidence = validateQualificationEvidence({
+  ...allPass,
+  checks: allPass.checks.map((item) => (
+    item.id === manualCheckId ? { ...item, evidence: 'Deterministic smoke evidence recorded.' } : item
+  )),
+});
+assert.equal(automatedLookingManualEvidence.valid, false);
+assert.match(automatedLookingManualEvidence.errors.join('\n'), /must start with "Human observation:/);
+
+const malformedManualEvidence = validateQualificationEvidence({
+  ...allPass,
+  checks: allPass.checks.map((item) => (
+    item.id === manualCheckId ? { ...item, evidence: 42 } : item
+  )),
+});
+assert.equal(malformedManualEvidence.valid, false);
+assert.match(malformedManualEvidence.errors.join('\n'), /evidence must be a non-empty string/);
+
+const manualNotRun = validateQualificationEvidence({
+  ...allPass,
+  checks: allPass.checks.map((item) => (
+    item.id === manualCheckId
+      ? { ...item, status: 'NOT RUN', evidence: 'Not run; creator observation was not recorded.' }
+      : item
+  )),
+  overall: { status: 'NOT RUN', evidence: 'A mandatory manual observation is still outstanding.' },
+});
+assert.equal(manualNotRun.valid, true, manualNotRun.errors.join('\n'));
+assert.equal(manualNotRun.summary.overall, 'NOT RUN');
+
+const automatedWithoutPrefix = validateQualificationEvidence({
+  ...allPass,
+  checks: allPass.checks.map((item) => (
+    item.kind === 'automated' && item.required ? { ...item, evidence: 'test passed' } : item
+  )),
+});
+assert.equal(automatedWithoutPrefix.valid, true, automatedWithoutPrefix.errors.join('\n'));
 
 const omittedManual = structuredClone(allPass);
 omittedManual.checks = omittedManual.checks.filter((item) => item.id !== MANUAL_CHECK_IDS[0]);

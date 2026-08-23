@@ -7,6 +7,7 @@ export const PROJECT_SCHEMA = 'scriptcut.project.v1';
 
 export const STATUSES = Object.freeze(['PASS', 'FAIL', 'NOT RUN', 'NOT APPLICABLE']);
 export const CHECK_KINDS = Object.freeze(['automated', 'manual']);
+export const HUMAN_OBSERVATION_PREFIX = 'Human observation: ';
 
 export const STAGES = Object.freeze([
   { id: 'source-media', label: 'Source/media' },
@@ -278,6 +279,16 @@ function validateChecks(checks, fixtureById, errors) {
       }
     }
     if (!isNonEmptyString(item.evidence)) addError(errors, `${item.id}.evidence must be a non-empty string`);
+    const hasExplicitHumanObservation = isNonEmptyString(item.evidence)
+      && item.evidence.startsWith(HUMAN_OBSERVATION_PREFIX)
+      && isNonEmptyString(item.evidence.slice(HUMAN_OBSERVATION_PREFIX.length));
+    if (
+      item.kind === 'manual'
+      && (item.status === 'PASS' || item.status === 'FAIL')
+      && !hasExplicitHumanObservation
+    ) {
+      addError(errors, `${item.id}.evidence must start with "${HUMAN_OBSERVATION_PREFIX}" and include an observation`);
+    }
     if (item.required && item.status === 'NOT APPLICABLE') addError(errors, `${item.id} is mandatory and cannot be NOT APPLICABLE`);
   });
 
