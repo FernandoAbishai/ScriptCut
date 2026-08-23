@@ -130,13 +130,23 @@ def diarize_and_label(
                     best_speaker = speaker
             return best_speaker
 
+        speaker_assignments = []
         for word in transcription_result.get("words", []):
-            word["speaker"] = _find_speaker(word["start"], word["end"])
+            speaker_assignments.append(
+                (word, _find_speaker(word["start"], word["end"]))
+            )
 
         for segment in transcription_result.get("segments", []):
-            segment["speaker"] = _find_speaker(segment["start"], segment["end"])
+            speaker_assignments.append(
+                (segment, _find_speaker(segment["start"], segment["end"]))
+            )
             for w in segment.get("words", []):
-                w["speaker"] = _find_speaker(w["start"], w["end"])
+                speaker_assignments.append(
+                    (w, _find_speaker(w["start"], w["end"]))
+                )
+
+        for target, speaker in speaker_assignments:
+            target["speaker"] = speaker
 
         return transcription_result
     except Exception as e:

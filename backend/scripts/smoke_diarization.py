@@ -374,26 +374,35 @@ expected = CapturePipeline(result=FakeAnnotation(speaker_tracks()))
 Pyannote4Pipeline.pipeline = expected
 install_pyannote_stub(Pyannote4Pipeline)
 diarization.extract_audio = lambda path: normalized_audio_fixture(path)
-transcription = {"segments": [{"start": None, "end": 1.0, "words": []}]}
-returned = diarization.diarize_and_label(
-    transcription, "input.webm", hf_token="hf-secret", use_gpu=False
+transcription = {
+    "words": [{"word": "earlier", "start": 0.2, "end": 0.5}],
+    "segments": [{"start": None, "end": 1.0, "words": []}],
+}
+returned, logs = captured_call(
+    lambda: diarization.diarize_and_label(
+        transcription, "input.webm", hf_token="hf-secret", use_gpu=False
+    )
 )
 path = expected.calls[0]["path"]
 print(json.dumps({
     "same": returned is transcription,
     "exists_during_call": expected.calls[0]["exists_during_call"],
     "exists_after_call": Path(path).exists(),
-    "speaker": transcription["segments"][0].get("speaker"),
+    "word_speaker": transcription["words"][0].get("speaker"),
+    "segment_speaker": transcription["segments"][0].get("speaker"),
+    "logs": logs,
 }))
 """
         )
 
-        self.assertEqual(result, {
-            "same": True,
-            "exists_during_call": True,
-            "exists_after_call": False,
-            "speaker": None,
-        })
+        self.assertTrue(result["same"])
+        self.assertTrue(result["exists_during_call"])
+        self.assertFalse(result["exists_after_call"])
+        self.assertIsNone(result["word_speaker"])
+        self.assertIsNone(result["segment_speaker"])
+        emitted = "\n".join(result["logs"])
+        self.assertIn("Diarization execution failed", emitted)
+        self.assertNotIn("hf-secret", emitted)
 
     def test_pyannote_3_authentication_uses_use_auth_token(self):
         result = run_probe(
