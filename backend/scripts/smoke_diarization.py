@@ -1,19 +1,48 @@
-"""Deterministic compatibility and failure-path smokes for diarization."""
+"""Deterministic subprocess-isolated compatibility smokes for diarization."""
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
-import types
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-if str(BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(BACKEND_ROOT))
+
+TORCH_STUB_PRELUDE = r"""
+import sys
+import types
+
+torch = types.ModuleType("torch")
+
+
+class FakeDevice:
+    def __init__(self, value="cpu"):
+        self.type = str(value).split(":", 1)[0]
+
+    def __str__(self):
+        return self.type
+
+
+torch.device = FakeDevice
+torch.cuda = types.SimpleNamespace(is_available=lambda: False, device_count=lambda: 0)
+torch.backends = types.SimpleNamespace(
+    mps=types.SimpleNamespace(is_available=lambda: False),
+    cudnn=types.SimpleNamespace(),
+)
+torch.set_grad_enabled = lambda *args, **kwargs: None
+sys.modules["torch"] = torch
+"""
+
+PROBE_COMMON = r"""
+import json
+import logging
+import sys
+import types
+from types import SimpleNamespace
 
 from services import diarization
 
@@ -32,10 +61,8 @@ class FakePipeline:
     def __init__(self, result=None, error=None):
         self.result = result
         self.error = error
-        self.calls = []
 
     def __call__(self, audio_path, num_speakers=None):
-        self.calls.append((audio_path, num_speakers))
         if self.error:
             raise self.error
         return self.result
@@ -62,171 +89,259 @@ class Pyannote4Pipeline:
 
 
 def install_pyannote_stub(pipeline_class):
+    pyannote_module = types.ModuleType("pyannote")
     audio_module = types.ModuleType("pyannote.audio")
     audio_module.Pipeline = pipeline_class
-    return patch.dict(
-        sys.modules,
-        {
-            "pyannote": types.ModuleType("pyannote"),
-            "pyannote.audio": audio_module,
-        },
+    pyannote_module.audio = audio_module
+    sys.modules["pyannote"] = pyannote_module
+    sys.modules["pyannote.audio"] = audio_module
+
+
+def speaker_tracks():
+    return [
+        (SimpleNamespace(start=0.0, end=1.0), None, "SPEAKER_00"),
+        (SimpleNamespace(start=1.0, end=2.0), None, "SPEAKER_01"),
+    ]
+
+
+def mapping_input():
+    return {
+        "words": [
+            {"word": "first", "start": 0.1, "end": 0.4},
+            {"word": "second", "start": 1.1, "end": 1.4},
+            {"word": "none", "start": 3.0, "end": 3.2},
+        ],
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 0.9,
+                "words": [{"word": "segment-first", "start": 0.2, "end": 0.5}],
+            },
+            {
+                "start": 1.0,
+                "end": 1.9,
+                "words": [{"word": "segment-second", "start": 1.2, "end": 1.5}],
+            },
+            {
+                "start": 3.0,
+                "end": 3.2,
+                "words": [{"word": "segment-none", "start": 3.0, "end": 3.2}],
+            },
+        ],
+    }
+
+
+class Capture(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+def captured_call(callback):
+    capture = Capture()
+    logger = diarization.logger
+    logger.addHandler(capture)
+    previous_level = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        result = callback()
+    finally:
+        logger.setLevel(previous_level)
+        logger.removeHandler(capture)
+    return result, capture.messages
+"""
+
+
+def run_probe(source: str) -> dict:
+    environment = {
+        **os.environ,
+        "PYTHONPATH": str(BACKEND_ROOT),
+    }
+    environment.pop("HF_TOKEN", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"{TORCH_STUB_PRELUDE}\n{PROBE_COMMON}\n{source}",
+        ],
+        cwd=BACKEND_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        raise AssertionError(
+            "diarization probe failed\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+    try:
+        return json.loads(result.stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as error:
+        raise AssertionError(
+            "diarization probe did not emit JSON\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        ) from error
 
 
 class DiarizationCompatibilitySmokeTests(unittest.TestCase):
-    def setUp(self):
-        diarization._pipeline_cache.clear()
-        Pyannote3Pipeline.calls = []
-        Pyannote4Pipeline.calls = []
-
-    def tearDown(self):
-        diarization._pipeline_cache.clear()
-
-    def _load_with(self, pipeline_class, token="hf-secret"):
-        with install_pyannote_stub(pipeline_class):
-            return diarization._get_pipeline(token, diarization.torch.device("cpu"))
-
     def test_pyannote_3_authentication_uses_use_auth_token(self):
-        expected = FakePipeline()
-        Pyannote3Pipeline.pipeline = expected
+        result = run_probe(
+            r"""
+expected = FakePipeline()
+Pyannote3Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote3Pipeline)
+loaded = diarization._get_pipeline("hf-secret", torch.device("cpu"))
+print(json.dumps({"same": loaded is expected, "calls": Pyannote3Pipeline.calls}))
+"""
+        )
 
-        result = self._load_with(Pyannote3Pipeline)
-
-        self.assertIs(result, expected)
         self.assertEqual(
-            Pyannote3Pipeline.calls,
-            [("pyannote/speaker-diarization-3.0", "hf-secret")],
+            result,
+            {
+                "same": True,
+                "calls": [["pyannote/speaker-diarization-3.0", "hf-secret"]],
+            },
         )
 
     def test_pyannote_4_authentication_uses_token(self):
-        expected = FakePipeline()
-        Pyannote4Pipeline.pipeline = expected
+        result = run_probe(
+            r"""
+expected = FakePipeline()
+Pyannote4Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote4Pipeline)
+loaded = diarization._get_pipeline("hf-secret", torch.device("cpu"))
+print(json.dumps({"same": loaded is expected, "calls": Pyannote4Pipeline.calls}))
+"""
+        )
 
-        result = self._load_with(Pyannote4Pipeline)
-
-        self.assertIs(result, expected)
         self.assertEqual(
-            Pyannote4Pipeline.calls,
-            [("pyannote/speaker-diarization-3.0", "hf-secret")],
+            result,
+            {
+                "same": True,
+                "calls": [["pyannote/speaker-diarization-3.0", "hf-secret"]],
+            },
         )
 
     def test_pyannote_3_annotation_maps_words_segments_and_segment_words(self):
-        result = self._run_mapping(
-            Pyannote3Pipeline,
-            FakeAnnotation(self._speaker_tracks()),
+        result = run_probe(
+            r"""
+Pyannote3Pipeline.pipeline = FakePipeline(
+    result=FakeAnnotation(speaker_tracks())
+)
+install_pyannote_stub(Pyannote3Pipeline)
+transcription = mapping_input()
+diarization.diarize_and_label(transcription, "input.wav", hf_token="hf-secret", use_gpu=False)
+print(json.dumps({
+    "words": [word["speaker"] for word in transcription["words"]],
+    "segments": [segment["speaker"] for segment in transcription["segments"]],
+    "segment_words": [segment["words"][0]["speaker"] for segment in transcription["segments"]],
+}))
+"""
         )
 
-        self._assert_mapping(result)
+        self.assertEqual(
+            result,
+            {
+                "words": ["SPEAKER_00", "SPEAKER_01", "UNKNOWN"],
+                "segments": ["SPEAKER_00", "SPEAKER_01", "UNKNOWN"],
+                "segment_words": ["SPEAKER_00", "SPEAKER_01", "UNKNOWN"],
+            },
+        )
 
     def test_pyannote_4_diarize_output_maps_words_segments_and_segment_words(self):
-        result = self._run_mapping(
-            Pyannote4Pipeline,
-            SimpleNamespace(
-                speaker_diarization=FakeAnnotation(self._speaker_tracks())
-            ),
+        result = run_probe(
+            r"""
+Pyannote4Pipeline.pipeline = FakePipeline(
+    result=types.SimpleNamespace(
+        speaker_diarization=FakeAnnotation(speaker_tracks())
+    )
+)
+install_pyannote_stub(Pyannote4Pipeline)
+transcription = mapping_input()
+diarization.diarize_and_label(transcription, "input.wav", hf_token="hf-secret", use_gpu=False)
+print(json.dumps({
+    "words": [word["speaker"] for word in transcription["words"]],
+    "segments": [segment["speaker"] for segment in transcription["segments"]],
+    "segment_words": [segment["words"][0]["speaker"] for segment in transcription["segments"]],
+}))
+"""
         )
 
-        self._assert_mapping(result)
+        self.assertEqual(
+            result,
+            {
+                "words": ["SPEAKER_00", "SPEAKER_01", "UNKNOWN"],
+                "segments": ["SPEAKER_00", "SPEAKER_01", "UNKNOWN"],
+                "segment_words": ["SPEAKER_00", "SPEAKER_01", "UNKNOWN"],
+            },
+        )
 
     def test_no_token_returns_unchanged_transcription(self):
-        transcription = {"words": [{"word": "hello", "start": 0, "end": 1}]}
-        with patch.dict(os.environ, {}, clear=True), patch.object(
-            diarization, "_get_pipeline", side_effect=AssertionError("not called")
-        ):
-            result = diarization.diarize_and_label(
-                transcription, "input.wav", hf_token=None, use_gpu=False
-            )
+        result = run_probe(
+            r"""
+transcription = {"words": [{"word": "hello", "start": 0, "end": 1}]}
+returned = diarization.diarize_and_label(
+    transcription, "input.wav", hf_token=None, use_gpu=False
+)
+print(json.dumps({
+    "same": returned is transcription,
+    "speaker": transcription["words"][0].get("speaker"),
+}))
+"""
+        )
 
-        self.assertIs(result, transcription)
-        self.assertNotIn("speaker", transcription["words"][0])
+        self.assertEqual(result, {"same": True, "speaker": None})
 
     def test_model_loading_failure_is_graceful_and_secret_safe(self):
-        class FailingPipeline:
-            @classmethod
-            def from_pretrained(cls, checkpoint, *, token=None):
-                raise RuntimeError(f"model rejected {token}")
+        result = run_probe(
+            r"""
+class FailingPipeline:
+    @classmethod
+    def from_pretrained(cls, checkpoint, *, token=None):
+        raise RuntimeError(f"model rejected {token}")
 
-        with install_pyannote_stub(FailingPipeline), self.assertLogs(
-            diarization.logger, level="ERROR"
-        ) as captured:
-            result = diarization.diarize_and_label(
-                {"words": []}, "input.wav", hf_token="hf-secret", use_gpu=False
-            )
+install_pyannote_stub(FailingPipeline)
+transcription = {"words": []}
+returned, logs = captured_call(
+    lambda: diarization.diarize_and_label(
+        transcription, "input.wav", hf_token="hf-secret", use_gpu=False
+    )
+)
+print(json.dumps({"same": returned is transcription, "logs": logs}))
+"""
+        )
 
-        self.assertEqual(result, {"words": []})
-        self.assertNotIn("hf-secret", "\n".join(captured.output))
-        self.assertIn("[REDACTED]", "\n".join(captured.output))
+        self.assertTrue(result["same"])
+        emitted = "\n".join(result["logs"])
+        self.assertNotIn("hf-secret", emitted)
+        self.assertIn("[REDACTED]", emitted)
 
     def test_pipeline_execution_failure_is_graceful_and_secret_safe(self):
-        pipeline = FakePipeline(error=RuntimeError("execution leaked hf-secret"))
-        Pyannote4Pipeline.pipeline = pipeline
-        transcription = {"words": []}
-
-        with install_pyannote_stub(Pyannote4Pipeline), self.assertLogs(
-            diarization.logger, level="ERROR"
-        ) as captured:
-            result = diarization.diarize_and_label(
-                transcription, "input.wav", hf_token="hf-secret", use_gpu=False
-            )
-
-        self.assertIs(result, transcription)
-        self.assertNotIn("hf-secret", "\n".join(captured.output))
-        self.assertIn("[REDACTED]", "\n".join(captured.output))
-
-    def _run_mapping(self, pipeline_class, output):
-        pipeline_class.pipeline = FakePipeline(result=output)
-        transcription = {
-            "words": [
-                {"word": "first", "start": 0.1, "end": 0.4},
-                {"word": "second", "start": 1.1, "end": 1.4},
-                {"word": "none", "start": 3.0, "end": 3.2},
-            ],
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 0.9,
-                    "words": [{"word": "segment-first", "start": 0.2, "end": 0.5}],
-                },
-                {
-                    "start": 1.0,
-                    "end": 1.9,
-                    "words": [{"word": "segment-second", "start": 1.2, "end": 1.5}],
-                },
-                {
-                    "start": 3.0,
-                    "end": 3.2,
-                    "words": [{"word": "segment-none", "start": 3.0, "end": 3.2}],
-                },
-            ],
-        }
-        with install_pyannote_stub(pipeline_class):
-            return diarization.diarize_and_label(
-                transcription, "input.wav", hf_token="hf-secret", use_gpu=False
-            )
-
-    @staticmethod
-    def _speaker_tracks():
-        return [
-            (SimpleNamespace(start=0.0, end=1.0), None, "SPEAKER_00"),
-            (SimpleNamespace(start=1.0, end=2.0), None, "SPEAKER_01"),
-        ]
-
-    def _assert_mapping(self, result):
-        self.assertEqual(result["words"][0]["speaker"], "SPEAKER_00")
-        self.assertEqual(result["words"][1]["speaker"], "SPEAKER_01")
-        self.assertEqual(result["words"][2]["speaker"], "UNKNOWN")
-        self.assertEqual(result["segments"][0]["speaker"], "SPEAKER_00")
-        self.assertEqual(result["segments"][1]["speaker"], "SPEAKER_01")
-        self.assertEqual(result["segments"][2]["speaker"], "UNKNOWN")
-        self.assertEqual(
-            result["segments"][0]["words"][0]["speaker"], "SPEAKER_00"
+        result = run_probe(
+            r"""
+Pyannote4Pipeline.pipeline = FakePipeline(
+    error=RuntimeError("execution leaked hf-secret")
+)
+install_pyannote_stub(Pyannote4Pipeline)
+transcription = {"words": []}
+returned, logs = captured_call(
+    lambda: diarization.diarize_and_label(
+        transcription, "input.wav", hf_token="hf-secret", use_gpu=False
+    )
+)
+print(json.dumps({"same": returned is transcription, "logs": logs}))
+"""
         )
-        self.assertEqual(
-            result["segments"][1]["words"][0]["speaker"], "SPEAKER_01"
-        )
-        self.assertEqual(
-            result["segments"][2]["words"][0]["speaker"], "UNKNOWN"
-        )
+
+        self.assertTrue(result["same"])
+        emitted = "\n".join(result["logs"])
+        self.assertNotIn("hf-secret", emitted)
+        self.assertIn("[REDACTED]", emitted)
 
 
 if __name__ == "__main__":
