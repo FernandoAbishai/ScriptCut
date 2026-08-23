@@ -11,12 +11,14 @@ from typing import Optional
 
 import torch
 
+from utils.audio_processing import cleanup_temp_audio, extract_audio
 from utils.gpu_utils import get_optimal_device
 
 logger = logging.getLogger(__name__)
 
 _pipeline_cache = {}
 _DIARIZATION_MODEL = "pyannote/speaker-diarization-3.0"
+_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 
 def _redact_error(error: Exception, secret: Optional[str]) -> str:
@@ -87,46 +89,71 @@ def diarize_and_label(
         logger.warning("No HuggingFace token provided; skipping diarization")
         return transcription_result
 
-    device = get_optimal_device() if use_gpu else torch.device("cpu")
-    pipeline = _get_pipeline(hf_token, device)
-    if pipeline is None:
-        return transcription_result
-
-    audio_path = Path(audio_path)
-    logger.info(f"Running diarization on {audio_path}")
-
+    source_path = Path(audio_path)
+    temporary_audio_path = None
     try:
-        result = pipeline(str(audio_path), num_speakers=num_speakers)
+        if source_path.suffix.lower() in _VIDEO_EXTENSIONS:
+            try:
+                temporary_audio_path = extract_audio(source_path)
+                diarization_audio_path = temporary_audio_path
+            except Exception as e:
+                logger.error(
+                    "Diarization audio normalization failed: %s",
+                    _redact_error(e, hf_token),
+                )
+                return transcription_result
+        else:
+            diarization_audio_path = source_path
+
+        device = get_optimal_device() if use_gpu else torch.device("cpu")
+        pipeline = _get_pipeline(hf_token, device)
+        if pipeline is None:
+            return transcription_result
+
+        logger.info("Running diarization on %s", source_path)
+        result = pipeline(str(diarization_audio_path), num_speakers=num_speakers)
         diarization = _normalize_diarization_result(result)
         speaker_map = [
             (turn.start, turn.end, speaker)
             for turn, _, speaker in diarization.itertracks(yield_label=True)
         ]
+
+        def _find_speaker(start: float, end: float) -> str:
+            best_overlap = 0
+            best_speaker = "UNKNOWN"
+            for s_start, s_end, speaker in speaker_map:
+                overlap_start = max(start, s_start)
+                overlap_end = min(end, s_end)
+                overlap = max(0, overlap_end - overlap_start)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_speaker = speaker
+            return best_speaker
+
+        speaker_assignments = []
+        for word in transcription_result.get("words", []):
+            speaker_assignments.append(
+                (word, _find_speaker(word["start"], word["end"]))
+            )
+
+        for segment in transcription_result.get("segments", []):
+            speaker_assignments.append(
+                (segment, _find_speaker(segment["start"], segment["end"]))
+            )
+            for w in segment.get("words", []):
+                speaker_assignments.append(
+                    (w, _find_speaker(w["start"], w["end"]))
+                )
+
+        for target, speaker in speaker_assignments:
+            target["speaker"] = speaker
+
+        return transcription_result
     except Exception as e:
         logger.error(
             "Diarization execution failed: %s",
             _redact_error(e, hf_token),
         )
         return transcription_result
-
-    def _find_speaker(start: float, end: float) -> str:
-        best_overlap = 0
-        best_speaker = "UNKNOWN"
-        for s_start, s_end, speaker in speaker_map:
-            overlap_start = max(start, s_start)
-            overlap_end = min(end, s_end)
-            overlap = max(0, overlap_end - overlap_start)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_speaker = speaker
-        return best_speaker
-
-    for word in transcription_result.get("words", []):
-        word["speaker"] = _find_speaker(word["start"], word["end"])
-
-    for segment in transcription_result.get("segments", []):
-        segment["speaker"] = _find_speaker(segment["start"], segment["end"])
-        for w in segment.get("words", []):
-            w["speaker"] = _find_speaker(w["start"], w["end"])
-
-    return transcription_result
+    finally:
+        cleanup_temp_audio(temporary_audio_path)
