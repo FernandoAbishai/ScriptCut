@@ -54,6 +54,7 @@
     "smoke:signing-readiness": "node scripts/check-macos-signing-readiness.js",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)",
+    "test:qualification-harness": "node scripts/smoke-phase-5b6a-qualification.mjs",
     "smoke:model-manager": "cd backend && (../.venv311/bin/python -m unittest scripts/smoke_model_manager.py -v || ../.venv/bin/python -m unittest scripts/smoke_model_manager.py -v || python -m unittest scripts/smoke_model_manager.py -v)",
     "smoke:transcription": "cd backend && (../.venv311/bin/python -m unittest scripts/smoke_transcription.py -v || ../.venv/bin/python -m unittest scripts/smoke_transcription.py -v || python -m unittest scripts/smoke_transcription.py -v)",
     "smoke:runtime-contract": "node scripts/smoke-runtime-contract.js",

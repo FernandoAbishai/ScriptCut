@@ -64,6 +64,9 @@ jobs:
       - name: Test release metadata contract
         run: npm run smoke:release-metadata
 
+      - name: Test Phase 5B.6 qualification evidence harness
+        run: npm run test:qualification-harness
+
       - name: Test bundle-size measurement contract
         run: npm run smoke:bundle-size
 
