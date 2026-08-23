@@ -41,8 +41,10 @@ PROBE_COMMON = r"""
 import json
 import logging
 import sys
+import tempfile
 import types
 from types import SimpleNamespace
+from pathlib import Path
 
 from services import diarization
 
@@ -102,6 +104,13 @@ def speaker_tracks():
         (SimpleNamespace(start=0.0, end=1.0), None, "SPEAKER_00"),
         (SimpleNamespace(start=1.0, end=2.0), None, "SPEAKER_01"),
     ]
+
+
+def normalized_audio_fixture(path):
+    temporary_directory = Path(tempfile.mkdtemp(prefix="scriptcut-audio-"))
+    normalized_path = temporary_directory / "normalized.wav"
+    normalized_path.write_bytes(b"wav")
+    return normalized_path
 
 
 def mapping_input():
@@ -189,6 +198,203 @@ def run_probe(source: str) -> dict:
 
 
 class DiarizationCompatibilitySmokeTests(unittest.TestCase):
+    def test_video_inputs_normalize_to_wav_and_cleanup(self):
+        result = run_probe(
+            r"""
+class CapturePipeline(FakePipeline):
+    calls = []
+
+    def __call__(self, audio_path, num_speakers=None):
+        self.calls.append({
+            "path": audio_path,
+            "exists_during_call": Path(audio_path).is_file(),
+        })
+        return self.result
+
+expected = CapturePipeline(result=FakeAnnotation(speaker_tracks()))
+Pyannote4Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote4Pipeline)
+extract_calls = []
+
+def fake_extract(path):
+    extract_calls.append(str(path))
+    return normalized_audio_fixture(path)
+
+diarization.extract_audio = fake_extract
+results = []
+for suffix in [".webm", ".mp4", ".avi", ".mov", ".mkv"]:
+    transcription = mapping_input()
+    diarization.diarize_and_label(
+        transcription, f"input{suffix}", hf_token="hf-secret", use_gpu=False
+    )
+    results.append({
+        "input": f"input{suffix}",
+        "extract_called_with": extract_calls[-1],
+        "pipeline_path": expected.calls[-1]["path"],
+        "pipeline_path_suffix": Path(expected.calls[-1]["path"]).suffix,
+        "exists_during_call": expected.calls[-1]["exists_during_call"],
+        "exists_after_call": Path(expected.calls[-1]["path"]).exists(),
+        "speaker": transcription["words"][0]["speaker"],
+    })
+print(json.dumps(results))
+"""
+        )
+
+        self.assertEqual(len(result), 5)
+        for item in result:
+            self.assertEqual(item["extract_called_with"], item["input"])
+            self.assertEqual(item["pipeline_path_suffix"], ".wav")
+            self.assertTrue(item["exists_during_call"])
+            self.assertFalse(item["exists_after_call"])
+            self.assertEqual(item["speaker"], "SPEAKER_00")
+
+    def test_wav_input_passes_through_without_extraction(self):
+        result = run_probe(
+            r"""
+class CapturePipeline(FakePipeline):
+    calls = []
+
+    def __call__(self, audio_path, num_speakers=None):
+        self.calls.append(audio_path)
+        return self.result
+
+expected = CapturePipeline(result=FakeAnnotation(speaker_tracks()))
+Pyannote4Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote4Pipeline)
+extract_calls = []
+diarization.extract_audio = lambda path: extract_calls.append(str(path))
+transcription = mapping_input()
+diarization.diarize_and_label(
+    transcription, "input.wav", hf_token="hf-secret", use_gpu=False
+)
+print(json.dumps({
+    "extract_calls": extract_calls,
+    "pipeline_path": expected.calls,
+    "speaker": transcription["words"][0]["speaker"],
+}))
+"""
+        )
+
+        self.assertEqual(result, {
+            "extract_calls": [],
+            "pipeline_path": ["input.wav"],
+            "speaker": "SPEAKER_00",
+        })
+
+    def test_video_audio_cleanup_runs_after_pipeline_failure(self):
+        result = run_probe(
+            r"""
+class CapturePipeline(FakePipeline):
+    calls = []
+
+    def __call__(self, audio_path, num_speakers=None):
+        self.calls.append({
+            "path": audio_path,
+            "exists_during_call": Path(audio_path).is_file(),
+        })
+        raise RuntimeError("pipeline failed")
+
+expected = CapturePipeline()
+Pyannote4Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote4Pipeline)
+diarization.extract_audio = lambda path: normalized_audio_fixture(path)
+transcription = {"words": [{"word": "hello", "start": 0, "end": 1}]}
+returned = diarization.diarize_and_label(
+    transcription, "input.webm", hf_token="hf-secret", use_gpu=False
+)
+path = expected.calls[0]["path"]
+print(json.dumps({
+    "same": returned is transcription,
+    "exists_during_call": expected.calls[0]["exists_during_call"],
+    "exists_after_call": Path(path).exists(),
+    "speaker": transcription["words"][0].get("speaker"),
+}))
+"""
+        )
+
+        self.assertEqual(result, {
+            "same": True,
+            "exists_during_call": True,
+            "exists_after_call": False,
+            "speaker": None,
+        })
+
+    def test_audio_extraction_failure_is_graceful_and_skips_pipeline(self):
+        result = run_probe(
+            r"""
+class CapturePipeline(FakePipeline):
+    calls = []
+
+    def __call__(self, audio_path, num_speakers=None):
+        self.calls.append(audio_path)
+        return self.result
+
+expected = CapturePipeline(result=FakeAnnotation(speaker_tracks()))
+Pyannote4Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote4Pipeline)
+def failed_extract(path):
+    raise RuntimeError("extract failed")
+diarization.extract_audio = failed_extract
+transcription = {"words": [{"word": "hello", "start": 0, "end": 1}]}
+returned, logs = captured_call(
+    lambda: diarization.diarize_and_label(
+        transcription, "input.webm", hf_token="hf-secret", use_gpu=False
+    )
+)
+print(json.dumps({
+    "same": returned is transcription,
+    "pipeline_calls": expected.calls,
+    "speaker": transcription["words"][0].get("speaker"),
+    "logs": logs,
+}))
+"""
+        )
+
+        self.assertTrue(result["same"])
+        self.assertEqual(result["pipeline_calls"], [])
+        self.assertIsNone(result["speaker"])
+        emitted = "\n".join(result["logs"])
+        self.assertIn("audio normalization failed", emitted)
+        self.assertNotIn("hf-secret", emitted)
+
+    def test_video_audio_cleanup_runs_after_speaker_mapping_failure(self):
+        result = run_probe(
+            r"""
+class CapturePipeline(FakePipeline):
+    calls = []
+
+    def __call__(self, audio_path, num_speakers=None):
+        self.calls.append({
+            "path": audio_path,
+            "exists_during_call": Path(audio_path).is_file(),
+        })
+        return self.result
+
+expected = CapturePipeline(result=FakeAnnotation(speaker_tracks()))
+Pyannote4Pipeline.pipeline = expected
+install_pyannote_stub(Pyannote4Pipeline)
+diarization.extract_audio = lambda path: normalized_audio_fixture(path)
+transcription = {"segments": [{"start": None, "end": 1.0, "words": []}]}
+returned = diarization.diarize_and_label(
+    transcription, "input.webm", hf_token="hf-secret", use_gpu=False
+)
+path = expected.calls[0]["path"]
+print(json.dumps({
+    "same": returned is transcription,
+    "exists_during_call": expected.calls[0]["exists_during_call"],
+    "exists_after_call": Path(path).exists(),
+    "speaker": transcription["segments"][0].get("speaker"),
+}))
+"""
+        )
+
+        self.assertEqual(result, {
+            "same": True,
+            "exists_during_call": True,
+            "exists_after_call": False,
+            "speaker": None,
+        })
+
     def test_pyannote_3_authentication_uses_use_auth_token(self):
         result = run_probe(
             r"""
