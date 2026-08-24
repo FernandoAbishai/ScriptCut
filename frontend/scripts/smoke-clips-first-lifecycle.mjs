@@ -68,11 +68,15 @@ const providerState = {
   clipSuggestions: [suggestion],
   clipDrafts: [{ ...suggestion, id: 'clip-1', status: 'draft' }],
   clipReviewDecisions: { 'clip-0-4': 'approved' },
+  isProcessing: true,
+  processingMessage: 'Finding clips...',
 };
 const resetState = resetClipWorkspaceState(providerState);
 assert.deepEqual(resetState.clipSuggestions, []);
 assert.deepEqual(resetState.clipDrafts, []);
 assert.deepEqual(resetState.clipReviewDecisions, {});
+assert.equal(resetState.isProcessing, false);
+assert.equal(resetState.processingMessage, '');
 assert.equal(resetState.providers, providerState.providers);
 assert.equal(resetState.defaultProvider, providerState.defaultProvider);
 assert.equal(resetState.customFillerWords, providerState.customFillerWords);

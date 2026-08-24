@@ -11,12 +11,16 @@ export function resetClipWorkspaceState<T extends {
   clipSuggestions: ClipSuggestion[];
   clipDrafts: ClipDraft[];
   clipReviewDecisions: Record<string, ClipReviewDecision>;
+  isProcessing: boolean;
+  processingMessage: string;
 }>(state: T): T {
   return {
     ...state,
     clipSuggestions: [],
     clipDrafts: [],
     clipReviewDecisions: {},
+    isProcessing: false,
+    processingMessage: '',
   };
 }
 
