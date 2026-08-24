@@ -995,6 +995,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             enhanceAudio: !!settings?.enhanceAudio,
             captions,
             captionStyle: captions === 'burn-in' ? settings?.captionStyle ?? SHORTS_DRAFT_DEFAULTS.captionStyle : undefined,
+            word_timeline: 'export',
             words: captions !== 'none' ? clipWords : undefined,
             muted_ranges: mutedRanges,
             backgroundRemoval: settings?.backgroundRemoval?.enabled ? settings.backgroundRemoval : undefined,
