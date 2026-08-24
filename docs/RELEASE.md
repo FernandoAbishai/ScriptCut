@@ -19,7 +19,7 @@ That starts the local backend, frontend, and Electron desktop app.
 
 ## Current release identity
 
-The current product version is `0.1.0`. The supported public release channel is alpha only; the current public prerelease is `v0.1.0-alpha.3`.
+The current product version is `0.1.0`. The supported public release channel is alpha only; the current public prerelease is `v0.1.0-alpha.4`.
 
 The installed application and the public release are intentionally separate identities:
 
