@@ -7,6 +7,23 @@ import type {
 
 export type ClipWorkspaceStage = 'find' | 'review' | 'prepare' | 'export';
 
+export function resetClipWorkspaceState<T extends {
+  clipSuggestions: ClipSuggestion[];
+  clipDrafts: ClipDraft[];
+  clipReviewDecisions: Record<string, ClipReviewDecision>;
+  isProcessing: boolean;
+  processingMessage: string;
+}>(state: T): T {
+  return {
+    ...state,
+    clipSuggestions: [],
+    clipDrafts: [],
+    clipReviewDecisions: {},
+    isProcessing: false,
+    processingMessage: '',
+  };
+}
+
 export function readClipDiscoveryResult(result: unknown): {
   clips: ClipSuggestion[];
   requestedCount: number;

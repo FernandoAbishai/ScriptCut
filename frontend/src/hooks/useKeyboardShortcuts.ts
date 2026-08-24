@@ -128,7 +128,10 @@ export function useKeyboardShortcuts() {
         case e.key === 'e' && (e.ctrlKey || e.metaKey): {
           e.preventDefault();
           // Trigger export panel via DOM click
-          const exportBtn = document.querySelector('[title="Export"]') as HTMLButtonElement;
+          const exportBtn = (
+            document.querySelector('[data-export-action="full-video-export"]') ||
+            document.querySelector('[title="Export"]')
+          ) as HTMLButtonElement;
           if (exportBtn) exportBtn.click();
           return;
         }

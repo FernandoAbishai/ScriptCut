@@ -1,3 +1,5 @@
+import type { ProjectAIWorkspace } from '../types/project';
+
 export type EditorWorkflow = 'full-video' | 'short' | 'project';
 export type EditorPanel = 'ai' | 'export' | 'settings' | null;
 
@@ -22,6 +24,26 @@ export function getPostTranscriptionPanel(workflow: EditorWorkflow | null | unde
   return workflow === 'short' ? 'ai' : null;
 }
 
+export function getProjectWorkflow(workspace?: ProjectAIWorkspace): EditorWorkflow {
+  const clipSuggestions = Array.isArray(workspace?.clipSuggestions) ? workspace.clipSuggestions : [];
+  const clipDrafts = Array.isArray(workspace?.clipDrafts) ? workspace.clipDrafts : [];
+
+  const restoredClipKeys = new Set(
+    [...clipSuggestions, ...clipDrafts].map(
+      (clip) => `clip-${clip.startWordIndex}-${clip.endWordIndex}`,
+    ),
+  );
+  const decisions = workspace?.clipReviewDecisions;
+  const hasRelevantReviewDecision = Boolean(
+    decisions &&
+    Object.keys(decisions).some((key) => restoredClipKeys.has(key))
+  );
+
+  return clipSuggestions.length > 0 || clipDrafts.length > 0 || hasRelevantReviewDecision
+    ? 'short'
+    : 'project';
+}
+
 export function getEditorTaskPresentation(input: EditorTaskInput): EditorTaskPresentation {
   const workflowLabel = getWorkflowLabel(input.workflow);
 
@@ -44,13 +66,19 @@ export function getEditorTaskPresentation(input: EditorTaskInput): EditorTaskPre
   }
 
   if (input.activePanel === 'ai') {
+    if (input.workflow === 'short') {
+      return {
+        workflowLabel,
+        title: 'Create Clips',
+        description: 'Find, review, prepare, and export moments from your recording.',
+        status: input.wordCount > 0 ? 'Ready to find' : 'Waiting',
+      };
+    }
+
     return {
       workflowLabel,
-      title: input.workflow === 'short' ? 'Create Clips' : 'AI tools',
-      description:
-        input.workflow === 'short'
-          ? 'Find, review, prepare, and export moments from your recording.'
-          : 'Optional assistance for edits, filler words, and clips.',
+      title: 'AI tools',
+      description: 'Optional assistance for edits, filler words, and clips.',
       status: 'Optional',
     };
   }

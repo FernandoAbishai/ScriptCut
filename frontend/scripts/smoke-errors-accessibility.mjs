@@ -34,8 +34,9 @@ const openFileBody = app.match(/const handleOpenFile = async \(intent: WorkflowI
 const browserChangeBody = app.match(/const handleBrowserFileChange = async \(e: React\.ChangeEvent<HTMLInputElement>\) => \{([\s\S]*?)\n  \};\n\n  const handleBrowserDrop/)?.[1] || '';
 assert.match(openFileBody, /if\s*\(path\)\s*\{[\s\S]*setEditorWorkflow\(intent\)/);
 assert.doesNotMatch(openFileBody.split("if (IS_ELECTRON)")[0], /setEditorWorkflow\(/);
-assert.match(browserChangeBody, /if\s*\(!file\)\s*return;[\s\S]*setEditorWorkflow\(browserWorkflowIntent\)[\s\S]*uploadBrowserFile/);
+assert.match(browserChangeBody, /if\s*\(!file\)\s*return;[\s\S]*await uploadBrowserFile\(file, browserWorkflowIntent\)/);
 assert.doesNotMatch(browserChangeBody.split('if (!file) return;')[0], /setEditorWorkflow\(/);
+assert.match(app, /const data = \(await res\.json\(\)\)[\s\S]*resetClipWorkspaceForNewMedia\(\)/);
 assert.match(app, /Autosaved work found/);
 assert.match(app, /Restore autosave/);
 assert.match(app, /Start new transcription/);

@@ -91,7 +91,7 @@ assert.doesNotMatch(panelSource, /Shorts Queue/);
 assert.doesNotMatch(panelSource, /AI Suggestions/);
 assert.doesNotMatch(panelSource, /handleExportSuggestedClip/);
 assert.match(appSource, /label=\{editorWorkflow === 'short' \? 'Create Clips' : 'AI'\}/);
-assert.match(appSource, /<AIPanel mode=\{editorWorkflow === 'short' \? 'clips' : 'general'\}/);
+assert.match(appSource, /<AIPanel (?:key=\{workspaceRevision\} )?mode=\{editorWorkflow === 'short' \? 'clips' : 'general'\}/);
 
 const compiled = ts.transpileModule(workspaceSource, {
   compilerOptions: {
