@@ -519,16 +519,18 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         'Edit planning',
         { label: 'Edit planning' },
       );
+      if (!isCurrentClipWorkspace()) return;
       setEditPlanResult(data);
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
-      setProcessing(false);
+      if (isCurrentClipWorkspace()) setProcessing(false);
     }
   }, [
     defaultProvider,
     editPlanInstruction,
+    isCurrentClipWorkspace,
     providers,
     setEditPlanResult,
     setProcessing,
@@ -565,6 +567,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         'AI Director',
         { label: 'AI Director' },
       );
+      if (!isCurrentClipWorkspace()) return;
       setEditPlanResult(data);
       if (data.directorClip) {
         if (!isCurrentClipWorkspace()) return;
@@ -638,12 +641,13 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const cancelAIJob = useCallback(async () => {
     if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
     const res = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/cancel`, { method: 'POST' });
+    if (!isCurrentClipWorkspace()) return;
     if (res.ok) {
       const job = (await res.json()) as AIJob<unknown>;
       setActiveAIJob({ ...job, label: activeAIJob.label, draftId: activeAIJob.draftId });
     }
     setProcessing(false);
-  }, [activeAIJob, backendUrl, setProcessing]);
+  }, [activeAIJob, backendUrl, isCurrentClipWorkspace, setProcessing]);
 
   const detectFillers = useCallback(async () => {
     if (words.length === 0) return;
@@ -665,14 +669,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         'Filler detection',
         { label: 'Filler detection' },
       );
+      if (!isCurrentClipWorkspace()) return;
       setFillerResult(data);
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
-      setProcessing(false);
+      if (isCurrentClipWorkspace()) setProcessing(false);
     }
-  }, [words, defaultProvider, providers, customFillerWords, setProcessing, setFillerResult, startAIJob]);
+  }, [words, defaultProvider, providers, customFillerWords, isCurrentClipWorkspace, setProcessing, setFillerResult, startAIJob]);
 
   const createClips = useCallback(async () => {
     if (words.length === 0) return;
@@ -1423,6 +1428,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       const { job_id: jobId } = await retryRes.json();
       const context = { label: activeAIJob.label, draftId: activeAIJob.draftId };
       const result = await pollAIJob<unknown>(jobId, activeAIJob.label, context);
+      if (!isCurrentClipWorkspace()) return;
 
       if (activeAIJob.kind === 'ai:filler-removal') {
         setFillerResult(result as FillerWordResult);
@@ -1441,13 +1447,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
-      setProcessing(false);
+      if (isCurrentClipWorkspace()) setProcessing(false);
     }
   }, [
     activeAIJob,
     applyClipDiscoveryResult,
     backendUrl,
     clipDrafts,
+    isCurrentClipWorkspace,
     pollAIJob,
     setEditPlanResult,
     setFillerResult,
