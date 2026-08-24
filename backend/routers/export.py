@@ -11,7 +11,12 @@ from pydantic import BaseModel, Field
 
 from services.video_editor import export_stream_copy, export_reencode, export_reencode_with_subs, supports_ass_subtitles
 from services.audio_cleaner import clean_audio
-from services.caption_generator import generate_srt, generate_ass, save_captions
+from services.caption_generator import (
+    generate_ass,
+    generate_srt,
+    project_words_to_export_timeline,
+    save_captions,
+)
 from services.background_removal import remove_background_on_export
 from utils.ffmpeg import find_ffmpeg
 
@@ -177,6 +182,20 @@ def run_export(req: ExportRequest, progress_callback=None):
         deleted_set = set(req.deleted_indices or [])
         muted_ranges = [{"start": r.start, "end": r.end, "kind": r.kind} for r in req.muted_ranges]
         effective_captions = req.captions
+        caption_words = (
+            project_words_to_export_timeline(words_dicts, segments, deleted_set)
+            if req.captions != "none" and words_dicts
+            else []
+        )
+        if req.captions != "none" and words_dicts and not caption_words and not deleted_set:
+            active_words = [word for index, word in enumerate(words_dicts) if index not in deleted_set]
+            export_duration = sum(segment["end"] - segment["start"] for segment in segments)
+            if active_words and all(
+                0 <= word["start"] < word["end"] <= export_duration
+                for word in active_words
+            ):
+                # The clip workspace already sends words on the export timeline.
+                caption_words = active_words
         if req.captions == "burn-in" and words_dicts and not supports_ass_subtitles():
             effective_captions = "sidecar"
             warnings.append(
@@ -194,11 +213,11 @@ def run_export(req: ExportRequest, progress_callback=None):
 
         # Generate ASS file for burn-in
         ass_path = None
-        if effective_captions == "burn-in" and words_dicts:
+        if effective_captions == "burn-in" and caption_words:
             progress(15, "Generating captions")
             caption_style = req.captionStyle.model_dump() if req.captionStyle else None
             words_per_line = req.captionStyle.wordsPerLine if req.captionStyle else 8
-            ass_content = generate_ass(words_dicts, deleted_set, words_per_line=words_per_line, style=caption_style)
+            ass_content = generate_ass(caption_words, words_per_line=words_per_line, style=caption_style)
             tmp = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
             tmp.write(ass_content)
             tmp.close()
@@ -294,10 +313,10 @@ def run_export(req: ExportRequest, progress_callback=None):
 
         # Sidecar SRT: generate and save alongside video
         srt_path = None
-        if effective_captions == "sidecar" and words_dicts:
+        if effective_captions == "sidecar" and caption_words:
             progress(88, "Writing sidecar captions")
             words_per_line = req.captionStyle.wordsPerLine if req.captionStyle else 8
-            srt_content = generate_srt(words_dicts, deleted_set, words_per_line=words_per_line)
+            srt_content = generate_srt(caption_words, words_per_line=words_per_line)
             srt_path = req.output_path.rsplit(".", 1)[0] + ".srt"
             save_captions(srt_content, srt_path)
             logger.info(f"Sidecar SRT saved to {srt_path}")

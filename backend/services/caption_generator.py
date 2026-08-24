@@ -4,9 +4,45 @@ Generate caption files (SRT, VTT, ASS) from word-level timestamps.
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
+
+
+def project_words_to_export_timeline(
+    words: Sequence[dict],
+    keep_segments: Sequence[dict],
+    deleted_indices: Optional[set[int]] = None,
+) -> List[dict]:
+    """Project source-media word timestamps onto the concatenated export timeline."""
+    deleted_indices = deleted_indices or set()
+    projected: List[dict] = []
+    output_offset = 0.0
+
+    for segment in keep_segments:
+        segment_start = float(segment["start"])
+        segment_end = float(segment["end"])
+
+        for index, word in enumerate(words):
+            if index in deleted_indices:
+                continue
+
+            overlap_start = max(float(word["start"]), segment_start)
+            overlap_end = min(float(word["end"]), segment_end)
+            if overlap_end <= overlap_start:
+                continue
+
+            projected.append(
+                {
+                    **word,
+                    "start": round(output_offset + overlap_start - segment_start, 6),
+                    "end": round(output_offset + overlap_end - segment_start, 6),
+                }
+            )
+
+        output_offset += segment_end - segment_start
+
+    return projected
 
 
 def _format_srt_time(seconds: float) -> str:
