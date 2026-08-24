@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision, EditPlanResult, EditPlanReviewDecision, ClipReviewDecision } from '../types/project';
-import { normalizeClipReviewDecisions } from '../utils/clipWorkspace';
+import { normalizeClipReviewDecisions, resetClipWorkspaceState } from '../utils/clipWorkspace';
 
 const ENCRYPTED_KEY_PREFIX = 'scriptcut_enc_';
 const LEGACY_ENCRYPTED_KEY_PREFIX = 'aive_enc_';
@@ -35,6 +35,7 @@ interface AIState {
   clipSuggestions: ClipSuggestion[];
   clipDrafts: ClipDraft[];
   clipReviewDecisions: Record<string, ClipReviewDecision>;
+  clipWorkspaceEpoch: number;
   isProcessing: boolean;
   processingMessage: string;
   _keysHydrated: boolean;
@@ -64,6 +65,7 @@ interface AIActions {
       | Record<string, ClipReviewDecision>
       | ((current: Record<string, ClipReviewDecision>) => Record<string, ClipReviewDecision>),
   ) => void;
+  resetClipWorkspace: () => void;
   setProcessing: (active: boolean, message?: string) => void;
   loadProjectAIState: (workspace?: ProjectAIWorkspace) => void;
   hydrateKeys: () => Promise<void>;
@@ -115,6 +117,7 @@ export const useAIStore = create<AIState & AIActions>()(
       clipSuggestions: [],
       clipDrafts: [],
       clipReviewDecisions: {},
+      clipWorkspaceEpoch: 0,
       isProcessing: false,
       processingMessage: '',
       _keysHydrated: false,
@@ -170,6 +173,12 @@ export const useAIStore = create<AIState & AIActions>()(
           return { clipReviewDecisions: normalizeClipReviewDecisions(next) };
         }),
 
+      resetClipWorkspace: () =>
+        set((state) => ({
+          ...resetClipWorkspaceState(state),
+          clipWorkspaceEpoch: state.clipWorkspaceEpoch + 1,
+        })),
+
       setProcessing: (active, message) =>
         set({ isProcessing: active, processingMessage: message ?? '' }),
 
@@ -184,6 +193,7 @@ export const useAIStore = create<AIState & AIActions>()(
           clipSuggestions: workspace?.clipSuggestions ?? [],
           clipDrafts: workspace?.clipDrafts ?? [],
           clipReviewDecisions: normalizeClipReviewDecisions(workspace?.clipReviewDecisions),
+          clipWorkspaceEpoch: get().clipWorkspaceEpoch + 1,
           isProcessing: false,
           processingMessage: '',
         }),

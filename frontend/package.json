@@ -15,6 +15,7 @@
     "test:transcription-ux": "node scripts/smoke-transcription-ux.mjs",
     "test:editor-frame": "node scripts/smoke-editor-frame.mjs",
     "test:create-clips-workspace": "node scripts/smoke-create-clips-workspace.mjs",
+    "test:clips-first-lifecycle": "node scripts/smoke-clips-first-lifecycle.mjs",
     "test:settings-export-ux": "node scripts/smoke-settings-export-ux.mjs",
     "test:transcript-selection": "node scripts/smoke-transcript-selection.mjs",
     "test:transcript-search": "node scripts/smoke-transcript-search.mjs",

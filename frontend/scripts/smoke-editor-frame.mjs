@@ -23,15 +23,16 @@ const handleBrowserDropBody = appSource.match(
 
 assert.match(appSource, /useState<EditorWorkflow>\('full-video'\)/);
 assert.match(appSource, /setEditorWorkflow\(intent\)/);
-assert.match(appSource, /setEditorWorkflow\('project'\)/);
+assert.match(appSource, /const restoreProject =/);
+assert.match(appSource, /getProjectWorkflow\(data\.aiWorkspace\)/);
 assert.doesNotMatch(handleOpenFileBody.split('if (IS_ELECTRON)')[0], /setEditorWorkflow\(/);
 assert.match(
   handleOpenFileBody,
-  /if \(path\) \{\s*setEditorWorkflow\(intent\);\s*applyWorkflowIntent\(intent\);\s*const restored = await tryRestoreAutosave/,
+  /if \(path\) \{[\s\S]*?setEditorWorkflow\(intent\);\s*applyWorkflowIntent\(intent\);\s*const restored = await tryRestoreAutosave/,
 );
 assert.doesNotMatch(handleBrowserFileChangeBody.split('if (!file) return;')[0], /setEditorWorkflow\(/);
-assert.match(handleBrowserFileChangeBody, /if \(!file\) return;\s*setEditorWorkflow\(browserWorkflowIntent\);\s*await uploadBrowserFile/);
-assert.match(handleBrowserDropBody, /setEditorWorkflow\('full-video'\);[\s\S]*uploadBrowserFile\(file, 'full-video'\)/);
+assert.match(handleBrowserFileChangeBody, /if \(!file\) return;\s*await uploadBrowserFile\(file, browserWorkflowIntent\)/);
+assert.match(handleBrowserDropBody, /if \(!file\) return;\s*await uploadBrowserFile\(file, 'full-video'\)/);
 assert.match(appSource, /<EditorTaskHeader presentation=\{taskPresentation\}/);
 assert.match(appSource, /getEditorTaskPresentation\(/);
 assert.match(appSource, /aria-controls="editor-side-panel"/);
@@ -59,6 +60,7 @@ function loadTsModule(relativePath) {
 
 const {
   getEditorTaskPresentation,
+  getProjectWorkflow,
   getPostTranscriptionPanel,
 } = loadTsModule('../src/utils/editorTask.ts');
 
@@ -95,6 +97,7 @@ assert.equal(clipsReady.workflowLabel, 'Create Clips');
 assert.equal(clipsReady.title, 'Transcript ready');
 assert.match(clipsReady.description, /AI tools/);
 assert.doesNotMatch(clipsReady.description, /must|required/);
+assert.notEqual(clipsReady.status, 'Optional');
 
 const clipsEdited = getEditorTaskPresentation({ ...base, workflow: 'short', cutCount: 1 });
 assert.equal(clipsEdited.title, 'Prepare your clips');
@@ -105,6 +108,7 @@ assert.equal(projectReady.title, 'Project ready');
 
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', activePanel: 'ai' }).title, 'AI tools');
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'short', activePanel: 'ai' }).title, 'Create Clips');
+assert.equal(getEditorTaskPresentation({ ...base, workflow: 'short', activePanel: 'ai' }).status, 'Ready to find');
 assert.equal(
   getEditorTaskPresentation({ ...base, workflow: 'short', activePanel: 'ai' }).description,
   'Find, review, prepare, and export moments from your recording.',
@@ -112,3 +116,8 @@ assert.equal(
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', activePanel: 'export' }).title, 'Export');
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', activePanel: 'settings' }).title, 'Settings');
 assert.equal(getEditorTaskPresentation({ ...base, workflow: 'full-video', wordCount: 0 }).title, 'Waiting for transcript');
+
+const clipSuggestion = { startWordIndex: 0, endWordIndex: 4 };
+assert.equal(getProjectWorkflow({ clipSuggestions: [clipSuggestion] }), 'short');
+assert.equal(getProjectWorkflow({ clipDrafts: [{ ...clipSuggestion, status: 'draft' }] }), 'short');
+assert.equal(getProjectWorkflow({ clipReviewDecisions: { 'clip-0-4': 'approved' } }), 'project');

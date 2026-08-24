@@ -207,6 +207,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     clipSuggestions,
     clipDrafts,
     clipReviewDecisions,
+    clipWorkspaceEpoch,
     isProcessing,
     processingMessage,
     setCustomFillerWords,
@@ -222,6 +223,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   } = useAIStore();
 
   const [activeTab, setActiveTab] = useState<'edit' | 'filler' | 'clips'>(mode === 'clips' ? 'clips' : 'edit');
+  const [showSecondaryTools, setShowSecondaryTools] = useState(false);
   const [clipStage, setClipStage] = useState<ClipWorkspaceStage>(() =>
     getInitialClipWorkspaceStage(clipDrafts, clipSuggestions),
   );
@@ -233,12 +235,19 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [activeClipPreviewKey, setActiveClipPreviewKey] = useState<string | null>(null);
   const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
   const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
+  const secondaryToolsVisible =
+    mode === 'clips' && (showSecondaryTools || activeTab === 'edit' || activeTab === 'filler');
+  const isCurrentClipWorkspace = useCallback(
+    () => useAIStore.getState().clipWorkspaceEpoch === clipWorkspaceEpoch,
+    [clipWorkspaceEpoch],
+  );
 
   const activeReviewPreviewKey =
     isPlaying && previewRangeEnd !== null ? activeClipPreviewKey : null;
 
   useEffect(() => {
     setActiveTab(mode === 'clips' ? 'clips' : 'edit');
+    setShowSecondaryTools(false);
   }, [mode]);
 
   useEffect(() => {
@@ -436,6 +445,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         const jobRes = await fetch(`${backendUrl}/jobs/${jobId}`);
         if (!jobRes.ok) throw new Error(`${fallbackMessage} status failed: ${jobRes.statusText}`);
         const job = (await jobRes.json()) as AIJob<T>;
+        if (!isCurrentClipWorkspace()) throw new Error('The media workspace changed while this job was running.');
         setActiveAIJob({ ...job, ...context });
         setProcessing(
           job.status === 'queued' || job.status === 'running' || job.status === 'canceling',
@@ -451,7 +461,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         }
       }
     },
-    [backendUrl, setProcessing],
+    [backendUrl, isCurrentClipWorkspace, setProcessing],
   );
 
   const startAIJob = useCallback(
@@ -557,6 +567,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       );
       setEditPlanResult(data);
       if (data.directorClip) {
+        if (!isCurrentClipWorkspace()) return;
         setClipDrafts((current) => [
           ...current,
           {
@@ -575,11 +586,12 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
-      setProcessing(false);
+      if (isCurrentClipWorkspace()) setProcessing(false);
     }
   }, [
     defaultProvider,
     editPlanInstruction,
+    isCurrentClipWorkspace,
     providers,
     setClipDrafts,
     setClipStage,
@@ -590,6 +602,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   ]);
 
   const applyClipDiscoveryResult = useCallback((data: ClipDiscoveryResult, idPrefix = 'suggested_clip') => {
+    if (!isCurrentClipWorkspace()) return;
     const discovery = readClipDiscoveryResult(data);
     const { clips, returnedCount } = discovery;
     setClipReviewDecisions({});
@@ -620,7 +633,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     } else {
       setCreatorNotice(null);
     }
-  }, [setClipDrafts, setClipReviewDecisions, setClipStage, setClipSuggestions]);
+  }, [isCurrentClipWorkspace, setClipDrafts, setClipReviewDecisions, setClipStage, setClipSuggestions]);
 
   const cancelAIJob = useCallback(async () => {
     if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
@@ -691,9 +704,9 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
-      setProcessing(false);
+      if (isCurrentClipWorkspace()) setProcessing(false);
     }
-  }, [applyClipDiscoveryResult, words, defaultProvider, providers, setProcessing, startAIJob]);
+  }, [applyClipDiscoveryResult, defaultProvider, isCurrentClipWorkspace, providers, setProcessing, startAIJob, words]);
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
@@ -843,6 +856,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   }, [activeClipDraftId, clipDrafts, setClipPresentationPreview]);
 
   const updateClipDraft = useCallback((id: string, patch: Partial<ClipDraft>) => {
+    if (!isCurrentClipWorkspace()) return;
     setClipDrafts((current) =>
       current.map((draft) => {
         if (draft.id !== id) return draft;
@@ -853,7 +867,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         return { ...draft, ...normalizedPatch };
       }),
     );
-  }, [setClipDrafts, words]);
+  }, [isCurrentClipWorkspace, setClipDrafts, words]);
 
   const approveClipDraft = useCallback((id: string) => {
     setActiveClipDraftId(id);
@@ -867,11 +881,12 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         defaultPath: clipExportDirectory || (videoPath ? getPathDirectory(videoPath) : undefined),
       });
       if (!directory) return;
+      if (!isCurrentClipWorkspace()) return;
       setClipExportDirectory(directory);
       window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
       setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory })));
     }
-  }, [clipExportDirectory, setClipDrafts, videoPath]);
+  }, [clipExportDirectory, isCurrentClipWorkspace, setClipDrafts, videoPath]);
 
   const duplicateClipDraft = useCallback(
     (draft: ClipDraft) => {
@@ -953,6 +968,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       silent = false,
     ) => {
       try {
+        if (!isCurrentClipWorkspace()) throw new Error('The media workspace changed while this export was running.');
         if (!videoPath) throw new Error('Load a video before exporting a clip.');
         const clipWordIndices = getWordIndicesForClip(words, clip);
         if (clipWordIndices.length === 0) throw new Error('This clip has no transcript range to export.');
@@ -1012,6 +1028,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           throw new Error(detail);
         }
         const { job_id: jobId } = await res.json();
+        if (!isCurrentClipWorkspace()) throw new Error('The media workspace changed while this export was running.');
         if (settings?.id) {
           updateClipDraft(settings.id, { status: 'exporting', lastError: undefined });
           setClipExportJobs((current) => ({
@@ -1026,6 +1043,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           }));
         }
         const output = await pollClipExportJob(jobId, settings?.id);
+        if (!isCurrentClipWorkspace()) throw new Error('The media workspace changed while this export was running.');
         if (settings?.id) {
           updateClipDraft(settings.id, {
             status: 'exported',
@@ -1056,7 +1074,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         throw err;
       }
     },
-    [videoPath, clipExportDirectory, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, pollClipExportJob, updateClipDraft],
+    [videoPath, clipExportDirectory, words, getCaptionHiddenIndices, deletedRanges, backendUrl, getMutedRanges, isCurrentClipWorkspace, pollClipExportJob, updateClipDraft],
   );
 
   const cancelDraftExport = useCallback(
@@ -1443,23 +1461,44 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         {mode === 'clips' && (
           <TabButton
             active={activeTab === 'clips'}
-            onClick={() => setActiveTab('clips')}
+            onClick={() => {
+              setActiveTab('clips');
+              setShowSecondaryTools(false);
+            }}
             icon={<Film className="w-3.5 h-3.5" />}
             label="Create Clips"
           />
         )}
-        <TabButton
-          active={activeTab === 'edit'}
-          onClick={() => setActiveTab('edit')}
-          icon={<Sparkles className="w-3.5 h-3.5" />}
-          label="AI Editor"
-        />
-        <TabButton
-          active={activeTab === 'filler'}
-          onClick={() => setActiveTab('filler')}
-          icon={<Scissors className="w-3.5 h-3.5" />}
-          label="Filler Words"
-        />
+        {mode === 'clips' ? (
+          <button
+            type="button"
+            onClick={() => setShowSecondaryTools((current) => !current)}
+            aria-expanded={secondaryToolsVisible}
+            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors ${
+              showSecondaryTools || activeTab === 'edit' || activeTab === 'filler'
+                ? 'border-editor-border text-editor-text'
+                : 'border-transparent text-editor-text-muted hover:text-editor-text'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            More AI tools
+          </button>
+        ) : (
+          <>
+            <TabButton
+              active={activeTab === 'edit'}
+              onClick={() => setActiveTab('edit')}
+              icon={<Sparkles className="w-3.5 h-3.5" />}
+              label="AI Editor"
+            />
+            <TabButton
+              active={activeTab === 'filler'}
+              onClick={() => setActiveTab('filler')}
+              icon={<Scissors className="w-3.5 h-3.5" />}
+              label="Filler Words"
+            />
+          </>
+        )}
         {mode === 'general' && (
           <TabButton
             active={activeTab === 'clips'}
@@ -1469,6 +1508,22 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           />
         )}
       </div>
+      {secondaryToolsVisible && (
+        <div className="flex border-b border-editor-border bg-editor-surface/40">
+          <TabButton
+            active={activeTab === 'edit'}
+            onClick={() => setActiveTab('edit')}
+            icon={<Sparkles className="w-3.5 h-3.5" />}
+            label="AI Editor"
+          />
+          <TabButton
+            active={activeTab === 'filler'}
+            onClick={() => setActiveTab('filler')}
+            icon={<Scissors className="w-3.5 h-3.5" />}
+            label="Filler Words"
+          />
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4">
         {creatorNotice && <CreatorNotice notice={creatorNotice} className="mb-3" />}

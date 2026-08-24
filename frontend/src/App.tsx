@@ -52,6 +52,7 @@ import { getCoreReadiness } from './utils/homeReadiness';
 import {
   getEditorTaskPresentation,
   getPostTranscriptionPanel,
+  getProjectWorkflow,
   type EditorPanel,
   type EditorWorkflow,
 } from './utils/editorTask';
@@ -90,6 +91,7 @@ export default function App() {
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
   const [editorWorkflow, setEditorWorkflow] = useState<EditorWorkflow>('full-video');
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
   const [transcriptionModel, setTranscriptionModel] = useState(AUTOMATIC_TRANSCRIPTION_MODEL);
@@ -214,6 +216,22 @@ export default function App() {
     refreshRecentProjects();
   };
 
+  const restoreProject = (data: ReturnType<typeof parseProjectFile>) => {
+    loadProjectState(data);
+    setWorkspaceRevision((current) => current + 1);
+    const workflow = getProjectWorkflow(data.aiWorkspace);
+    setEditorWorkflow(workflow);
+    setActivePanel(workflow === 'short' ? 'ai' : null);
+  };
+
+  const resetClipWorkspaceForNewMedia = useCallback(() => {
+    useAIStore.getState().resetClipWorkspace();
+    const editorState = useEditorStore.getState();
+    editorState.clearClipPresentationPreview();
+    editorState.setSelectedWordIndices([]);
+    setWorkspaceRevision((current) => current + 1);
+  }, []);
+
   const handleLoadProject = async () => {
     if (!IS_ELECTRON) return;
     setCreatorNotice(null);
@@ -222,8 +240,7 @@ export default function App() {
       if (!projectPath) return;
       const content = await window.electronAPI!.readProjectFile(projectPath);
       const data = parseProjectFile(content);
-      loadProjectState(data);
-      setEditorWorkflow('project');
+      restoreProject(data);
       rememberProject(projectPath, data, 'project');
     } catch (err) {
       console.error('Failed to load project:', err);
@@ -243,8 +260,7 @@ export default function App() {
       const path = getAutosaveSnapshotPaths(candidate.videoPath)[snapshotIndex] || candidate.path;
       const content = await window.electronAPI!.readProjectFile(path);
       const data = parseProjectFile(content);
-      loadProjectState(data);
-      setEditorWorkflow('project');
+      restoreProject(data);
       rememberProject(path, data, 'autosave');
     } catch (err) {
       console.error('Failed to recover autosave:', err);
@@ -286,8 +302,7 @@ export default function App() {
     try {
       const content = await window.electronAPI!.readProjectFile(project.path);
       const data = parseProjectFile(content);
-      loadProjectState(data);
-      setEditorWorkflow('project');
+      restoreProject(data);
       rememberProject(project.path, data, project.source);
     } catch (err) {
       removeRecentProject(project.path);
@@ -343,6 +358,7 @@ export default function App() {
     if (IS_ELECTRON) {
       const path = await window.electronAPI!.openFile();
       if (path) {
+        resetClipWorkspaceForNewMedia();
         setEditorWorkflow(intent);
         applyWorkflowIntent(intent);
         const restored = await tryRestoreAutosave(path);
@@ -352,7 +368,6 @@ export default function App() {
         await transcribeVideo(path, intent);
       }
     } else {
-      applyWorkflowIntent(intent);
       setBrowserWorkflowIntent(intent);
       fileInputRef.current?.click();
     }
@@ -362,7 +377,6 @@ export default function App() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setEditorWorkflow(browserWorkflowIntent);
     await uploadBrowserFile(file, browserWorkflowIntent);
   };
 
@@ -370,8 +384,6 @@ export default function App() {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
-    setEditorWorkflow('full-video');
-    applyWorkflowIntent('full-video');
     await uploadBrowserFile(file, 'full-video');
   };
 
@@ -401,6 +413,9 @@ export default function App() {
       }
 
       const data = (await res.json()) as { path: string; filename: string; size: number };
+      resetClipWorkspaceForNewMedia();
+      setEditorWorkflow(intent);
+      applyWorkflowIntent(intent);
       loadVideo(data.path);
       await transcribeVideo(data.path, intent);
     } catch (err) {
@@ -425,7 +440,7 @@ export default function App() {
         });
         if (!shouldRestore) return false;
 
-        loadProjectState(data);
+        restoreProject(data);
         return true;
       } catch {
         // Try the next autosave naming convention.
@@ -702,12 +717,13 @@ export default function App() {
           />
           <ToolbarButton
             icon={<Download className="w-4 h-4" />}
-            label="Export"
+            label={editorWorkflow === 'short' ? 'Export Video' : 'Export'}
             active={activePanel === 'export'}
             onClick={() => togglePanel('export')}
             disabled={words.length === 0}
             controls="editor-side-panel"
             expanded={activePanel === 'export'}
+            dataAction="full-video-export"
           />
           <div className="relative">
             <button
@@ -846,7 +862,7 @@ export default function App() {
             aria-label={sidePanelLabel}
             className="w-80 border-l border-editor-border overflow-y-auto shrink-0"
           >
-            {activePanel === 'ai' && <AIPanel mode={editorWorkflow === 'short' ? 'clips' : 'general'} />}
+            {activePanel === 'ai' && <AIPanel key={workspaceRevision} mode={editorWorkflow === 'short' ? 'clips' : 'general'} />}
             {activePanel === 'export' && <ExportDialog />}
             {activePanel === 'settings' && <SettingsPanel />}
           </aside>
@@ -900,6 +916,7 @@ function ToolbarButton({
   disabled,
   controls,
   expanded,
+  dataAction,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -908,12 +925,14 @@ function ToolbarButton({
   disabled?: boolean;
   controls?: string;
   expanded?: boolean;
+  dataAction?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       title={label}
+      data-export-action={dataAction}
       aria-expanded={controls ? expanded ?? active ?? false : undefined}
       aria-controls={controls}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
