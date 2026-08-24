@@ -18,17 +18,19 @@ ScriptCut is different from a cloud-first editor because local processing is the
 
 See [the Product Vision](docs/PRODUCT_VISION.md) for the canonical product direction.
 
-<img width="1034" height="661" alt="ScriptCut screenshot" src="https://github.com/user-attachments/assets/b1ed9505-792e-42ca-bb73-85458d0f02a5" />
+![ScriptCut export workspace with edited preview, transcript, timeline, export preflight, output presets, and caption delivery](docs/assets/scriptcut-alpha4-export.png)
 
 ## Start Here
 
 The intended creator path is the **ScriptCut desktop app**:
 
-1. Open the [ScriptCut GitHub Releases page](https://github.com/FernandoAbishai/ScriptCut/releases).
-2. Choose a release explicitly identified in its notes and manifest as a self-contained macOS arm64 prerelease, then download its tagged DMG.
+1. [Download ScriptCut v0.1.0-alpha.4 for macOS Apple Silicon](https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.4/ScriptCut-v0.1.0-alpha.4-arm64.dmg).
+2. Open the DMG and install ScriptCut.
 3. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt.
-4. Choose **Edit full video** or **Create a short**, then select local media.
+4. Choose **Edit a Video** or **Create Clips**, then select local media.
 5. Review the transcript and export when the preflight panel is ready.
+
+For release notes, checksums, the manifest, and attestations, see the [v0.1.0-alpha.4 release page](https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.4).
 
 For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST_EXPORT.md).
 

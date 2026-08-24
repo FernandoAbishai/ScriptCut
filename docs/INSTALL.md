@@ -4,16 +4,17 @@ ScriptCut is a local-first Electron app with a React frontend and FastAPI backen
 
 ## Recommended Alpha Install
 
-For non-technical use, install the desktop app from the official [GitHub Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases):
+For non-technical use, install the already-qualified v0.1.0-alpha.4 desktop app:
 
-1. Open the official ScriptCut Releases feed and choose a prerelease explicitly identified as self-contained for macOS Apple Silicon.
-2. Download that tagged **macOS Apple Silicon (arm64)** `.dmg`.
-3. Open the DMG, open ScriptCut, and select a video when the app is ready.
-4. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming that the DMG came from the official ScriptCut Releases feed.
+1. [Download `ScriptCut-v0.1.0-alpha.4-arm64.dmg`](https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.4/ScriptCut-v0.1.0-alpha.4-arm64.dmg) for macOS Apple Silicon.
+2. Open the DMG, install ScriptCut, and select a workflow when the app is ready.
+3. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming that the DMG came from the official ScriptCut Releases feed.
+
+See the [v0.1.0-alpha.4 release page](https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.4) for release notes, checksums, the manifest, and attestations.
 
 The supported self-contained public-alpha path bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe. ScriptCut manages the baseline transcription model on first use; creators do not install system Python, pip, FFmpeg, or a virtual environment for a qualifying packaged release. The app uses an ad-hoc code signature for package integrity, but is not signed with Apple Developer ID or notarized, so the macOS approval step above may be required. Older alpha releases may predate this runtime; check the individual release notes and manifest.
 
-Read [Platform Support](./PLATFORM_SUPPORT.md) before downloading. If no qualifying self-contained release is attached yet, use the source setup below.
+Read [Platform Support](./PLATFORM_SUPPORT.md) for the current support matrix. For source development, use the setup below.
 
 ## Source Development Requirements
 
