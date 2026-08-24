@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AIProvider, AIProviderConfig, FillerWordResult, ClipSuggestion, ClipDraft, ProjectAIWorkspace, FillerReviewDecision, EditPlanResult, EditPlanReviewDecision, ClipReviewDecision } from '../types/project';
-import { normalizeClipReviewDecisions, resetClipWorkspaceState } from '../utils/clipWorkspace';
+import {
+  normalizeClipReviewDecisions,
+  resetMediaAIWorkspaceState,
+  restoreMediaAIWorkspaceState,
+} from '../utils/clipWorkspace';
 
 const ENCRYPTED_KEY_PREFIX = 'scriptcut_enc_';
 const LEGACY_ENCRYPTED_KEY_PREFIX = 'aive_enc_';
@@ -65,7 +69,7 @@ interface AIActions {
       | Record<string, ClipReviewDecision>
       | ((current: Record<string, ClipReviewDecision>) => Record<string, ClipReviewDecision>),
   ) => void;
-  resetClipWorkspace: () => void;
+  resetMediaAIWorkspace: () => void;
   setProcessing: (active: boolean, message?: string) => void;
   loadProjectAIState: (workspace?: ProjectAIWorkspace) => void;
   hydrateKeys: () => Promise<void>;
@@ -173,9 +177,9 @@ export const useAIStore = create<AIState & AIActions>()(
           return { clipReviewDecisions: normalizeClipReviewDecisions(next) };
         }),
 
-      resetClipWorkspace: () =>
+      resetMediaAIWorkspace: () =>
         set((state) => ({
-          ...resetClipWorkspaceState(state),
+          ...resetMediaAIWorkspaceState(state),
           clipWorkspaceEpoch: state.clipWorkspaceEpoch + 1,
         })),
 
@@ -183,20 +187,10 @@ export const useAIStore = create<AIState & AIActions>()(
         set({ isProcessing: active, processingMessage: message ?? '' }),
 
       loadProjectAIState: (workspace) =>
-        set({
-          customFillerWords: workspace?.customFillerWords ?? get().customFillerWords,
-          fillerResult: workspace?.fillerResult ?? null,
-          fillerDecisions: workspace?.fillerDecisions ?? {},
-          editPlanInstruction: workspace?.editPlanInstruction ?? '',
-          editPlanResult: workspace?.editPlanResult ?? null,
-          editPlanDecisions: workspace?.editPlanDecisions ?? {},
-          clipSuggestions: workspace?.clipSuggestions ?? [],
-          clipDrafts: workspace?.clipDrafts ?? [],
-          clipReviewDecisions: normalizeClipReviewDecisions(workspace?.clipReviewDecisions),
+        set((state) => ({
+          ...restoreMediaAIWorkspaceState(state, workspace),
           clipWorkspaceEpoch: get().clipWorkspaceEpoch + 1,
-          isProcessing: false,
-          processingMessage: '',
-        }),
+        })),
 
       hydrateKeys: async () => {
         const [openaiKey, claudeKey, routerKey] = await Promise.all([

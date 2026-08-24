@@ -224,8 +224,8 @@ export default function App() {
     setActivePanel(workflow === 'short' ? 'ai' : null);
   };
 
-  const resetClipWorkspaceForNewMedia = useCallback(() => {
-    useAIStore.getState().resetClipWorkspace();
+  const resetMediaAIWorkspaceForNewMedia = useCallback(() => {
+    useAIStore.getState().resetMediaAIWorkspace();
     const editorState = useEditorStore.getState();
     editorState.clearClipPresentationPreview();
     editorState.setSelectedWordIndices([]);
@@ -358,7 +358,7 @@ export default function App() {
     if (IS_ELECTRON) {
       const path = await window.electronAPI!.openFile();
       if (path) {
-        resetClipWorkspaceForNewMedia();
+        resetMediaAIWorkspaceForNewMedia();
         setEditorWorkflow(intent);
         applyWorkflowIntent(intent);
         const restored = await tryRestoreAutosave(path);
@@ -413,7 +413,7 @@ export default function App() {
       }
 
       const data = (await res.json()) as { path: string; filename: string; size: number };
-      resetClipWorkspaceForNewMedia();
+      resetMediaAIWorkspaceForNewMedia();
       setEditorWorkflow(intent);
       applyWorkflowIntent(intent);
       loadVideo(data.path);

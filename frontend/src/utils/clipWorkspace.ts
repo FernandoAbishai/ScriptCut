@@ -3,22 +3,59 @@ import type {
   ClipDraftStatus,
   ClipReviewDecision,
   ClipSuggestion,
+  EditPlanResult,
+  EditPlanReviewDecision,
+  FillerReviewDecision,
+  FillerWordResult,
+  ProjectAIWorkspace,
 } from '../types/project';
 
 export type ClipWorkspaceStage = 'find' | 'review' | 'prepare' | 'export';
 
-export function resetClipWorkspaceState<T extends {
+type MediaAIWorkspaceState = {
+  fillerResult: FillerWordResult | null;
+  fillerDecisions: Record<number, FillerReviewDecision>;
+  editPlanInstruction: string;
+  editPlanResult: EditPlanResult | null;
+  editPlanDecisions: Record<string, EditPlanReviewDecision>;
   clipSuggestions: ClipSuggestion[];
   clipDrafts: ClipDraft[];
   clipReviewDecisions: Record<string, ClipReviewDecision>;
   isProcessing: boolean;
   processingMessage: string;
-}>(state: T): T {
+};
+
+export function resetMediaAIWorkspaceState<T extends MediaAIWorkspaceState>(state: T): T {
   return {
     ...state,
+    fillerResult: null,
+    fillerDecisions: {},
+    editPlanInstruction: '',
+    editPlanResult: null,
+    editPlanDecisions: {},
     clipSuggestions: [],
     clipDrafts: [],
     clipReviewDecisions: {},
+    isProcessing: false,
+    processingMessage: '',
+  };
+}
+
+export function restoreMediaAIWorkspaceState<T extends MediaAIWorkspaceState & { customFillerWords: string }>(
+  state: T,
+  workspace?: ProjectAIWorkspace,
+): T {
+  return {
+    ...state,
+    customFillerWords: workspace?.customFillerWords ?? state.customFillerWords,
+    fillerResult: workspace?.fillerResult ?? null,
+    fillerDecisions: workspace?.fillerDecisions ?? {},
+    editPlanInstruction: workspace?.editPlanInstruction ?? '',
+    editPlanResult: workspace?.editPlanResult ?? null,
+    editPlanDecisions: workspace?.editPlanDecisions ?? {},
+    clipSuggestions: workspace?.clipSuggestions ?? [],
+    clipDrafts: workspace?.clipDrafts ?? [],
+    clipReviewDecisions: normalizeClipReviewDecisions(workspace?.clipReviewDecisions),
     isProcessing: false,
     processingMessage: '',
   };
