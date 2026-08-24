@@ -76,9 +76,13 @@ async function main() {
   const sections = parseChangelog(changelog);
   assert(sections.has('Unreleased'), 'repository changelog lacks Unreleased');
   assert(sections.has('v0.1.0-alpha.3'), 'repository changelog lacks alpha.3 history');
-  assert(selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.4' }).source === 'Unreleased', 'dry-run did not select Unreleased');
+  assert(sections.has('v0.1.0-alpha.4'), 'repository changelog lacks alpha.4 release notes');
+  const repositoryDryRun = selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.4' });
+  assert(repositoryDryRun.source === 'v0.1.0-alpha.4', 'repository dry-run did not select exact alpha.4 notes');
+  assert(repositoryDryRun.markdown.trim().length > 0, 'repository alpha.4 notes are empty');
+  const repositoryPublication = selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.4', publicationNotesRequired: true });
+  assert(repositoryPublication.source === 'v0.1.0-alpha.4', 'repository publication did not select exact alpha.4 notes');
   assert(selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.3' }).source === 'v0.1.0-alpha.3', 'exact release section did not win');
-  expectFailure(() => selectReleaseNotes({ releaseTag: 'v0.1.0-alpha.4', publicationNotesRequired: true }), 'missing exact publication section');
 
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scriptcut-release-notes-'));
   try {

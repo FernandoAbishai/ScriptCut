@@ -2,24 +2,24 @@
 
 ## Unreleased
 
+## v0.1.0-alpha.4
+
 ### Added
 
-- Canonical release-note and post-publication closure verification for the public alpha workflow.
-- Machine-readable bundle-size attribution and release size evidence for candidate and public workflow review.
-- Clip preview now shows the actual social crop and live caption composition before export.
+- Clip discovery validates, ranks, bounds, and diversifies transcript-grounded suggestions, targeting a small review queue of useful moments.
+- Clip review provides bounded preview with recoverable Approve and Skip decisions.
+- Crop/framing and caption composition can be previewed before export.
 
 ### Changed
 
-- Batch clip export now preserves completed clips and makes interrupted or failed exports easy to resume.
-- Publishing copy is now optional and resilient; AI copy generation no longer controls clip export readiness.
-- Clip discovery now validates and ranks distinct transcript-grounded suggestions and targets a five-clip review queue.
-- Clip review now previews exact clip ranges and preserves Approve/Skip decisions.
-- Release qualification now separates product identity, public release identity, and maintainer evidence.
-- Public release preparation can use curated, creator-oriented changes without duplicating them in generator code.
+- Publishing copy is optional and resilient, so AI copy generation does not block clip export.
+- Batch export preserves completed clips and supports recovery and continuation after interruption or failure.
 
 ### Fixed
 
-- Post-publication release verification now has an explicit reusable check of the live GitHub release state.
+- Diarization compatibility is restored across supported pyannote APIs, with source video audio normalized where required.
+- Exported caption timestamps align with the trimmed and concatenated output timeline, with honest sidecar SRT fallback when burn-in is unavailable.
+- Release notes, public release identity, post-publication verification, and bundle-size evidence now have canonical validation and attribution.
 
 ## v0.1.0-alpha.3
 
