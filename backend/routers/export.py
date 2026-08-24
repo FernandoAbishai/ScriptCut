@@ -4,7 +4,7 @@ import logging
 import tempfile
 import os
 import math
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -89,6 +89,7 @@ class ExportRequest(BaseModel):
     captionStyle: Optional[CaptionStyleModel] = None
     backgroundRemoval: Optional[BackgroundRemovalModel] = None
     words: Optional[List[ExportWordModel]] = None
+    word_timeline: Literal["source", "export"] = "source"
     deleted_indices: Optional[List[int]] = None
 
 
@@ -182,20 +183,15 @@ def run_export(req: ExportRequest, progress_callback=None):
         deleted_set = set(req.deleted_indices or [])
         muted_ranges = [{"start": r.start, "end": r.end, "kind": r.kind} for r in req.muted_ranges]
         effective_captions = req.captions
-        caption_words = (
-            project_words_to_export_timeline(words_dicts, segments, deleted_set)
-            if req.captions != "none" and words_dicts
-            else []
-        )
-        if req.captions != "none" and words_dicts and not caption_words and not deleted_set:
-            active_words = [word for index, word in enumerate(words_dicts) if index not in deleted_set]
-            export_duration = sum(segment["end"] - segment["start"] for segment in segments)
-            if active_words and all(
-                0 <= word["start"] < word["end"] <= export_duration
-                for word in active_words
-            ):
-                # The clip workspace already sends words on the export timeline.
-                caption_words = active_words
+        caption_words = []
+        if req.captions != "none" and words_dicts:
+            if req.word_timeline == "source":
+                caption_words = project_words_to_export_timeline(words_dicts, segments, deleted_set)
+            else:
+                caption_words = [
+                    word for index, word in enumerate(words_dicts)
+                    if index not in deleted_set
+                ]
         if req.captions == "burn-in" and words_dicts and not supports_ass_subtitles():
             effective_captions = "sidecar"
             warnings.append(

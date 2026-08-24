@@ -10,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const readSource = (relativePath) => readFileSync(resolve(__dirname, relativePath), 'utf8');
 
 const panelSource = readSource('../src/components/AIPanel.tsx');
+const exportDialogSource = readSource('../src/components/ExportDialog.tsx');
 const reviewSource = readSource('../src/components/ClipReviewWorkspace.tsx');
 const appSource = readSource('../src/App.tsx');
 const transcriptSource = readSource('../src/components/TranscriptEditor.tsx');
@@ -79,6 +80,12 @@ assert.match(autosaveSource, /normalizeClipReviewDecisions\(workspace\.clipRevie
 assert.match(autosaveSource, /clipReviewDecisions: aiState\.clipReviewDecisions/);
 assert.match(panelSource, /validateClipDraftForExport\(draft, words, videoPath\)/);
 assert.match(panelSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
+assert.match(
+  panelSource,
+  /const clipWords = buildClipExportCaptionWords\([\s\S]*?body: JSON\.stringify\(\{[\s\S]*?word_timeline: 'export',[\s\S]*?words: captions !== 'none' \? clipWords : undefined,/,
+  'clip workspace marks pre-projected caption words as export timeline',
+);
+assert.doesNotMatch(exportDialogSource, /word_timeline:/, 'main export relies on the source timeline default');
 assert.match(panelSource, /\/jobs\/ai\/clip-metadata/);
 assert.doesNotMatch(panelSource, /Shorts Queue/);
 assert.doesNotMatch(panelSource, /AI Suggestions/);

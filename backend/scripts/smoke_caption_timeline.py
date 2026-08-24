@@ -169,7 +169,7 @@ class CaptionTimelineSmokeTests(unittest.TestCase):
             self.assertEqual(result, {"status": "ok", "output_path": output_path})
             self.assertFalse(Path(output_path).with_suffix(".srt").exists())
 
-    def test_existing_clip_local_caption_words_remain_supported(self) -> None:
+    def test_declared_export_timeline_words_remain_supported(self) -> None:
         captured: dict[str, str] = {}
 
         def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
@@ -188,6 +188,7 @@ class CaptionTimelineSmokeTests(unittest.TestCase):
                 output_path=str(Path(tmp) / "clip.mp4"),
                 keep_segments=[export_router.SegmentModel(start=600, end=620)],
                 captions="sidecar",
+                word_timeline="export",
                 words=[export_router.ExportWordModel(word="local", start=0, end=1)],
             )
 
@@ -198,6 +199,158 @@ class CaptionTimelineSmokeTests(unittest.TestCase):
                 export_router.run_export(request)
 
         self.assertIn("00:00:00,000 --> 00:00:01,000", captured["content"])
+
+    def test_export_timeline_preserves_early_clip_words_that_overlap_source_time(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        def fake_save_captions(content: str, output_path: str):
+            captured["content"] = content
+            return output_path
+
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=str(Path(tmp) / "clip.mp4"),
+                keep_segments=[export_router.SegmentModel(start=5, end=25)],
+                captions="sidecar",
+                captionStyle=export_router.CaptionStyleModel(wordsPerLine=1),
+                word_timeline="export",
+                words=[
+                    export_router.ExportWordModel(word="early", start=0.5, end=1.0),
+                    export_router.ExportWordModel(word="collision", start=6.0, end=7.0),
+                    export_router.ExportWordModel(word="late", start=19.0, end=20.0),
+                ],
+            )
+
+            with (
+                patch.object(export_router, "export_stream_copy", fake_stream_copy),
+                patch.object(export_router, "save_captions", fake_save_captions),
+            ):
+                export_router.run_export(request)
+
+        self.assertIn("00:00:00,500 --> 00:00:01,000", captured["content"])
+        self.assertIn("00:00:06,000 --> 00:00:07,000", captured["content"])
+        self.assertIn("00:00:19,000 --> 00:00:20,000", captured["content"])
+
+    def test_source_timeline_default_projects_identical_numbers(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        def fake_save_captions(content: str, output_path: str):
+            captured["content"] = content
+            return output_path
+
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=str(Path(tmp) / "clip.mp4"),
+                keep_segments=[export_router.SegmentModel(start=5, end=25)],
+                captions="sidecar",
+                words=[export_router.ExportWordModel(word="source", start=6, end=7)],
+            )
+
+            self.assertEqual(request.word_timeline, "source")
+
+            with (
+                patch.object(export_router, "export_stream_copy", fake_stream_copy),
+                patch.object(export_router, "save_captions", fake_save_captions),
+            ):
+                export_router.run_export(request)
+
+        self.assertIn("00:00:01,000 --> 00:00:02,000", captured["content"])
+        self.assertNotIn("00:00:06,000 --> 00:00:07,000", captured["content"])
+
+    def test_burn_in_respects_declared_export_timeline(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_reencode_with_subs(
+            input_path,
+            output_path,
+            segments,
+            subtitle_path,
+            **_kwargs,
+        ):
+            captured["ass"] = Path(subtitle_path).read_text(encoding="utf-8")
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=str(Path(tmp) / "clip.mp4"),
+                keep_segments=[export_router.SegmentModel(start=5, end=25)],
+                captions="burn-in",
+                captionStyle=export_router.CaptionStyleModel(wordsPerLine=1),
+                word_timeline="export",
+                words=[
+                    export_router.ExportWordModel(word="early", start=0.5, end=1.0),
+                    export_router.ExportWordModel(word="collision", start=6.0, end=7.0),
+                    export_router.ExportWordModel(word="late", start=19.0, end=20.0),
+                ],
+            )
+
+            with (
+                patch.object(export_router, "supports_ass_subtitles", return_value=True),
+                patch.object(export_router, "export_reencode_with_subs", fake_reencode_with_subs),
+            ):
+                export_router.run_export(request)
+
+        self.assertIn("Dialogue: 0,0:00:00.50,0:00:01.00", captured["ass"])
+        self.assertIn("Dialogue: 0,0:00:06.00,0:00:07.00", captured["ass"])
+        self.assertIn("Dialogue: 0,0:00:19.00,0:00:20.00", captured["ass"])
+        self.assertNotIn("Dialogue: 0,0:00:01.00,0:00:02.00", captured["ass"])
+
+    def test_export_timeline_deletes_indices_from_supplied_word_array(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
+            Path(output_path).write_text("video", encoding="utf-8")
+            return output_path
+
+        def fake_save_captions(content: str, output_path: str):
+            captured["content"] = content
+            return output_path
+
+        with TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "input.mp4"
+            input_path.write_text("placeholder", encoding="utf-8")
+            request = export_router.ExportRequest(
+                input_path=str(input_path),
+                output_path=str(Path(tmp) / "clip.mp4"),
+                keep_segments=[export_router.SegmentModel(start=5, end=25)],
+                captions="sidecar",
+                captionStyle=export_router.CaptionStyleModel(wordsPerLine=1),
+                word_timeline="export",
+                words=[
+                    export_router.ExportWordModel(word="keep-early", start=0.5, end=1.0),
+                    export_router.ExportWordModel(word="delete", start=6.0, end=7.0),
+                    export_router.ExportWordModel(word="keep-late", start=19.0, end=20.0),
+                ],
+                deleted_indices=[1],
+            )
+
+            with (
+                patch.object(export_router, "export_stream_copy", fake_stream_copy),
+                patch.object(export_router, "save_captions", fake_save_captions),
+            ):
+                export_router.run_export(request)
+
+        self.assertIn("00:00:00,500 --> 00:00:01,000", captured["content"])
+        self.assertIn("00:00:19,000 --> 00:00:20,000", captured["content"])
+        self.assertNotIn("delete", captured["content"])
 
     def test_deleted_source_word_does_not_trigger_clip_local_fallback(self) -> None:
         def fake_stream_copy(input_path, output_path, segments, progress_callback=None):
