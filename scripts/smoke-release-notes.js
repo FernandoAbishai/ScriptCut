@@ -118,9 +118,43 @@ async function main() {
       changelogPath: plannedFixture,
     });
     const notes = fs.readFileSync(path.join(result.outputDir, 'RELEASE_NOTES.md'), 'utf8');
-    assert(notes.includes("## What's changed"), 'generated notes lack curated section');
+    const downloadIndex = notes.indexOf('## Download');
+    const installIndex = notes.indexOf('## Install');
+    const whatsNewIndex = notes.indexOf("## What's new");
+    const verifyIndex = notes.indexOf('## Verify download');
+    const provenanceIndex = notes.indexOf('## Build provenance');
+    const expectedDownloadUrl = `https://github.com/FernandoAbishai/ScriptCut/releases/download/${result.manifest.releaseTag}/${result.manifest.artifact.filename}`;
+    assert(notes.startsWith(`# ScriptCut ${result.manifest.releaseTag}\n\n## Download`), 'generated notes do not begin with creator download path');
+    assert(downloadIndex >= 0, 'generated notes lack Download section');
+    assert(installIndex >= 0, 'generated notes lack Install section');
+    assert(whatsNewIndex >= 0, 'generated notes lack What\'s new section');
+    assert(verifyIndex >= 0, 'generated notes lack verification section');
+    assert(provenanceIndex >= 0, 'generated notes lack provenance section');
+    assert(notes.includes(expectedDownloadUrl), 'generated notes lack exact direct DMG URL');
+    assert(downloadIndex < installIndex, 'Download must precede Install');
+    assert(installIndex < whatsNewIndex, 'Install must precede What\'s new');
+    assert(whatsNewIndex < verifyIndex, 'What\'s new must precede verification');
+    assert(whatsNewIndex < provenanceIndex, 'What\'s new must precede provenance');
+    assert(notes.includes("## What's new"), 'generated notes lack curated section');
     assert(notes.includes('Dry-run / planned release-note content'), 'Unreleased dry-run content is not labeled');
     assert(notes.includes('Planned.'), 'generated notes omit Unreleased content');
+    assert(!notes.includes('/releases/latest'), 'generated notes use a moving latest-release URL');
+    assert(notes.includes('Privacy & Security → Open Anyway'), 'generated notes omit Open Anyway guidance');
+    assert(notes.includes('shasum -a 256 -c SHA256SUMS.txt'), 'generated notes omit checksum verification command');
+    assert(notes.includes('gh attestation verify'), 'generated notes omit attestation verification command');
+    const exactChangelog = writeChangelog(fixtureRoot, '# Changelog\n\n## Unreleased\n\n- Planned.\n\n## v0.1.0-alpha.4\n\n- Exact selected.\n');
+    const publicationResult = await preparePublicRelease({
+      tag: 'v0.1.0-alpha.4',
+      existingTags: ['v0.1.0-alpha.1', 'v0.1.0-alpha.2', 'v0.1.0-alpha.3'],
+      candidateDir,
+      outputDir: path.join(fixtureRoot, 'publication-with-exact-notes'),
+      commit: 'a'.repeat(40),
+      changelogPath: exactChangelog,
+      publicationNotesRequired: true,
+    });
+    const publicationNotes = fs.readFileSync(path.join(publicationResult.outputDir, 'RELEASE_NOTES.md'), 'utf8');
+    assert(publicationNotes.includes('Exact selected.'), 'generated publication notes omit the exact CHANGELOG section');
+    assert(!publicationNotes.includes('Planned.'), 'generated publication notes used Unreleased despite an exact section');
     await expectFailureAsync(() => preparePublicRelease({
       tag: 'v0.1.0-alpha.5',
       existingTags: ['v0.1.0-alpha.1', 'v0.1.0-alpha.2', 'v0.1.0-alpha.3'],
