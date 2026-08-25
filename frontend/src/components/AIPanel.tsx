@@ -821,6 +821,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const [exportingDraftId, setExportingDraftId] = useState<string | null>(null);
   const [clipExportJobs, setClipExportJobs] = useState<Record<string, ExportJob>>({});
+  const [clipExportOutputs, setClipExportOutputs] = useState<Record<string, ClipExportOutput>>({});
   const [isBatchExporting, setBatchExporting] = useState(false);
   const [batchExportProgress, setBatchExportProgress] = useState<ClipBatchProgressInput>({
     processed: 0,
@@ -832,6 +833,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const exportBusy = isBatchExporting || exportingDraftId !== null;
   const stopBatchExportRef = useRef(false);
   const [publishingCopyDraftId, setPublishingCopyDraftId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setClipExportOutputs({});
+  }, [clipWorkspaceEpoch]);
+
   const exportCandidateDrafts = useMemo(
     () => getClipBatchExportCandidates(clipDrafts, words, videoPath),
     [clipDrafts, videoPath, words],
@@ -1079,6 +1085,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             exportedAt: new Date().toISOString(),
             lastError: undefined,
           });
+          setClipExportOutputs((current) => ({ ...current, [settings.id!]: output }));
         }
         if (!silent) {
           setCreatorNotice({
@@ -1155,6 +1162,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           exportedAt: new Date().toISOString(),
           lastError: undefined,
         });
+        setClipExportOutputs((current) => ({ ...current, [draft.id]: output }));
         setCreatorNotice({
           tone: 'success',
           title: 'Clip exported',
@@ -1385,7 +1393,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       ].filter(Boolean);
       setCreatorNotice({
         tone: failedCount > 0 || manifestWarning ? 'warning' : 'success',
-        title: stopped ? 'Export stopped' : 'Export finished',
+        title: successCount > 0
+          ? `${successCount} clip${successCount === 1 ? '' : 's'} ready`
+          : stopped
+            ? 'Export stopped'
+            : 'Export finished',
         message: `${successCount} exported, ${failedCount} failed.${stopped ? ` ${remainingDrafts.length} remaining.` : ''}${manifestPath ? ` Manifest saved to ${manifestPath}.` : ''}`,
         technicalDetails: warningDetails.length > 0 ? warningDetails.join('\n') : undefined,
         onDismiss: () => setCreatorNotice(null),
@@ -2004,6 +2016,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                         isExporting={exportingDraftId === draft.id}
                         exportBusy={exportBusy}
                         exportJob={clipExportJobs[draft.id]}
+                        exportResult={draft.exportPath ? clipExportOutputs[draft.id] : undefined}
                         backendUrl={backendUrl}
                         backgroundCapabilities={backgroundCapabilities}
                         transcriptSnippet={getClipTranscript(words, draft)}
@@ -2126,6 +2139,7 @@ function ClipDraftCard({
   exportBusy,
   isGeneratingPublishingCopy,
   exportJob,
+  exportResult,
   backendUrl,
   backgroundCapabilities,
   transcriptSnippet,
@@ -2154,6 +2168,7 @@ function ClipDraftCard({
   exportBusy: boolean;
   isGeneratingPublishingCopy: boolean;
   exportJob?: ExportJob;
+  exportResult?: ClipExportOutput;
   backendUrl: string;
   backgroundCapabilities: BackgroundCapabilities | null;
   transcriptSnippet: string;
@@ -2177,6 +2192,8 @@ function ClipDraftCard({
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
+  const [advancedExportOpen, setAdvancedExportOpen] = useState(false);
+  const [publishingCopyOpen, setPublishingCopyOpen] = useState(false);
   const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running' || exportJob?.status === 'canceling';
   const status = draft.status || 'draft';
   const exportRetryable = status === 'failed' || exportJob?.status === 'failed' || exportJob?.status === 'canceled';
@@ -2193,6 +2210,7 @@ function ClipDraftCard({
   );
   const hookFrames = buildHookFrameCandidates(draft);
   const selectedHookFrame = getSelectedHookFrame(draft);
+  const exportWarnings = exportResult?.warnings || [];
 
   return (
     <div className={`space-y-2 rounded border p-3 ${isActive ? 'border-editor-accent bg-editor-accent/5' : 'border-transparent bg-editor-surface'}`}>
@@ -2204,7 +2222,7 @@ function ClipDraftCard({
         />
         <ClipStatusBadge status={status} />
       </div>
-      {draft.titleSuggestions && draft.titleSuggestions.length > 0 && (
+      {publishingCopyOpen && draft.titleSuggestions && draft.titleSuggestions.length > 0 && (
         <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
           <div className="font-medium text-editor-text">Title suggestions</div>
           <div className="flex flex-wrap gap-1">
@@ -2226,15 +2244,43 @@ function ClipDraftCard({
         </span>
         <span>{Math.round(draft.endTime - draft.startTime)}s</span>
       </div>
-      <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
-        <div className="flex items-center justify-between gap-2">
-          <span>Publishing copy</span>
+      <div className="rounded border border-editor-border bg-editor-bg text-[10px] text-editor-text-muted">
+        <button
+          type="button"
+          aria-expanded={publishingCopyOpen}
+          aria-controls={`publishing-copy-${draft.id}`}
+          onClick={() => setPublishingCopyOpen((current) => !current)}
+          className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-editor-surface"
+        >
+          <span className="font-medium text-editor-text">Publishing copy — optional</span>
           <span className={publishingCopyState.ready ? 'text-editor-success' : 'text-editor-text-muted'}>
-            {publishingCopyState.ready ? 'Copy ready' : 'Optional'}
+            {publishingCopyState.ready ? 'Copy ready' : publishingCopyOpen ? 'Hide' : 'Show'}
           </span>
-        </div>
-        {!publishingCopyState.ready && (
-          <div>Missing: {publishingCopyState.missingFields.join(', ')}</div>
+        </button>
+        {publishingCopyOpen && (
+          <div id={`publishing-copy-${draft.id}`} className="space-y-2 border-t border-editor-border p-2">
+            <div>
+              {publishingCopyState.ready
+                ? 'Publishing copy is ready, but it is not required to export this clip.'
+                : `Optional fields missing: ${publishingCopyState.missingFields.join(', ')}`}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={onGeneratePublishingCopy}
+                disabled={isSuggested || isGeneratingPublishingCopy}
+                className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
+              >
+                {isGeneratingPublishingCopy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                {isGeneratingPublishingCopy ? 'Generating copy...' : hasGeneratedPublishingCopy ? 'Refresh publishing copy' : 'Generate publishing copy'}
+              </button>
+              <button
+                onClick={onCopyPublishingCopy}
+                className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-surface"
+              >
+                <Clipboard className="w-3 h-3" /> Copy details
+              </button>
+            </div>
+          </div>
         )}
       </div>
       <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[10px] text-editor-text-muted">
@@ -2255,24 +2301,66 @@ function ClipDraftCard({
         )}
       </div>
       {draft.exportPath && (
-        <div className="space-y-1 rounded bg-editor-bg px-2 py-1 text-[10px] text-editor-success" title={draft.exportPath}>
-          <div className="truncate">Exported: {draft.exportPath}</div>
-          {window.electronAPI ? (
-            <button
-              onClick={() => window.electronAPI?.revealPath(draft.exportPath || '')}
-              className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Reveal in Finder
-            </button>
-          ) : (
-            <a
-              href={getBackendFileUrl(backendUrl, draft.exportPath)}
-              download={getFileNameFromPath(draft.exportPath, `${draft.title || 'scriptcut_clip'}.${draft.format}`)}
-              className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
-            >
-              Download clip
-            </a>
+        <div className="space-y-2 rounded border border-editor-success/30 bg-editor-success/10 px-2.5 py-2 text-[10px] text-editor-success">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-semibold">Clip ready</div>
+              <div className="mt-0.5 truncate text-editor-text" title={draft.title}>{draft.title}</div>
+            </div>
+            <ClipStatusBadge status="exported" />
+          </div>
+          <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5">
+            <div className="font-medium text-editor-text">Video output</div>
+            <div className="truncate" title={draft.exportPath}>{getFileNameFromPath(draft.exportPath, `${draft.title || 'scriptcut_clip'}.${draft.format}`)}</div>
+            <div className="flex flex-wrap gap-1">
+              {window.electronAPI ? (
+                <button
+                  onClick={() => window.electronAPI?.revealPath(draft.exportPath || '')}
+                  className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Reveal in Finder
+                </button>
+              ) : (
+                <a
+                  href={getBackendFileUrl(backendUrl, draft.exportPath)}
+                  download={getFileNameFromPath(draft.exportPath, `${draft.title || 'scriptcut_clip'}.${draft.format}`)}
+                  className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
+                >
+                  Download clip
+                </a>
+              )}
+            </div>
+          </div>
+          {exportResult?.srtPath && (
+            <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5">
+              <div className="font-medium text-editor-text">SRT sidecar</div>
+              <div className="truncate" title={exportResult.srtPath}>{getFileNameFromPath(exportResult.srtPath, 'captions.srt')}</div>
+              <div className="flex flex-wrap gap-1">
+                {window.electronAPI ? (
+                  <button
+                    onClick={() => window.electronAPI?.revealPath(exportResult.srtPath || '')}
+                    className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
+                  >
+                    <ExternalLink className="h-3 w-3" /> Reveal SRT in Finder
+                  </button>
+                ) : (
+                  <a
+                    href={getBackendFileUrl(backendUrl, exportResult.srtPath)}
+                    download={getFileNameFromPath(exportResult.srtPath, 'captions.srt')}
+                    className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
+                  >
+                    Download SRT
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+          {exportWarnings.length > 0 && (
+            <div className="space-y-0.5 rounded bg-editor-warning/10 px-2 py-1.5 text-editor-warning">
+              <div className="font-medium">Export note</div>
+              {exportWarnings.map((warning) => <div key={warning}>{warning}</div>)}
+            </div>
           )}
         </div>
       )}
@@ -2320,7 +2408,7 @@ function ClipDraftCard({
           onChange={(endTime) => onTrim({ endTime: Math.max(draft.startTime + 0.25, endTime) })}
         />
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 gap-2">
         <MiniSelect
           label="Frame"
           value={draft.aspectRatio}
@@ -2334,26 +2422,6 @@ function ClipDraftCard({
             { value: 'source', label: 'Source' },
             { value: 'vertical', label: '9:16' },
             { value: 'square', label: '1:1' },
-          ]}
-        />
-        <MiniSelect
-          label="Quality"
-          value={draft.resolution}
-          onChange={(resolution) => onChange({ resolution: resolution as ClipDraft['resolution'] })}
-          options={[
-            { value: '720p', label: '720p' },
-            { value: '1080p', label: '1080p' },
-            { value: '4k', label: '4K' },
-          ]}
-        />
-        <MiniSelect
-          label="Format"
-          value={draft.format}
-          onChange={(format) => onChange({ format: format as ClipDraft['format'] })}
-          options={[
-            { value: 'mp4', label: 'MP4' },
-            { value: 'mov', label: 'MOV' },
-            { value: 'webm', label: 'WebM' },
           ]}
         />
       </div>
@@ -2401,20 +2469,58 @@ function ClipDraftCard({
           onChange={(captionStyle) => onChange({ captionStyle })}
         />
       )}
-      <label className="flex items-center justify-between gap-2 rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text-muted">
-        <span>Enhance audio</span>
-        <input
-          type="checkbox"
-          checked={!!draft.enhanceAudio}
-          onChange={(e) => onChange({ enhanceAudio: e.target.checked })}
-          className="h-3.5 w-3.5 rounded bg-editor-surface border-editor-border accent-editor-accent"
-        />
-      </label>
-      <ClipBackgroundControls
-        draft={draft}
-        capabilities={backgroundCapabilities}
-        onChange={onChange}
-      />
+      <div className="rounded border border-editor-border bg-editor-bg text-[11px] text-editor-text-muted">
+        <button
+          type="button"
+          aria-expanded={advancedExportOpen}
+          aria-controls={`advanced-export-settings-${draft.id}`}
+          onClick={() => setAdvancedExportOpen((current) => !current)}
+          className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-editor-surface"
+        >
+          <span className="font-medium text-editor-text">Advanced export settings</span>
+          <span>{advancedExportOpen ? 'Hide' : 'Show'}</span>
+        </button>
+        {advancedExportOpen && (
+          <div id={`advanced-export-settings-${draft.id}`} className="space-y-2 border-t border-editor-border p-2">
+            <div className="grid grid-cols-2 gap-2">
+              <MiniSelect
+                label="Resolution"
+                value={draft.resolution}
+                onChange={(resolution) => onChange({ resolution: resolution as ClipDraft['resolution'] })}
+                options={[
+                  { value: '720p', label: '720p' },
+                  { value: '1080p', label: '1080p' },
+                  { value: '4k', label: '4K' },
+                ]}
+              />
+              <MiniSelect
+                label="Format"
+                value={draft.format}
+                onChange={(format) => onChange({ format: format as ClipDraft['format'] })}
+                options={[
+                  { value: 'mp4', label: 'MP4' },
+                  { value: 'mov', label: 'MOV' },
+                  { value: 'webm', label: 'WebM' },
+                ]}
+              />
+            </div>
+            <label className="flex items-center justify-between gap-2 rounded border border-editor-border bg-editor-surface px-2 py-1.5 text-[11px] text-editor-text-muted">
+              <span>Enhance audio</span>
+              <input
+                type="checkbox"
+                checked={!!draft.enhanceAudio}
+                onChange={(e) => onChange({ enhanceAudio: e.target.checked })}
+                className="h-3.5 w-3.5 rounded bg-editor-surface border-editor-border accent-editor-accent"
+              />
+            </label>
+            <ClipBackgroundControls
+              draft={draft}
+              capabilities={backgroundCapabilities}
+              onChange={onChange}
+            />
+          </div>
+        )}
+      </div>
       <p className="text-[11px] leading-snug text-editor-text-muted">{draft.reason}</p>
       {(isExporting || exportRetryable) && exportJob && (
         <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text-muted">
@@ -2431,6 +2537,8 @@ function ClipDraftCard({
           {exportJob.error && <div className="break-words text-editor-warning">{exportJob.error}</div>}
         </div>
       )}
+      {publishingCopyOpen && (
+        <>
       <div className="space-y-1 rounded bg-editor-bg p-2 text-[11px] text-editor-text-muted">
           <div>
             <span className="font-medium text-editor-text">Transcript</span>
@@ -2581,6 +2689,8 @@ function ClipDraftCard({
           })}
         </div>
       </div>
+        </>
+      )}
       <div className="grid grid-cols-2 gap-2">
         {isSuggested ? (
           <button
@@ -2602,20 +2712,6 @@ function ClipDraftCard({
           className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30"
         >
           <Play className="w-3 h-3" /> Preview
-        </button>
-        <button
-          onClick={onGeneratePublishingCopy}
-          disabled={isSuggested || isGeneratingPublishingCopy}
-          className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
-        >
-          {isGeneratingPublishingCopy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-          {isGeneratingPublishingCopy ? 'Generating copy...' : hasGeneratedPublishingCopy ? 'Refresh publishing copy' : 'Generate publishing copy'}
-        </button>
-        <button
-          onClick={onCopyPublishingCopy}
-          className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
-        >
-          <Clipboard className="w-3 h-3" /> Copy details
         </button>
         <button
           onClick={onExport}
@@ -2880,11 +2976,11 @@ function ClipStatusBadge({ status }: { status: ClipDraftStatus }) {
   };
   const labels: Record<ClipDraftStatus, string> = {
     suggested: 'Suggested',
-    draft: 'Approved',
-    packaged: 'Approved',
+    draft: 'Prepare',
+    packaged: 'Prepared',
     exporting: 'Exporting',
     exported: 'Exported',
-    failed: 'Failed',
+    failed: 'Needs retry',
   };
 
   return (
