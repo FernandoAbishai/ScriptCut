@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## v0.1.0-alpha.5
+
+### Added
+
+- Create Clips is now a clearer first-class workflow, with full-video editing and clip export easier to distinguish.
+- Clip preparation keeps framing and captions close at hand, with resolution, format, audio enhancement, and background-removal controls under Advanced export settings.
+- Successful clip exports surface the video output and, when caption burn-in is unavailable, a matching `.srt` sidecar directly.
+
+### Changed
+
+- Transcript-selected clips move directly into Prepare, and newly created manual clips become the active clip immediately.
+- Clip queues distinguish Prepare, Exporting, retry/failure, and Exported states; successful exports show a clearer result while batch retry and recovery remain available.
+- Publishing copy is clearly optional and does not block clip export.
+- Installation and first-export guidance now follows the current alpha4+ desktop workflow.
+
+### Fixed
+
+- Opening new media clears media-specific AI and clip state while preserving reusable provider and preference settings; reopened projects restore relevant Clips context.
+- Stale AI and transcription work can no longer attach results or UI state from old media or projects to the current workspace.
+
+### Current alpha notes
+
+- Product version remains `0.1.0`; this release identity is `v0.1.0-alpha.5`.
+- The public build remains macOS Apple Silicon (arm64) only, ad-hoc signed, and not notarized; macOS **Open Anyway** approval may be required. There is no Windows/Linux public build or social publishing API.
+- Publishing copy remains optional, and caption burn-in may fall back to a real `.srt` sidecar.
+
 ## v0.1.0-alpha.4
 
 ### Added
