@@ -20,15 +20,14 @@ assert.doesNotMatch(appSource, /setTranscriptionEngine\(status\.default_engine\)
 assert.doesNotMatch(appSource, /setTranscriptionModel\(status\.default_model\)/);
 assert.match(appSource, /engine: transcriptionEngine, model: transcriptionModel/);
 assert.match(appSource, /\/jobs\/transcribe/);
-assert.match(appSource, /\/jobs\/\$\{lastTranscriptionJobId\}\/retry/);
-assert.match(appSource, /\/jobs\/\$\{lastTranscriptionJobId\}\/cancel/);
+assert.match(appSource, /\/jobs\/\$\{previousJobId\}\/retry/);
+assert.match(appSource, /\/jobs\/\$\{jobId\}\/cancel/);
 assert.match(appSource, /setTimeout\(resolve, 700\)/);
 assert.match(appSource, /transcriptionIntentRef/);
 assert.match(appSource, /startTranscriptionWithSettings/);
 assert.match(appSource, /transcribeVideo\(lastTranscriptionPath, transcriptionIntentRef\.current/);
 assert.match(appSource, /const completeTranscription =/);
-assert.match(appSource, /completeTranscription\(data, intent\)/);
-assert.match(appSource, /completeTranscription\(data, transcriptionIntentRef\.current\)/);
+assert.match(appSource, /completeTranscription\(data, run\)/);
 assert.match(appSource, /getPostTranscriptionPanel/);
 assert.doesNotMatch(appSource, /setActivePanel\(resolvedIntent === 'short' \? 'ai' : 'export'\)/);
 
