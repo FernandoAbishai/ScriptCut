@@ -4,58 +4,72 @@ This guide is for creators using the ScriptCut desktop app.
 
 ## What ScriptCut Does
 
-ScriptCut lets you edit spoken video by editing the transcript. Delete words to cut the video, review playback, package shorts, and export social-ready files from your own computer.
+ScriptCut lets you edit spoken video by editing the transcript. Delete words to cut the video, review playback, create social-ready clips, and export files from your own computer.
 
 ## Install the App
 
-1. Go to the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) and choose a prerelease explicitly identified as self-contained for macOS Apple Silicon.
-2. Download that tagged macOS Apple Silicon (arm64) `.dmg`.
-3. Open the DMG and launch ScriptCut.
-4. If macOS blocks the ad-hoc-signed first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming the download came from the official Releases feed.
+1. Use a macOS Apple Silicon Mac (M1 or newer).
+2. [Download the official v0.1.0-alpha.5 Apple Silicon DMG](https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.5/ScriptCut-v0.1.0-alpha.5-arm64.dmg).
+3. Open the DMG and move ScriptCut to Applications.
+4. Launch ScriptCut. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming you downloaded the official file.
 
-The supported self-contained public-alpha path bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe. ScriptCut downloads and verifies the baseline transcription model on first use; creators do not install system Python or FFmpeg for a qualifying packaged app. Older alpha releases may predate this path; check the individual release notes and manifest. If there is no qualifying public release yet, use the repository setup in [Install ScriptCut](./INSTALL.md).
+The supported packaged app includes its application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. Creators do not install system Python or FFmpeg for this path. ScriptCut downloads and verifies the baseline transcription model on first transcription, then can reuse that verified local model. The current public alpha is for macOS Apple Silicon / arm64, ad-hoc signed, and not notarized.
 
 ## First Launch
 
-ScriptCut checks the packaged baseline readiness before you edit:
+Choose one of the current Home actions:
 
-- Desktop app access for opening and saving local files.
-- Local backend for transcription and exports.
-- Bundled Python runtime for the backend.
-- Bundled FFmpeg for video export.
-- Transcription engine availability.
+- **Edit a Video** — Edit spoken video by editing the transcript.
+- **Create Clips** — Find, review and export social-ready moments.
+- **Open Project** — Reopen an existing ScriptCut project.
 
-Green checks mean the core workflow is ready. Background removal is optional.
+ScriptCut checks the packaged baseline readiness before you edit. Green checks mean the core workflow is ready; background removal is optional. An AI provider is not required for core transcript editing or export.
 
 ## Make Your First Edit
 
-1. Click **Open Video File**.
+1. From Home, click **Edit a Video**.
 2. Choose a video or audio file.
 3. Wait for transcription to finish.
 4. Select words in the transcript.
 5. Press Delete to cut selected words from the edit.
 6. Press Space to preview playback.
-7. Open **Export**.
-8. Choose a creator template such as **Shorts Batch**, **Caption Review**, or **Podcast Clip**.
-9. Click **Export**.
-10. Use **Reveal in Finder** or **Open** to find the finished file.
+7. Open **Export**, review the preflight, and click **Export**.
+8. Use **Reveal in Finder** or **Open file** to find the finished file.
 
-## Make Shorts
+## Create Clips
 
-1. Open the **AI** panel.
-2. Open the **Clips** tab.
-3. Click **Find Best Clips**.
-4. Draft the suggestions you want to review.
-5. Adjust the in/out times.
-6. Package metadata for hook, title, caption, description, hashtags, and hook frames.
-7. Use the readiness score to fix missing captions, metadata, or export settings.
-8. Export one draft or use **Export Approved** for a batch.
+Create Clips follows **Find → Review → Prepare → Export**.
 
-AI helps find and package clips, but exporting still uses the local media and local backend.
+### Find
+
+1. From Home, click **Create Clips**.
+2. Choose a local video file and wait for transcription.
+3. In the **Find** stage, click **Find moments with AI**, or select transcript words and choose **Draft clip** yourself. Manual clips do not require an AI provider.
+
+### Review
+
+Use **Preview** for each suggested moment. Choose **Approve** for moments worth preparing or **Skip** for moments you do not want. When the review is complete, choose **Prepare approved clips**.
+
+### Prepare
+
+For each clip, use the current controls to:
+
+- adjust the **In** and **Out** range;
+- choose the **Frame** and adjust **Reframe** when using a social aspect ratio;
+- use **Preview**;
+- choose **Captions** and a caption **Style**;
+- optionally open **Publishing copy — optional** for hook, description, caption, hashtags, or title suggestions;
+- optionally open **Advanced export settings** for **Resolution**, **Format**, **Enhance audio**, or **Background removal**.
+
+Publishing copy is optional and is not required to export the clip.
+
+### Export
+
+Choose **Export** when the clip is ready. The result shows **Clip ready** and the output file. In the desktop app, choose **Reveal in Finder** to locate the video. If burn-in captions are unavailable, the result can include a matching `.srt` sidecar.
 
 ## Save Projects
 
-Use **Save Project** to create a `.scriptcut` project file. Project files preserve transcript edits, clip drafts, settings, and package metadata.
+Use **Save Project** to create a `.scriptcut` project file. Project files preserve transcript edits, clip drafts, settings, and optional publishing copy.
 
 ScriptCut also uses desktop autosave when available, so interrupted work can be recovered the next time the same media is opened.
 
@@ -65,10 +79,6 @@ The browser page at `localhost:5173` is for development and quick testing. Use t
 
 ## Common Fixes
 
-If export is unavailable in a desktop release, choose the intended prerelease from the official Releases feed and run the first-launch checks again. If you run from source, install FFmpeg or run `npm run release:ffmpeg` before packaging.
-
-If transcription is unavailable, choose Auto or Whisper fallback, or install the optional Parakeet dependencies shown by the first-run setup assistant.
-
-If AI actions do nothing, open Settings and choose a configured AI provider. Ollama can run locally; cloud providers require API keys.
+If transcription is unavailable, wait for the baseline model preparation to finish and check the first-launch readiness messages. If AI discovery does nothing, check that an AI provider is configured; local Ollama and configured cloud providers are optional helpers, not requirements for manual transcript editing or manual clip drafting.
 
 For more details, see [Troubleshooting](./TROUBLESHOOTING.md).

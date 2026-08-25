@@ -4,61 +4,60 @@
   <img src="frontend/public/brand/scriptcut-wordmark.svg" width="360" alt="ScriptCut" />
 </p>
 
-> Edit videos like documents. Turn long-form recordings into polished videos and social clips, locally on your machine.
+> Edit spoken video like a document. Turn long recordings into finished videos and social-ready clips.
 
 ScriptCut is an open-source, local-first desktop video production tool for YouTube creators, podcasters, educators, founders, interview creators, streamers, and anyone repurposing spoken recordings.
 
-Its creator workflow is simple:
+## Download ScriptCut
 
-```text
-Choose a video → edit the transcript → review → export
-```
+<p>
+  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.5/ScriptCut-v0.1.0-alpha.5-arm64.dmg"><img src="https://img.shields.io/badge/Download%20for%20macOS%20%E2%80%94%20Apple%20Silicon-2f81f7?style=for-the-badge" alt="Download for macOS — Apple Silicon" /></a>
+  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.5">Release notes &amp; verification</a>
+</p>
 
-ScriptCut is different from a cloud-first editor because local processing is the default path, AI helpers are optional, and project files stay creator-owned. The current product is a desktop alpha: it already supports the core editing and export workflow, while installation and platform support continue to mature.
+**v0.1.0-alpha.5 · macOS Apple Silicon / arm64 · Public alpha · ad-hoc signed · not notarized**
+
+No Terminal setup is required for the supported packaged app. This public download is for Apple Silicon Macs; it is not a universal macOS, Windows, or Linux installer.
+
+## Install in 3 steps
+
+1. Download the official DMG above.
+2. Open it and move **ScriptCut** to **Applications**.
+3. Launch **ScriptCut** from Applications.
+
+If macOS blocks the first launch, open **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt. Use this only for the official ScriptCut download linked above. Do not disable Gatekeeper or run Terminal quarantine commands.
+
+For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST_EXPORT.md).
+
+## What to expect on first use
+
+The packaged app includes its application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. You do not install Python or FFmpeg for this supported packaged path.
+
+Before the first transcription, ScriptCut downloads and verifies the baseline transcription model. Later baseline transcriptions can reuse that verified local model. An AI provider is not required for core transcript editing or export.
+
+## What ScriptCut does
+
+ScriptCut is different from a cloud-first editor because local processing is the baseline path, AI helpers are optional, and project files stay creator-owned. Choose a recording, edit the words, review the result, and export a finished video or clip.
 
 See [the Product Vision](docs/PRODUCT_VISION.md) for the canonical product direction.
 
 ![ScriptCut export workspace with edited preview, transcript, timeline, export preflight, output presets, and caption delivery](docs/assets/scriptcut-alpha4-export.png)
 
-## Start Here
-
-The intended creator path is the **ScriptCut desktop app**:
-
-1. [Download ScriptCut v0.1.0-alpha.4 for macOS Apple Silicon](https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.4/ScriptCut-v0.1.0-alpha.4-arm64.dmg).
-2. Open the DMG and install ScriptCut.
-3. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt.
-4. Choose **Edit a Video** or **Create Clips**, then select local media.
-5. Review the transcript and export when the preflight panel is ready.
-
-For release notes, checksums, the manifest, and attestations, see the [v0.1.0-alpha.4 release page](https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.4).
-
-For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST_EXPORT.md).
-
-If a release asset is not available, ScriptCut can be run from source using the contributor setup below. The complete release process is documented in [docs/RELEASE.md](docs/RELEASE.md).
-
 ## The two primary workflows
 
 ### Edit a Video
 
-Open a video or audio file, transcribe it locally, edit the word-level transcript, preview the result, and export. You can delete, restore, mute, or hide selected words from captions. AI edit plans and filler-word suggestions are reviewable helpers; they do not replace editorial approval.
+**Edit spoken video by editing the transcript.** Open a local video or audio file, edit the transcript, preview the result, and export. You can delete, restore, mute, or hide selected words from captions. AI edit plans and filler-word suggestions are reviewable helpers; they do not replace your decisions.
 
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for the detailed creator walkthrough.
 
 ### Create Clips
 
-Open a long-form recording, find or create candidate moments, review and trim drafts, package metadata and hook-frame notes, then export approved clips. The current app supports AI clip suggestions, editable drafts, social metadata, vertical/square output, captions, readiness checks, and batch export. Discovery and packaging still depend on review, local setup, and—when selected—an available AI provider.
+**Find, review and export social-ready moments.** The current lifecycle is **Find → Review → Prepare → Export**. Find moments with AI when a provider is configured, or select transcript words yourself and choose **Draft clip**; manual clips can move directly into **Prepare**.
 
-## Self-contained public-alpha path
+In **Prepare**, trim the range, preview the clip, adjust framing/reframe, and choose captions. **Advanced export settings** such as resolution, format, enhance audio, and background removal are secondary controls. **Publishing copy is optional** and is not required to export. A successful export shows a creator-facing **Clip ready** result; when burn-in captions are unavailable, captions can be delivered as a matching `.srt` sidecar.
 
-ScriptCut's supported self-contained public-alpha path is **macOS Apple Silicon (arm64)**. Public alphas produced by the current release pipeline bundle the application runtime, portable Python, the core runtime pack, FFmpeg/FFprobe, and baseline Whisper transcription code. System Python and backend dependency installation are not required for that packaged baseline path.
-
-The trusted baseline model is downloaded and verified into app-managed storage on first transcription. Subsequent baseline transcription can reuse the verified local model without model-network access. A qualifying public alpha uses an ad-hoc code signature for package integrity, but is not signed with Apple Developer ID or notarized by Apple, so macOS first launch may require **System Settings → Privacy & Security → Open Anyway**. Use that approval only for a DMG downloaded from the official ScriptCut Releases page. Older alpha releases may predate this self-contained runtime; check each release's notes and manifest before downloading.
-
-See [Platform Support](docs/PLATFORM_SUPPORT.md) for the current support matrix. macOS Intel preparation is available for maintainers, while Windows and Linux are source-development paths rather than verified public installers. The browser page at `localhost:5173` is for development and testing; it does not provide the desktop app’s native file access or the same autosave workflow.
-
-In browser mode, media is uploaded to the local backend for transcription and export, and finished files are offered as downloads. Use the desktop app for native file access, persistent export folders, autosave, and Finder reveal actions.
-
-## What is available today
+## What works today
 
 - Word-level transcription through Parakeet TDT v3, WhisperX, or Whisper when the selected local engine is installed.
 - Transcript-based editing with edited playback, undo/redo, waveform/timeline synchronization, and speaker-aware operations when speaker labels are available.
@@ -76,7 +75,13 @@ The desktop app runs an Electron shell with a local React interface, a local Fas
 
 AI features can use local Ollama or configured OpenAI, Claude, or 9Router providers. Selecting an external provider can send the requested transcript or prompt context to that provider. ScriptCut does not require AI for core transcript editing or export, and this README does not make a blanket privacy claim beyond the configured workflow.
 
-## Contributor quick start
+See [Platform Support](docs/PLATFORM_SUPPORT.md) for the support matrix. Browser mode at `localhost:5173` is for development and testing; use the desktop app for native file access, persistent export folders, autosave, and Finder reveal actions.
+
+## For developers and contributors
+
+If a public release asset is not available, ScriptCut can be run from source using the contributor setup below. The complete release process is documented in [docs/RELEASE.md](docs/RELEASE.md).
+
+### Contributor quick start
 
 These steps are for running ScriptCut from the repository.
 
