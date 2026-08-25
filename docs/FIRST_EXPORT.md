@@ -9,7 +9,7 @@ This guide is for creators using the packaged ScriptCut desktop alpha. It does n
 - For release notes and verification, see the [v0.1.0-alpha.5 release page](https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.5).
 - If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** for the official download.
 
-The packaged app includes its application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. You do not install Python or FFmpeg for this supported path. Before the first transcription, ScriptCut downloads and verifies the baseline transcription model; later baseline transcriptions can reuse that verified local model. An AI provider is not required for core transcript editing or export.
+The supported self-contained public-alpha path includes the application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. No separate Python or FFmpeg setup is required for this supported packaged release. Older alpha releases may predate this self-contained path; check their release notes before using an older build. Before the first transcription, ScriptCut downloads and verifies the baseline transcription model; later baseline transcriptions can reuse that verified local model. An AI provider is not required for core transcript editing or export.
 
 ## Edit a Video
 

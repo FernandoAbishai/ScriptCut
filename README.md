@@ -31,7 +31,7 @@ For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST
 
 ## What to expect on first use
 
-The packaged app includes its application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. You do not install Python or FFmpeg for this supported packaged path.
+The supported self-contained public-alpha path includes the application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. No separate Python or FFmpeg setup is required for this packaged release. Older alpha releases may predate this self-contained path; check their release notes before downloading an older build.
 
 Before the first transcription, ScriptCut downloads and verifies the baseline transcription model. Later baseline transcriptions can reuse that verified local model. An AI provider is not required for core transcript editing or export.
 
