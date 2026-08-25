@@ -22,6 +22,9 @@ const projectSchemaSource = readSource('../../shared/project-schema.json');
 
 assert.match(panelSource, /export default function AIPanel\(\{ mode = 'general' \}/);
 assert.match(panelSource, /getInitialClipWorkspaceStage\(clipDrafts, clipSuggestions\)/);
+assert.match(panelSource, /getNewManualClipDrafts\(clipDrafts, knownClipDraftIdsRef\.current\)/);
+assert.match(panelSource, /if \(mode !== 'clips' \|\| newlyAddedManualDrafts\.length === 0\) return/);
+assert.match(panelSource, /setClipStage\('prepare'\);\s+setActiveClipDraftId\(draft\.id\);\s+setSelectedWordIndices\(getWordIndicesForClip\(words, draft\)\)/);
 assert.match(panelSource, /Find moments with AI/);
 assert.match(panelSource, />Find moments<\/h3>/);
 assert.match(panelSource, /Choose moments yourself/);
@@ -43,6 +46,11 @@ assert.match(panelSource, /source: 'ai-director'/);
 assert.match(panelSource, /updateClipDraft\(id, \{ status: 'draft', lastError: undefined \}\)/);
 assert.match(panelSource, /const pendingReviewItems = useMemo/);
 assert.match(panelSource, /Review \$\{pendingReviewItems\.length\}/);
+assert.match(panelSource, /Prepare \$\{clipQueueSummary\.prepare\}/);
+assert.match(panelSource, /label="Exporting"/);
+assert.match(panelSource, /label="Retry"/);
+assert.match(panelSource, /label="Failed"/);
+assert.match(panelSource, /label="Exported"/);
 assert.match(panelSource, /removeMatchingClipSuggestions/);
 assert.match(panelSource, /createClipDraft\(clip, 'ai', undefined, false\)/);
 assert.match(panelSource, /requestPreviewRange\(previewRange\.start, previewRange\.end\)/);
@@ -104,8 +112,10 @@ new Function('exports', 'module', 'require', compiled.outputText)(module.exports
 
 const {
   getInitialClipWorkspaceStage,
+  getClipQueueSummary,
   getClipPreviewRange,
   getClipReviewKey,
+  getNewManualClipDrafts,
   getPendingReviewItems,
   getSkippedReviewItems,
   getReviewCounts,
@@ -129,6 +139,8 @@ const approvedDraft = { ...matchingDraft, id: 'clip_2', status: 'draft' };
 const exportedDraft = { ...matchingDraft, id: 'clip_3', status: 'exported' };
 const manualDraft = { ...matchingDraft, id: 'clip_4', status: 'draft', source: 'speaker-turn' };
 const unmatchedSuggestion = { ...suggestion, startWordIndex: 5, endWordIndex: 9 };
+const restoredManualDraft = { ...matchingDraft, id: 'manual-restored', status: 'draft', source: 'transcript-selection' };
+const newManualDraft = { ...matchingDraft, id: 'manual-new', status: 'draft', source: 'transcript-selection' };
 
 assert.equal(getInitialClipWorkspaceStage([], []), 'find');
 const rankedDiscovery = readClipDiscoveryResult({
@@ -152,6 +164,11 @@ assert.equal(getInitialClipWorkspaceStage([approvedDraft], []), 'prepare');
 assert.equal(getInitialClipWorkspaceStage([manualDraft], []), 'prepare');
 assert.equal(getInitialClipWorkspaceStage([exportedDraft], []), 'export');
 assert.equal(getInitialClipWorkspaceStage([approvedDraft], [suggestion]), 'prepare');
+assert.deepEqual(getNewManualClipDrafts([restoredManualDraft], new Set(['manual-restored'])), []);
+assert.deepEqual(
+  getNewManualClipDrafts([restoredManualDraft, newManualDraft], new Set(['manual-restored'])),
+  [newManualDraft],
+);
 assert.deepEqual(
   getUnmatchedLegacyClipSuggestions([suggestion, unmatchedSuggestion], [matchingDraft]),
   [unmatchedSuggestion],
@@ -205,8 +222,24 @@ assert.equal(getPendingReviewItems([], [suggestion], { [getClipReviewKey(suggest
 assert.equal(getSkippedReviewItems([], [suggestion], { [getClipReviewKey(suggestion)]: 'skipped' }).length, 1);
 assert.equal(isClipDraftInStage(matchingDraft, 'review'), true);
 assert.equal(isClipDraftInStage(approvedDraft, 'prepare'), true);
+assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'packaged' }, 'prepare'), true);
+assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'exporting' }, 'prepare'), false);
+assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'failed' }, 'prepare'), false);
 assert.equal(isClipDraftInStage(exportedDraft, 'export'), true);
 assert.equal(isClipDraftInStage(matchingDraft, 'export'), false);
+const queueSummary = getClipQueueSummary(
+  [
+    { ...matchingDraft, id: 'suggested-1', status: 'suggested' },
+    { ...approvedDraft, id: 'draft-1', status: 'draft' },
+    { ...approvedDraft, id: 'packaged-1', status: 'packaged' },
+    { ...approvedDraft, id: 'exporting-1', status: 'exporting' },
+    { ...exportedDraft, id: 'exported-1', status: 'exported' },
+    { ...approvedDraft, id: 'failed-retryable', status: 'failed' },
+    { ...approvedDraft, id: 'failed-invalid', status: 'failed' },
+  ],
+  new Set(['failed-retryable']),
+);
+assert.deepEqual(queueSummary, { suggested: 1, prepare: 2, exporting: 1, retry: 1, exported: 1, failed: 2 });
 assert.match(panelSource, /getClipBatchExportCandidates/);
 assert.match(panelSource, /updateClipDraft\(id, \{ status: 'draft', lastError: undefined \}\)/);
 assert.match(transcriptSource, /Draft clip/);
