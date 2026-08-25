@@ -29,8 +29,10 @@ import {
 } from '../utils/hookFrames';
 import {
   getInitialClipWorkspaceStage,
+  getClipQueueSummary,
   getClipPreviewRange,
   getClipReviewKey,
+  getNewManualClipDrafts,
   getPendingReviewItems,
   getSkippedReviewItems,
   isSameClipRange,
@@ -164,16 +166,6 @@ const SHORTS_DRAFT_DEFAULTS = {
 
 const CLIP_EXPORT_DIRECTORY_KEY = 'scriptcut.clipExport.directory';
 
-function getClipQueueSummary(drafts: ClipDraft[]) {
-  return {
-    suggested: drafts.filter((draft) => (draft.status || 'draft') === 'suggested').length,
-    approved: drafts.filter((draft) => ['draft', 'packaged', 'failed'].includes(draft.status || 'draft')).length,
-    copyReady: drafts.filter((draft) => getPublishingCopyState(draft).ready).length,
-    exported: drafts.filter((draft) => (draft.status || 'draft') === 'exported').length,
-    failed: drafts.filter((draft) => (draft.status || 'draft') === 'failed').length,
-  };
-}
-
 export type AIPanelMode = 'general' | 'clips';
 
 export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
@@ -235,6 +227,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const [activeClipPreviewKey, setActiveClipPreviewKey] = useState<string | null>(null);
   const [clipExportDirectory, setClipExportDirectory] = useState(() => window.localStorage.getItem(CLIP_EXPORT_DIRECTORY_KEY) || '');
   const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
+  const knownClipDraftIdsRef = useRef(new Set(clipDrafts.map((draft) => draft.id)));
   const secondaryToolsVisible =
     mode === 'clips' && (showSecondaryTools || activeTab === 'edit' || activeTab === 'filler');
   const isCurrentClipWorkspace = useCallback(
@@ -290,6 +283,17 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     if (!videoPath) return;
     setClipExportDirectory((current) => current || getPathDirectory(videoPath));
   }, [videoPath]);
+
+  useEffect(() => {
+    const newlyAddedManualDrafts = getNewManualClipDrafts(clipDrafts, knownClipDraftIdsRef.current);
+    for (const draft of clipDrafts) knownClipDraftIdsRef.current.add(draft.id);
+    if (mode !== 'clips' || newlyAddedManualDrafts.length === 0) return;
+
+    const draft = newlyAddedManualDrafts[newlyAddedManualDrafts.length - 1];
+    setClipStage('prepare');
+    setActiveClipDraftId(draft.id);
+    setSelectedWordIndices(getWordIndicesForClip(words, draft));
+  }, [clipDrafts, mode, setSelectedWordIndices, words]);
 
   const reviewedCount = useMemo(() => {
     if (!fillerResult) return 0;
@@ -828,11 +832,30 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const exportBusy = isBatchExporting || exportingDraftId !== null;
   const stopBatchExportRef = useRef(false);
   const [publishingCopyDraftId, setPublishingCopyDraftId] = useState<string | null>(null);
-  const clipQueueSummary = useMemo(() => getClipQueueSummary(clipDrafts), [clipDrafts]);
-  const readyDraftCount = useMemo(
-    () => getClipBatchExportCandidates(clipDrafts, words, videoPath).length,
+  const exportCandidateDrafts = useMemo(
+    () => getClipBatchExportCandidates(clipDrafts, words, videoPath),
     [clipDrafts, videoPath, words],
   );
+  const retryableDraftIds = useMemo(
+    () => new Set(
+      exportCandidateDrafts
+        .filter((draft) => (draft.status || 'draft') === 'failed')
+        .map((draft) => draft.id),
+    ),
+    [exportCandidateDrafts],
+  );
+  const clipQueueSummary = useMemo(
+    () => ({
+      ...getClipQueueSummary(clipDrafts, retryableDraftIds),
+      copyReady: clipDrafts.filter((draft) => getPublishingCopyState(draft).ready).length,
+    }),
+    [clipDrafts, retryableDraftIds],
+  );
+  const approvedReviewCount = useMemo(
+    () => Object.values(clipReviewDecisions).filter((decision) => decision === 'approved').length,
+    [clipReviewDecisions],
+  );
+  const readyDraftCount = exportCandidateDrafts.length;
   const clipStageDrafts = useMemo(
     () => clipDrafts.filter((draft) => isClipDraftInStage(draft, clipStage)),
     [clipDrafts, clipStage],
@@ -1816,7 +1839,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
               {([
                 { stage: 'find', label: 'Find' },
                 { stage: 'review', label: `Review ${pendingReviewItems.length}` },
-                { stage: 'prepare', label: `Prepare ${clipQueueSummary.approved}` },
+                { stage: 'prepare', label: `Prepare ${clipQueueSummary.prepare}` },
                 { stage: 'export', label: `Export ${readyDraftCount} ready` },
               ] as Array<{ stage: ClipWorkspaceStage; label: string }>).map(({ stage, label }) => (
                 <button
@@ -1834,12 +1857,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             </div>
 
             {clipDrafts.length > 0 && (
-              <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
+              <div className="grid grid-cols-8 gap-1 text-center text-[10px]">
                 <QueueStat label="Suggested" value={clipQueueSummary.suggested} />
-                <QueueStat label="Approved" value={clipQueueSummary.approved} />
+                <QueueStat label="Prepare" value={clipQueueSummary.prepare} />
                 <QueueStat label="Copy ready" value={clipQueueSummary.copyReady} />
                 <QueueStat label="Ready" value={readyDraftCount} />
+                <QueueStat label="Exporting" value={clipQueueSummary.exporting} />
+                <QueueStat label="Retry" value={clipQueueSummary.retry} warning={clipQueueSummary.retry > 0} />
                 <QueueStat label="Failed" value={clipQueueSummary.failed} warning={clipQueueSummary.failed > 0} />
+                <QueueStat label="Exported" value={clipQueueSummary.exported} />
               </div>
             )}
 
@@ -1876,7 +1902,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
               <ClipReviewWorkspace
                 pendingItems={pendingReviewItems}
                 skippedItems={skippedReviewItems}
-                approvedClipCount={clipQueueSummary.approved}
+                approvedClipCount={approvedReviewCount}
                 activePreviewKey={activeReviewPreviewKey}
                 words={words}
                 onPreview={handlePreviewClip}

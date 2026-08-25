@@ -86,6 +86,45 @@ const REVIEW_STATUSES = new Set<ClipDraftStatus>(['suggested']);
 const PREPARE_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged']);
 const EXPORT_STATUSES = new Set<ClipDraftStatus>(['exporting', 'exported', 'failed']);
 
+export type ClipQueueSummary = {
+  suggested: number;
+  prepare: number;
+  exporting: number;
+  retry: number;
+  exported: number;
+  failed: number;
+};
+
+export function getClipQueueSummary(
+  drafts: ClipDraft[],
+  retryableDraftIds: ReadonlySet<string> = new Set<string>(),
+): ClipQueueSummary {
+  return drafts.reduce<ClipQueueSummary>(
+    (summary, draft) => {
+      const status = draft.status || 'draft';
+      if (status === 'suggested') summary.suggested += 1;
+      if (PREPARE_STATUSES.has(status)) summary.prepare += 1;
+      if (status === 'exporting') summary.exporting += 1;
+      if (status === 'failed') {
+        summary.failed += 1;
+        if (retryableDraftIds.has(draft.id)) summary.retry += 1;
+      }
+      if (status === 'exported') summary.exported += 1;
+      return summary;
+    },
+    { suggested: 0, prepare: 0, exporting: 0, retry: 0, exported: 0, failed: 0 },
+  );
+}
+
+export function getNewManualClipDrafts(
+  drafts: ClipDraft[],
+  knownDraftIds: ReadonlySet<string>,
+): ClipDraft[] {
+  return drafts.filter(
+    (draft) => draft.source === 'transcript-selection' && !knownDraftIds.has(draft.id),
+  );
+}
+
 export type ClipReviewItem = ClipSuggestion;
 
 export function getClipReviewKey(
@@ -225,7 +264,7 @@ export function isSameClipRange(left: Pick<ClipSuggestion, 'startWordIndex' | 'e
 export function isClipDraftInStage(draft: ClipDraft, stage: ClipWorkspaceStage) {
   const status = draft.status || 'draft';
   if (stage === 'review') return status === 'suggested';
-  if (stage === 'prepare') return !REVIEW_STATUSES.has(status) && status !== 'exported';
+  if (stage === 'prepare') return PREPARE_STATUSES.has(status);
   if (stage === 'export') return !REVIEW_STATUSES.has(status);
   return false;
 }
