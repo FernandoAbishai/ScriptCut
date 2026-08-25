@@ -57,6 +57,11 @@ import {
   type EditorWorkflow,
 } from './utils/editorTask';
 import { getCreatorErrorPresentation } from './utils/creatorErrors';
+import {
+  createTranscriptionRunContext,
+  isCurrentTranscriptionRun as isCurrentTranscriptionRunContext,
+  type TranscriptionRunContext,
+} from './utils/transcriptionLifecycle';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
@@ -105,6 +110,8 @@ export default function App() {
   const [isBrowserUploading, setIsBrowserUploading] = useState(false);
   const [browserWorkflowIntent, setBrowserWorkflowIntent] = useState<WorkflowIntent>('full-video');
   const transcriptionIntentRef = useRef<WorkflowIntent | null>(null);
+  const transcriptionRunEpochRef = useRef(0);
+  const transcriptionRunRef = useRef<TranscriptionRunContext<WorkflowIntent | null> | null>(null);
   const [lastTranscriptionPath, setLastTranscriptionPath] = useState('');
   const [manualSaveStatus, setManualSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [recoveryCandidate, setRecoveryCandidate] = useState<AutosaveCandidate | null>(null);
@@ -216,7 +223,41 @@ export default function App() {
     refreshRecentProjects();
   };
 
+  const isCurrentTranscriptionRun = (run: TranscriptionRunContext<WorkflowIntent | null>) =>
+    isCurrentTranscriptionRunContext(
+      run,
+      transcriptionRunEpochRef.current,
+      useEditorStore.getState().videoPath,
+    );
+
+  const invalidateTranscriptionRun = useCallback(() => {
+    transcriptionRunEpochRef.current += 1;
+    transcriptionRunRef.current = null;
+    transcriptionIntentRef.current = null;
+    setLastTranscriptionPath('');
+    setLastTranscriptionJobId('');
+    setTranscriptionMessage('');
+    setTranscriptionError('');
+    setTranscriptionLogs([]);
+    setTranscribing(false, 0);
+    setActivePanel(null);
+  }, [setTranscribing]);
+
+  const beginTranscriptionRun = (path: string, intent?: WorkflowIntent) => {
+    const resolvedIntent = intent ?? transcriptionIntentRef.current;
+    const run = createTranscriptionRunContext(
+      transcriptionRunEpochRef.current + 1,
+      path,
+      resolvedIntent,
+    );
+    transcriptionRunEpochRef.current = run.epoch;
+    transcriptionRunRef.current = run;
+    transcriptionIntentRef.current = resolvedIntent;
+    return run;
+  };
+
   const restoreProject = (data: ReturnType<typeof parseProjectFile>) => {
+    invalidateTranscriptionRun();
     loadProjectState(data);
     setWorkspaceRevision((current) => current + 1);
     const workflow = getProjectWorkflow(data.aiWorkspace);
@@ -225,12 +266,13 @@ export default function App() {
   };
 
   const resetMediaAIWorkspaceForNewMedia = useCallback(() => {
+    invalidateTranscriptionRun();
     useAIStore.getState().resetMediaAIWorkspace();
     const editorState = useEditorStore.getState();
     editorState.clearClipPresentationPreview();
     editorState.setSelectedWordIndices([]);
     setWorkspaceRevision((current) => current + 1);
-  }, []);
+  }, [invalidateTranscriptionRun]);
 
   const handleLoadProject = async () => {
     if (!IS_ELECTRON) return;
@@ -452,16 +494,18 @@ export default function App() {
 
   const completeTranscription = (
     data: Parameters<typeof setTranscription>[0],
-    intent?: WorkflowIntent | null,
+    run: TranscriptionRunContext<WorkflowIntent | null>,
   ) => {
+    if (!isCurrentTranscriptionRun(run)) return;
     setTranscription(data);
-    const resolvedIntent = intent ?? transcriptionIntentRef.current;
-    setActivePanel(getPostTranscriptionPanel(resolvedIntent));
+    if (!isCurrentTranscriptionRun(run)) return;
+    setActivePanel(getPostTranscriptionPanel(run.intent));
   };
 
   const transcribeVideo = async (path: string, intent?: WorkflowIntent) => {
+    if (useEditorStore.getState().videoPath !== path) return;
+    const run = beginTranscriptionRun(path, intent);
     setLastTranscriptionPath(path);
-    if (intent) transcriptionIntentRef.current = intent;
     setTranscribing(true, 0);
     setTranscriptionMessage('Preparing your transcript');
     setTranscriptionError('');
@@ -473,6 +517,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_path: path, engine: transcriptionEngine, model: transcriptionModel }),
       });
+      if (!isCurrentTranscriptionRun(run)) return;
       if (!res.ok) {
         let detail = res.statusText;
         try {
@@ -484,25 +529,34 @@ export default function App() {
         throw new Error(`Transcription start failed: ${detail}`);
       }
       const { job_id: jobId } = await res.json();
+      if (!isCurrentTranscriptionRun(run)) return;
       setLastTranscriptionJobId(jobId);
-      const data = await pollTranscriptionJob(jobId);
-      completeTranscription(data, intent);
+      const data = await pollTranscriptionJob(jobId, run);
+      if (!data || !isCurrentTranscriptionRun(run)) return;
+      completeTranscription(data, run);
     } catch (err) {
+      if (!isCurrentTranscriptionRun(run)) return;
       console.error('Transcription error:', err);
       const message = err instanceof Error ? err.message : String(err);
       setTranscriptionError(message.toLowerCase().includes('canceled') ? 'Transcription canceled' : message);
     } finally {
-      setTranscriptionMessage('');
-      setTranscribing(false);
+      if (isCurrentTranscriptionRun(run)) {
+        setTranscriptionMessage('');
+        setTranscribing(false);
+      }
     }
   };
 
   const cancelTranscription = async () => {
-    if (!lastTranscriptionJobId) return;
+    const run = transcriptionRunRef.current;
+    const jobId = lastTranscriptionJobId;
+    if (!run || !jobId || !isCurrentTranscriptionRun(run)) return;
     try {
-      await fetch(`${backendUrl}/jobs/${lastTranscriptionJobId}/cancel`, { method: 'POST' });
+      await fetch(`${backendUrl}/jobs/${jobId}/cancel`, { method: 'POST' });
+      if (!isCurrentTranscriptionRun(run)) return;
       setTranscriptionMessage('Cancel requested');
     } catch (err) {
+      if (!isCurrentTranscriptionRun(run)) return;
       console.error('Transcription cancel error:', err);
       setTranscriptionError(err instanceof Error ? err.message : String(err));
       setTranscribing(false);
@@ -510,38 +564,55 @@ export default function App() {
   };
 
   const retryTranscription = async () => {
-    if (!lastTranscriptionJobId) return;
+    const previousRun = transcriptionRunRef.current;
+    const previousJobId = lastTranscriptionJobId;
+    if (!previousRun || !previousJobId || !isCurrentTranscriptionRun(previousRun)) return;
+    const run = beginTranscriptionRun(previousRun.mediaPath, previousRun.intent ?? undefined);
     setTranscriptionError('');
+    setTranscriptionLogs([]);
     setTranscriptionMessage('Retrying transcription');
+    setLastTranscriptionJobId('');
     setTranscribing(true, 1);
     try {
-      const res = await fetch(`${backendUrl}/jobs/${lastTranscriptionJobId}/retry`, { method: 'POST' });
+      const res = await fetch(`${backendUrl}/jobs/${previousJobId}/retry`, { method: 'POST' });
+      if (!isCurrentTranscriptionRun(run)) return;
       if (!res.ok) throw new Error(`Retry failed: ${res.statusText}`);
       const { job_id: jobId } = await res.json();
+      if (!isCurrentTranscriptionRun(run)) return;
       setLastTranscriptionJobId(jobId);
-      const data = await pollTranscriptionJob(jobId);
-      completeTranscription(data, transcriptionIntentRef.current);
+      const data = await pollTranscriptionJob(jobId, run);
+      if (!data || !isCurrentTranscriptionRun(run)) return;
+      completeTranscription(data, run);
     } catch (err) {
+      if (!isCurrentTranscriptionRun(run)) return;
       console.error('Transcription retry error:', err);
       setTranscriptionError(err instanceof Error ? err.message : String(err));
     } finally {
-      setTranscriptionMessage('');
-      setTranscribing(false);
+      if (isCurrentTranscriptionRun(run)) {
+        setTranscriptionMessage('');
+        setTranscribing(false);
+      }
     }
   };
 
   const startTranscriptionWithSettings = async () => {
-    if (!lastTranscriptionPath) return;
+    if (!lastTranscriptionPath || useEditorStore.getState().videoPath !== lastTranscriptionPath) return;
     await transcribeVideo(lastTranscriptionPath, transcriptionIntentRef.current ?? undefined);
   };
 
-  const pollTranscriptionJob = async (jobId: string) => {
+  const pollTranscriptionJob = async (
+    jobId: string,
+    run: TranscriptionRunContext<WorkflowIntent | null>,
+  ): Promise<Parameters<typeof setTranscription>[0] | null> => {
     for (;;) {
       await new Promise((resolve) => window.setTimeout(resolve, 700));
+      if (!isCurrentTranscriptionRun(run)) return null;
       const res = await fetch(`${backendUrl}/jobs/${jobId}`);
+      if (!isCurrentTranscriptionRun(run)) return null;
       if (!res.ok) throw new Error(`Could not read transcription job: ${res.statusText}`);
 
       const job = (await res.json()) as BackendJob<Parameters<typeof setTranscription>[0]>;
+      if (!isCurrentTranscriptionRun(run)) return null;
       setTranscriptionMessage(job.message || job.status);
       setTranscriptionLogs(job.logs || []);
       setTranscribing(job.status === 'queued' || job.status === 'running' || job.status === 'canceling', job.progress);
