@@ -147,6 +147,7 @@ function publicManifest({ pkg, tag, commit, artifact, candidate, dmgAttestation 
 
 function publicNotes(manifest, { changelogPath, publicationNotesRequired = false } = {}) {
   const artifact = manifest.artifact.filename;
+  const downloadUrl = `https://github.com/FernandoAbishai/ScriptCut/releases/download/${manifest.releaseTag}/${artifact}`;
   const curated = selectReleaseNotes({
     releaseTag: manifest.releaseTag,
     changelogPath,
@@ -155,15 +156,29 @@ function publicNotes(manifest, { changelogPath, publicationNotesRequired = false
   const dryRunLabel = curated.source === 'Unreleased'
     ? `> Dry-run / planned release-note content from \`CHANGELOG.md\` → \`Unreleased\`; it is not part of a published release history.\n\n`
     : '';
-  return `# ScriptCut ${manifest.releaseTag} alpha
+  return `# ScriptCut ${manifest.releaseTag}
 
-## What's changed
+## Download
+
+[Download ScriptCut for macOS — Apple Silicon](${downloadUrl})
+
+macOS Apple Silicon / arm64 · Public prerelease alpha · ad-hoc signed · not notarized
+
+## Install
+
+1. Download the DMG above.
+2. Open it and move ScriptCut to Applications.
+3. Launch ScriptCut.
+
+If macOS blocks the first launch of the official ScriptCut GitHub download, open **System Settings → Privacy & Security → Open Anyway**, confirm the macOS prompt, and launch ScriptCut normally. Do not use this approval path for random applications or downloads.
+
+## What's new
 
 ${dryRunLabel}${curated.markdown}
 
 ## ScriptCut alpha status
 
-This is a public prerelease alpha for creator validation. It is provided from the official ScriptCut GitHub repository and uses an ad-hoc code signature for package integrity.
+This is a public prerelease alpha for creator validation. It is provided from the official ScriptCut GitHub repository and uses an ad-hoc code signature for package integrity. It is not signed with Apple Developer ID and is not notarized by Apple.
 
 ## Supported platform
 
@@ -174,18 +189,7 @@ macOS Apple Silicon (arm64) only. Intel, Windows, Linux, and browser builds are 
 - A self-contained Electron application with portable Python ${manifest.runtime.pythonVersion} and the pinned core runtime.
 - Bundled FFmpeg and FFprobe for local export.
 - Baseline Whisper transcription code and a trusted model manifest.
-- Optional capabilities may not be included in this build.
-
-## Install
-
-1. Open the official [ScriptCut Releases page](https://github.com/FernandoAbishai/ScriptCut/releases).
-2. Download the Apple Silicon DMG for **${manifest.releaseTag}**.
-3. Open the DMG and move or open ScriptCut as appropriate for the DMG layout.
-4. Attempt to launch ScriptCut and select a video.
-
-## macOS first-launch notice
-
-This macOS build uses an ad-hoc code signature for package integrity, but it is not signed with Apple Developer ID and is not notarized by Apple. macOS may block the first launch because the app is not from an identified developer. If you obtained this DMG from the official ScriptCut GitHub release, open **System Settings → Privacy & Security → Open Anyway**, confirm the macOS prompt, and then open ScriptCut normally. Do not use this approval path for random applications or downloads.
+- Optional capabilities may be absent from this build.
 
 ## Baseline transcription model behavior
 
@@ -194,6 +198,12 @@ If the verified baseline model is not present, ScriptCut downloads and verifies 
 ## Optional capabilities
 
 WhisperX, NeMo/Parakeet, pyannote, DeepFilterNet, MediaPipe, OpenCV, MoviePy, and other optional stacks may not be bundled. The packaged baseline path remains the supported transcription path for this alpha.
+
+## Known alpha limitations
+
+- The app uses an ad-hoc code signature but is not signed with Apple Developer ID or notarized, so the first launch requires the macOS approval path above.
+- This release is a prerelease alpha; keep original media and project backups.
+- Optional capabilities and some caption/export behavior depend on the packaged resources and current baseline support.
 
 ## Verify download
 
@@ -222,12 +232,6 @@ gh attestation verify release-manifest.json \\
 \`\`\`
 
 Attestation establishes build provenance; it does not prove that the software is free of bugs or vulnerabilities. Checksums establish integrity and do not make macOS treat this app as notarized.
-
-## Known alpha limitations
-
-- The app uses an ad-hoc code signature but is not signed with Apple Developer ID or notarized, so the first launch requires the macOS approval path above.
-- This release is a prerelease alpha; keep original media and project backups.
-- Optional capabilities and some caption/export behavior depend on the packaged resources and current baseline support.
 `;
 }
 
