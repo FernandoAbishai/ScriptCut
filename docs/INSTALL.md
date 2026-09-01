@@ -4,13 +4,14 @@ ScriptCut is a local-first Electron app with a React frontend and FastAPI backen
 
 ## Recommended Alpha Install
 
-For non-technical use, install the already-qualified v0.1.0-alpha.4 desktop app:
+For non-technical use, install a qualifying self-contained public alpha from
+the official [ScriptCut Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases):
 
-1. [Download `ScriptCut-v0.1.0-alpha.4-arm64.dmg`](https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.4/ScriptCut-v0.1.0-alpha.4-arm64.dmg) for macOS Apple Silicon.
+1. Choose the intended published prerelease from the official feed and download its macOS Apple Silicon (arm64) DMG.
 2. Open the DMG, install ScriptCut, and select a workflow when the app is ready.
 3. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming that the DMG came from the official ScriptCut Releases feed.
 
-See the [v0.1.0-alpha.4 release page](https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.4) for release notes, checksums, the manifest, and attestations.
+Use the selected release page for its release notes, checksums, manifest, and attestations. The feed's published release state is the authority for which public alpha is current.
 
 The supported self-contained public-alpha path bundles portable Python, the pinned core runtime, FFmpeg, and FFprobe. ScriptCut manages the baseline transcription model on first use; creators do not install system Python, pip, FFmpeg, or a virtual environment for a qualifying packaged release. The app uses an ad-hoc code signature for package integrity, but is not signed with Apple Developer ID or notarized, so the macOS approval step above may be required. Older alpha releases may predate this runtime; check the individual release notes and manifest.
 
