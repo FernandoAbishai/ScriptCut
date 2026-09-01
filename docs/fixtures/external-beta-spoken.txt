@@ -1,0 +1,1 @@
+ScriptCut beta fixture. Remove one word, preview the edit, and export one useful clip.

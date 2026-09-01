@@ -51,6 +51,8 @@
     "check:public-release": "node scripts/check-public-release.js",
     "smoke:public-release": "node scripts/smoke-public-release.js",
     "smoke:release-workflow": "node scripts/check-release-workflow.js",
+    "smoke:external-beta": "node scripts/smoke-external-beta.js",
+    "beta:fixture": "node scripts/generate-beta-fixture.js",
     "smoke:signing-readiness": "node scripts/check-macos-signing-readiness.js",
     "lint": "cd frontend && npm run lint",
     "smoke:backend": "cd backend && (../.venv311/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || ../.venv/bin/python -m unittest discover -s scripts -p 'smoke_*.py' -v || python -m unittest discover -s scripts -p 'smoke_*.py' -v)",

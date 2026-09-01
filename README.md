@@ -17,7 +17,8 @@ ScriptCut is an open-source, local-first desktop video production tool for YouTu
 
 **v0.1.0-alpha.5 · macOS Apple Silicon / arm64 · Public alpha · ad-hoc signed · not notarized**
 
-No Terminal setup is required for the supported packaged app. This public download is for Apple Silicon Macs; it is not a universal macOS, Windows, or Linux installer.
+No Terminal setup is required for the supported packaged app. This public download is for Apple Silicon Macs; it is not a universal macOS, Windows, or Linux installer, and it is not signed with Apple Developer ID or notarized.
+For future beta runs, use the official [GitHub Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) as the release authority and record the exact tag.
 
 ## Install in 3 steps
 
@@ -28,6 +29,8 @@ No Terminal setup is required for the supported packaged app. This public downlo
 If macOS blocks the first launch, open **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt. Use this only for the official ScriptCut download linked above. Do not disable Gatekeeper or run Terminal quarantine commands.
 
 For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST_EXPORT.md).
+
+For the external beta contract, qualification record, and focused feedback path, see [External Beta](docs/EXTERNAL_BETA.md), [Beta Qualification](docs/BETA_QUALIFICATION.md), and [Beta feedback / bug report](https://github.com/FernandoAbishai/ScriptCut/issues/new?template=beta_feedback.yml).
 
 ## What to expect on first use
 
