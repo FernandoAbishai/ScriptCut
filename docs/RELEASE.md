@@ -19,7 +19,7 @@ That starts the local backend, frontend, and Electron desktop app.
 
 ## Current release identity
 
-The current product version is `0.1.0`. The supported public release channel is alpha only; the current public prerelease is `v0.1.0-alpha.4`.
+The current product version is `0.1.0`. The supported public release channel is alpha only. The live current public release is determined by the official GitHub Releases feed and its published release state; this guide intentionally does not hard-code a current public alpha tag.
 
 The installed application and the public release are intentionally separate identities:
 
@@ -151,9 +151,41 @@ Release, and six public assets remain the published release authority.
 `release-closure.json` records one successful verification and is retained as
 workflow evidence only; it is not a public release asset.
 
+After publication and successful live verification, manually update the
+release-specific qualification record or issue with the public tag, source
+SHA, workflow run, exact artifact digest, and qualification declaration. Close
+that record only after the evidence is complete. This is an operator closure
+step; the workflow and source smokes do not close issues or create human
+qualification evidence.
+
 The closure procedure is a `publish=false` dry-run from current `main`. Run it
 before any separately authorized public publication; it creates no tag or
 GitHub Release.
+
+### Repair a published release classification
+
+If an already-published alpha is accidentally marked as a non-prerelease,
+repair only the GitHub Release classification. For `v0.1.0-alpha.5`, capture
+the state, apply the one-field edit, and read it back:
+
+```bash
+RELEASE_TAG=v0.1.0-alpha.5
+gh release view "$RELEASE_TAG" \
+  --repo FernandoAbishai/ScriptCut \
+  --json tagName,isDraft,isPrerelease,targetCommitish,body,assets
+gh release edit "$RELEASE_TAG" \
+  --repo FernandoAbishai/ScriptCut \
+  --prerelease
+gh release view "$RELEASE_TAG" \
+  --repo FernandoAbishai/ScriptCut \
+  --json tagName,isDraft,isPrerelease,targetCommitish,body,assets
+```
+
+Confirm that only `isPrerelease` changed to `true`; `isDraft` remains `false`
+and the tag, target commit, release notes, and six assets remain unchanged.
+Do not rebuild, replace assets, change the tag, edit the release notes or
+target commit, or create a new release. This repair is a separately
+authorized maintainer action and is not performed by this PR.
 
 Title:
 

@@ -119,11 +119,25 @@ async function main() {
   assert(/Older alpha releases may predate/i.test(readmeCreator), 'README lacks historical alpha clarification');
   assert(!/(?:current|downloadable) (?:public )?alpha/i.test(readmeCreator), 'README claims an unpublished alpha is current or downloadable');
 
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'RELEASE.md'), 'utf8');
+  const identityStart = releaseGuide.indexOf('## Current release identity');
+  const checklistStart = releaseGuide.indexOf('## Release Checklist');
+  assert(identityStart >= 0 && checklistStart > identityStart, 'RELEASE guide identity section is missing');
+  const releaseIdentity = releaseGuide.slice(identityStart, checklistStart);
+  assert(/current product version is `0\.1\.0`/.test(releaseIdentity), 'RELEASE guide product version contract is missing');
+  assert(/supported public release channel is alpha only/.test(releaseIdentity), 'RELEASE guide public channel contract is missing');
+  assert(/official GitHub Releases feed.*published release state/i.test(releaseIdentity), 'RELEASE guide lacks live release-state authority');
+  assert(!/\bv\d+\.\d+\.\d+-alpha\.\d+\b/.test(releaseIdentity), 'RELEASE guide hard-codes a concrete current alpha tag');
+  assert(/gh release edit "\$RELEASE_TAG"[\s\S]*--prerelease/.test(releaseGuide), 'RELEASE guide lacks the one-field prerelease repair procedure');
+  assert(/only `isPrerelease` changed/i.test(releaseGuide), 'RELEASE guide lacks classification-only repair guidance');
+  assert(/workflow and source smokes do not close issues/i.test(releaseGuide), 'RELEASE guide lacks manual qualification closure boundaries');
+
   const install = fs.readFileSync(path.join(root, 'docs', 'INSTALL.md'), 'utf8');
   const installCreator = install.slice(0, install.indexOf('## Source Development Requirements'));
   assert(!/releases\/latest|install Python|local Python|python\.org/i.test(installCreator), 'creator INSTALL section has stale setup guidance');
   assert(/Privacy & Security|Open Anyway|official ScriptCut Releases/i.test(installCreator), 'creator INSTALL section lacks first-launch approval path');
   assert(/qualifying self-contained release|Older alpha releases may predate/i.test(installCreator), 'INSTALL lacks temporal self-contained path truth');
+  assert(!/\bv\d+\.\d+\.\d+-alpha\.\d+\b/.test(installCreator), 'INSTALL hard-codes a concrete alpha tag');
   assert(!/(?:current|downloadable) (?:public )?alpha/i.test(installCreator), 'INSTALL claims an unpublished alpha is current or downloadable');
 
   const firstExport = fs.readFileSync(path.join(root, 'docs', 'FIRST_EXPORT.md'), 'utf8');
