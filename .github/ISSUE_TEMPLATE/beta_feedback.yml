@@ -1,0 +1,89 @@
+name: Beta feedback / bug report
+description: Report a problem found while qualifying the external beta journey
+title: "[Beta]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing ScriptCut. Do not paste API keys or other secrets here, including tokens, passwords, or private source media.
+  - type: input
+    id: version
+    attributes:
+      label: ScriptCut version / release tag
+      description: Use the exact tag shown on the GitHub Release you downloaded.
+      placeholder: "v0.1.0-alpha.5"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "macOS 15.7"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Mac model / chip
+      placeholder: "MacBook Pro, M1 Pro"
+    validations:
+      required: true
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Workflow being attempted
+      options:
+        - Golden beta journey
+        - Install or first launch
+        - Transcription
+        - Transcript editing or preview
+        - Manual clip prepare/export
+        - Project save/reopen
+        - Other beta behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Observed severity (best estimate)
+      options:
+        - P0 — data loss, security/privacy issue, unusable installation, or systematic export corruption
+        - P1 — golden journey cannot complete
+        - P2 — significant problem with a workaround
+        - P3 — cosmetic, minor, or non-blocking
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: What steps reproduce the problem? Include whether it happened once or repeatedly.
+      placeholder: "1. Open...\n2. Select...\n3. See...\nReproducibility: every time / sometimes / once"
+    validations:
+      required: true
+  - type: textarea
+    id: support_report
+    attributes:
+      label: Redacted ScriptCut support report
+      description: In ScriptCut, use Settings → Copy report when relevant. Paste only the redacted report; never include secrets or source media.
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have removed API keys, tokens, passwords, private source media, and other secrets.
+          required: true

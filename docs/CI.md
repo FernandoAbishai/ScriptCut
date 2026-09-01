@@ -14,11 +14,11 @@ npm run smoke:backend
 python -m compileall -q backend
 ```
 
-The workflow also runs the release identity, metadata, public fixture,
-workflow-structure, runtime-contract, renderer-policy, brand, and frontend
-workflow smokes. The model-manager smoke uses a deterministic loopback fixture;
-it does not download a real model. Backend smoke checks intentionally use
-minimal Python dependencies so CI does not need to install the full
+The workflow also runs the external-beta contract, release identity, metadata,
+public fixture, workflow-structure, runtime-contract, renderer-policy, brand,
+and frontend workflow smokes. The model-manager smoke uses a deterministic
+loopback fixture; it does not download a real model. Backend smoke checks
+intentionally use minimal Python dependencies so CI does not need to install the full
 transcription and ML stack for every pull request.
 
 The manually dispatched `release_candidate` path builds the native arm64

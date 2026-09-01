@@ -55,6 +55,9 @@ jobs:
       - name: Test public release metadata and documentation
         run: npm run smoke:public-release
 
+      - name: Test external beta contract and feedback path
+        run: npm run smoke:external-beta
+
       - name: Test release changelog and curated notes
         run: npm run smoke:release-notes
 
