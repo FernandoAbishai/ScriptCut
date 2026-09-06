@@ -8,6 +8,7 @@ interface ElectronAPI {
   saveFile: (options?: Record<string, unknown>) => Promise<string | null>;
   openProject: () => Promise<string | null>;
   getBackendUrl: () => Promise<string>;
+  getBackendFileUrl: (path: string) => Promise<string>;
   getStartupStatus: () => Promise<{ backendError: string }>;
   getAppInfo: () => Promise<{
     version: string;

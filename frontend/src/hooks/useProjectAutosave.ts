@@ -525,6 +525,10 @@ export function useProjectAutosave() {
   const clipDrafts = useAIStore((s) => s.clipDrafts);
   const clipReviewDecisions = useAIStore((s) => s.clipReviewDecisions);
   const lastSavedRef = useRef('');
+  const pendingSaveRef = useRef<{ snapshot: ProjectFile; saveKey: string } | null>(null);
+  const saveLoopRef = useRef<Promise<void> | null>(null);
+  const currentVideoPathRef = useRef(videoPath);
+  currentVideoPathRef.current = videoPath;
   const [autosave, setAutosave] = useState<AutosaveState>({
     status: 'idle',
     savedAt: '',
@@ -544,7 +548,56 @@ export function useProjectAutosave() {
       return;
     }
 
-    const save = async () => {
+    const startSaveLoop = () => {
+      if (saveLoopRef.current) return;
+
+      const drain = async () => {
+        while (pendingSaveRef.current) {
+          const pending = pendingSaveRef.current;
+          pendingSaveRef.current = null;
+          if (pending.saveKey === lastSavedRef.current) continue;
+
+          const snapshot = pending.snapshot;
+          const path = getAutosavePath(snapshot.videoPath);
+          try {
+            const serialized = serializeProjectFile(snapshot);
+            await rotateAutosaveSnapshots(snapshot.videoPath);
+            await window.electronAPI!.writeProjectFile(path, serialized);
+            const previous = listAutosaveCandidates().find((candidate) => candidate.path === path);
+            rememberAutosaveCandidate({
+              path,
+              videoPath: snapshot.videoPath,
+              modifiedAt: snapshot.modifiedAt,
+              snapshotCount: previous
+                ? Math.min(AUTOSAVE_SNAPSHOT_COUNT - 1, (previous.snapshotCount || 0) + 1)
+                : 0,
+            });
+            lastSavedRef.current = pending.saveKey;
+            if (currentVideoPathRef.current === snapshot.videoPath) {
+              setAutosave({ status: 'saved', savedAt: snapshot.modifiedAt, path, error: '' });
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (currentVideoPathRef.current === snapshot.videoPath) {
+              setAutosave({
+                status: 'error',
+                savedAt: '',
+                path,
+                error: message,
+              });
+            }
+            console.warn('Project autosave failed:', err);
+          }
+        }
+      };
+
+      saveLoopRef.current = drain().finally(() => {
+        saveLoopRef.current = null;
+        if (pendingSaveRef.current) startSaveLoop();
+      });
+    };
+
+    const save = () => {
       const snapshot = createProjectSnapshot();
       if (!snapshot) return;
 
@@ -559,34 +612,12 @@ export function useProjectAutosave() {
         language: snapshot.language,
       });
       if (saveKey === lastSavedRef.current) return;
+      if (pendingSaveRef.current?.saveKey === saveKey) return;
 
-      try {
-        const path = getAutosavePath(videoPath);
-        setAutosave((current) => ({ ...current, status: 'saving', path, error: '' }));
-        const serialized = serializeProjectFile(snapshot);
-        await rotateAutosaveSnapshots(videoPath);
-        await window.electronAPI!.writeProjectFile(path, serialized);
-        const previous = listAutosaveCandidates().find((candidate) => candidate.path === path);
-        rememberAutosaveCandidate({
-          path,
-          videoPath: snapshot.videoPath,
-          modifiedAt: snapshot.modifiedAt,
-          snapshotCount: previous
-            ? Math.min(AUTOSAVE_SNAPSHOT_COUNT - 1, (previous.snapshotCount || 0) + 1)
-            : 0,
-        });
-        lastSavedRef.current = saveKey;
-        setAutosave({ status: 'saved', savedAt: snapshot.modifiedAt, path, error: '' });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setAutosave({
-          status: 'error',
-          savedAt: '',
-          path: getAutosavePath(videoPath),
-          error: message,
-        });
-        console.warn('Project autosave failed:', err);
-      }
+      pendingSaveRef.current = { snapshot, saveKey };
+      const path = getAutosavePath(snapshot.videoPath);
+      setAutosave((current) => ({ ...current, status: 'saving', path, error: '' }));
+      startSaveLoop();
     };
 
     void save();

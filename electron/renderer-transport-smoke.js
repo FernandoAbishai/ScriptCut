@@ -51,7 +51,7 @@ function runRendererProbe(window, backendOrigin, mediaPath) {
       }),
     });
 
-    const mediaUrl = `${origin}/file?path=${encodeURIComponent(fixturePath)}`;
+    const mediaUrl = await window.electronAPI.getBackendFileUrl(fixturePath);
     const media = await request(mediaUrl);
     const video = document.createElement('video');
     video.preload = 'metadata';

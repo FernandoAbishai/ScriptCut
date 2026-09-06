@@ -57,8 +57,10 @@ class PythonBackend {
     this.resolvePython = runtimeContext.resolvePython || resolvePythonRuntime;
     this.process = null;
     this.apiToken = apiToken || crypto.randomBytes(32).toString('hex');
+    this.fileTokenSecret = process.env.SCRIPTCUT_FILE_TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
     this.redactionSecrets = Object.freeze([...new Set([
       this.apiToken,
+      this.fileTokenSecret,
       process.env.SCRIPTCUT_API_TOKEN,
       process.env.SCRIPTCUT_FILE_TOKEN_SECRET,
       process.env.OPENAI_API_KEY,
@@ -113,7 +115,7 @@ class PythonBackend {
         ...launchPlan.environment,
         ...bundledToolEnv(this.isDev, launchPlan.resourcesPath),
         SCRIPTCUT_API_TOKEN: this.apiToken,
-        SCRIPTCUT_FILE_TOKEN_SECRET: this.apiToken,
+        SCRIPTCUT_FILE_TOKEN_SECRET: this.fileTokenSecret,
         PYTHONUNBUFFERED: '1',
       };
       for (const key of launchPlan.environmentKeysToRemove || []) {
@@ -271,6 +273,7 @@ class PythonBackend {
       this.process = null;
     }
     this.apiToken = null;
+    this.fileTokenSecret = null;
   }
 
   _waitForReady(timeoutMs) {

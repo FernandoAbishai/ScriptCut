@@ -3,6 +3,7 @@ import { useEditorStore } from '../store/editorStore';
 import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { CaptionStyle, ExportOptions, ProjectExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
+import { buildBackendFileUrl } from '../utils/backendFile';
 
 type ExportPreset = ExportOptions['preset'];
 type CaptionPreset = NonNullable<CaptionStyle['preset']>;
@@ -24,6 +25,8 @@ interface ExportJob {
   result?: {
     output_path?: string;
     srt_path?: string;
+    file_capability?: string;
+    srt_file_capability?: string;
     warnings?: string[];
   };
   error?: string;
@@ -115,10 +118,6 @@ const CREATOR_TEMPLATES: Array<{
   { id: 'caption-review', title: 'Caption Review', desc: 'Source frame with SRT sidecar' },
   { id: 'podcast-square', title: 'Podcast Clip', desc: '1:1 MP4, creator captions' },
 ];
-
-function getExportDownloadUrl(backendUrl: string, path?: string) {
-  return path ? `${backendUrl}/file?path=${encodeURIComponent(path)}` : '';
-}
 
 function getDefaultExportPath(videoPath: string, format: ExportOptions['format']) {
   return videoPath.replace(/\.[^.\\/]+$/, `_edited.${format}`);
@@ -549,8 +548,8 @@ export default function ExportDialog() {
             outputPath,
             srtPath,
             warnings: job.result?.warnings || [],
-            downloadUrl: getExportDownloadUrl(backendUrl, outputPath),
-            srtDownloadUrl: getExportDownloadUrl(backendUrl, srtPath),
+            downloadUrl: buildBackendFileUrl(backendUrl, outputPath, job.result?.file_capability),
+            srtDownloadUrl: buildBackendFileUrl(backendUrl, srtPath, job.result?.srt_file_capability),
           });
           if (outputPath) {
             rememberExport({

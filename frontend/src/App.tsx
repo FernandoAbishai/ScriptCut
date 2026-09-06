@@ -62,6 +62,7 @@ import {
   isCurrentTranscriptionRun as isCurrentTranscriptionRunContext,
   type TranscriptionRunContext,
 } from './utils/transcriptionLifecycle';
+import { resolveBackendFileUrl } from './utils/backendFile';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
@@ -256,9 +257,10 @@ export default function App() {
     return run;
   };
 
-  const restoreProject = (data: ReturnType<typeof parseProjectFile>) => {
+  const restoreProject = async (data: ReturnType<typeof parseProjectFile>) => {
     invalidateTranscriptionRun();
-    loadProjectState(data);
+    const videoUrl = await resolveBackendFileUrl(backendUrl, data.videoPath);
+    loadProjectState(data, videoUrl);
     setWorkspaceRevision((current) => current + 1);
     const workflow = getProjectWorkflow(data.aiWorkspace);
     setEditorWorkflow(workflow);
@@ -282,7 +284,7 @@ export default function App() {
       if (!projectPath) return;
       const content = await window.electronAPI!.readProjectFile(projectPath);
       const data = parseProjectFile(content);
-      restoreProject(data);
+      await restoreProject(data);
       rememberProject(projectPath, data, 'project');
     } catch (err) {
       console.error('Failed to load project:', err);
@@ -302,7 +304,7 @@ export default function App() {
       const path = getAutosaveSnapshotPaths(candidate.videoPath)[snapshotIndex] || candidate.path;
       const content = await window.electronAPI!.readProjectFile(path);
       const data = parseProjectFile(content);
-      restoreProject(data);
+      await restoreProject(data);
       rememberProject(path, data, 'autosave');
     } catch (err) {
       console.error('Failed to recover autosave:', err);
@@ -344,7 +346,7 @@ export default function App() {
     try {
       const content = await window.electronAPI!.readProjectFile(project.path);
       const data = parseProjectFile(content);
-      restoreProject(data);
+      await restoreProject(data);
       rememberProject(project.path, data, project.source);
     } catch (err) {
       removeRecentProject(project.path);
@@ -406,7 +408,8 @@ export default function App() {
         const restored = await tryRestoreAutosave(path);
         if (restored) return;
 
-        loadVideo(path);
+        const videoUrl = await resolveBackendFileUrl(backendUrl, path);
+        loadVideo(path, videoUrl);
         await transcribeVideo(path, intent);
       }
     } else {
@@ -454,11 +457,17 @@ export default function App() {
         throw new Error(`Upload failed: ${detail}`);
       }
 
-      const data = (await res.json()) as { path: string; filename: string; size: number };
+      const data = (await res.json()) as {
+        path: string;
+        filename: string;
+        size: number;
+        file_capability: string;
+      };
       resetMediaAIWorkspaceForNewMedia();
       setEditorWorkflow(intent);
       applyWorkflowIntent(intent);
-      loadVideo(data.path);
+      const videoUrl = await resolveBackendFileUrl(backendUrl, data.path, data.file_capability);
+      loadVideo(data.path, videoUrl);
       await transcribeVideo(data.path, intent);
     } catch (err) {
       console.error('Browser upload error:', err);
@@ -482,7 +491,7 @@ export default function App() {
         });
         if (!shouldRestore) return false;
 
-        restoreProject(data);
+        await restoreProject(data);
         return true;
       } catch {
         // Try the next autosave naming convention.
@@ -762,7 +771,7 @@ export default function App() {
           <ToolbarButton
             icon={<FolderOpen className="w-4 h-4" />}
             label="Open"
-            onClick={handleOpenFile}
+            onClick={() => void handleOpenFile()}
             disabled={isBrowserUploading}
           />
           <ToolbarButton
@@ -974,8 +983,8 @@ function AutosaveStatus({ autosave }: { autosave: ReturnType<typeof useProjectAu
   );
 }
 
-function loadProjectState(data: ReturnType<typeof parseProjectFile>) {
-  useEditorStore.getState().loadProject(data);
+function loadProjectState(data: ReturnType<typeof parseProjectFile>, videoUrl: string) {
+  useEditorStore.getState().loadProject(data, videoUrl);
   useAIStore.getState().loadProjectAIState(data.aiWorkspace);
 }
 

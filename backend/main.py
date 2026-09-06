@@ -9,6 +9,7 @@ from fastapi import FastAPI, File, Query, Request, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from file_access import authorize_file_capability, issue_file_capability
 from local_api_auth import is_authorized_local_api_request, validate_local_api_startup
 
 LOCAL_API_TOKEN = os.getenv("SCRIPTCUT_API_TOKEN", "").strip()
@@ -115,15 +116,24 @@ async def upload_media(request: Request, file: UploadFile = File(...)):
     finally:
         await file.close()
 
-    return {"path": str(upload_path), "filename": source_name, "size": size}
+    _canonical_path, file_capability = issue_file_capability(str(upload_path))
+    return {
+        "path": str(upload_path),
+        "filename": source_name,
+        "size": size,
+        "file_capability": file_capability,
+    }
 
 
 @app.get("/file")
-async def serve_local_file(request: Request, path: str = Query(...)):
-    """Stream a local file with validated single-range seeking."""
-    file_path = Path(path).expanduser().resolve()
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
+async def serve_local_file(request: Request, path: str = Query(...), cap: str = Query(...)):
+    """Stream one explicitly capability-authorized local media/output file."""
+    try:
+        file_path = authorize_file_capability(path, cap)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Invalid local file capability") from None
+    except ValueError:
+        raise HTTPException(status_code=404, detail="File not available") from None
 
     file_size = file_path.stat().st_size
     content_type = MIME_MAP.get(file_path.suffix.lower(), "application/octet-stream")

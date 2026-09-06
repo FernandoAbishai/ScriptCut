@@ -2,6 +2,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
+const {
+  assertTrustedIpcSender,
+  isTrustedRendererUrl,
+  packagedRendererUrl,
+} = require('../electron/renderer-security');
+const { signFileCapability } = require('../electron/file-capabilities');
 
 const root = path.join(__dirname, '..');
 const files = [
@@ -60,4 +67,45 @@ for (const [setting, expected] of [
 }
 if (/webSecurity\s*:\s*false/i.test(electronMain)) fail('electron/main.js must not disable webSecurity');
 
-console.log('Packaged renderer policy smoke passed.');
+const packagedUrl = packagedRendererUrl(root);
+if (!isTrustedRendererUrl(packagedUrl, { isDev: false, packagedUrl })) {
+  fail('exact packaged renderer URL is not trusted');
+}
+if (isTrustedRendererUrl(pathToFileURL(path.join(root, 'package.json')).href, { isDev: false, packagedUrl })) {
+  fail('an unrelated local file is trusted as the packaged renderer');
+}
+if (isTrustedRendererUrl('file:///tmp/attacker.html', { isDev: false, packagedUrl })) {
+  fail('arbitrary file:// navigation is trusted');
+}
+if (isTrustedRendererUrl('http://localhost:5173/other.html', { isDev: true, packagedUrl })) {
+  fail('development renderer policy trusts an unexpected document path');
+}
+
+const mainFrame = { url: packagedUrl };
+const webContents = { mainFrame };
+const trustedEvent = { sender: webContents, senderFrame: mainFrame };
+assertTrustedIpcSender(trustedEvent, { webContents }, { isDev: false, packagedUrl });
+try {
+  assertTrustedIpcSender(
+    { sender: webContents, senderFrame: { url: packagedUrl } },
+    { webContents },
+    { isDev: false, packagedUrl },
+  );
+  fail('subframe IPC was accepted');
+} catch (error) {
+  if (!/main frame/i.test(String(error))) throw error;
+}
+if (/url\.startsWith\(['"]file:\/\//.test(electronMain)) {
+  fail('electron/main.js still trusts file:// by prefix');
+}
+if (!/assertTrustedIpcSender\(event, mainWindow, RENDERER_POLICY\)/.test(electronMain)) {
+  fail('electron/main.js does not enforce the exact main-frame sender policy');
+}
+if (
+  signFileCapability('/tmp/example.mp4', 'scriptcut-test-secret') !==
+  'ee2e8d32cb960a352d3c0c1d628b5ecd494c0848ba36d9a3b41239d96ae0fd68'
+) {
+  fail('Electron file capability HMAC contract changed unexpectedly');
+}
+
+console.log('Packaged renderer policy smoke passed with exact document and main-frame IPC trust.');
