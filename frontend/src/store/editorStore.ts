@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { temporal } from 'zundo';
 import type { Word, Segment, DeletedRange, EditOperation, EditOperationKind, ProjectExportOptions, TranscriptionResult } from '../types/project';
 import type { ClipPresentationPreview } from '../utils/clipPresentation';
+import { collectEditIds, createUniqueEditId, normalizeLoadedEditIds } from '../utils/editIds';
+import { editorHistoryEqual, partializeEditorHistory, type EditorHistoryState } from '../utils/editorHistory';
 
 interface EditorState {
   videoPath: string | null;
@@ -43,7 +45,7 @@ interface EditorState {
 
 interface EditorActions {
   setBackendUrl: (url: string) => void;
-  loadVideo: (path: string) => void;
+  loadVideo: (path: string, videoUrl: string) => void;
   setTranscription: (result: TranscriptionResult) => void;
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
@@ -76,7 +78,7 @@ interface EditorActions {
   getMutedRanges: () => Array<{ start: number; end: number; kind: 'mute' | 'room-tone' }>;
   getCaptionHiddenIndices: () => number[];
   getWordAtTime: (time: number) => number;
-  loadProject: (projectData: ProjectData) => void;
+  loadProject: (projectData: ProjectData, videoUrl: string) => void;
   reset: () => void;
 }
 
@@ -148,24 +150,22 @@ const initialState: EditorState = {
   backendUrl: 'http://localhost:8642',
 };
 
-let nextRangeId = 1;
-
 export const useEditorStore = create<EditorState & EditorActions>()(
-  temporal(
+  temporal<EditorState & EditorActions, [], [], EditorHistoryState>(
     (set, get) => ({
       ...initialState,
 
       setBackendUrl: (url) => set({ backendUrl: url }),
 
-      loadVideo: (path) => {
+      loadVideo: (path, videoUrl) => {
         const backend = get().backendUrl;
-        const url = `${backend}/file?path=${encodeURIComponent(path)}`;
         set({
           ...initialState,
           backendUrl: backend,
           videoPath: path,
-          videoUrl: url,
+          videoUrl,
         });
+        useEditorStore.temporal.getState().clear();
       },
 
       setTranscription: (result) => {
@@ -186,6 +186,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           projectCreatedAt: new Date().toISOString(),
           projectModifiedAt: new Date().toISOString(),
         });
+        useEditorStore.temporal.getState().clear();
       },
 
       setCurrentTime: (time) =>
@@ -235,9 +236,10 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         const sorted = [...selectedWordIndices].sort((a, b) => a - b);
         const startWord = words[sorted[0]];
         const endWord = words[sorted[sorted.length - 1]];
+        const usedIds = collectEditIds(deletedRanges, editOperations);
 
         const newRange: DeletedRange = {
-          id: `dr_${nextRangeId++}`,
+          id: createUniqueEditId('dr', usedIds),
           start: startWord.start,
           end: endWord.end,
           wordIndices: sorted,
@@ -269,9 +271,10 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         const { words, deletedRanges, editOperations } = get();
         const indices = [];
         for (let i = startIndex; i <= endIndex; i++) indices.push(i);
+        const usedIds = collectEditIds(deletedRanges, editOperations);
 
         const newRange: DeletedRange = {
-          id: `dr_${nextRangeId++}`,
+          id: createUniqueEditId('dr', usedIds),
           start: words[startIndex].start,
           end: words[endIndex].end,
           wordIndices: indices,
@@ -293,12 +296,15 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         if (sorted.length === 0) return;
 
         const ranges: DeletedRange[] = [];
+        const usedIds = collectEditIds(deletedRanges, editOperations);
         let start = sorted[0];
         let prev = sorted[0];
 
         const flush = () => {
+          const id = createUniqueEditId('dr', usedIds);
+          usedIds.add(id);
           ranges.push({
-            id: `dr_${nextRangeId++}`,
+            id,
             start: words[start].start,
             end: words[prev].end,
             wordIndices: Array.from({ length: prev - start + 1 }, (_, i) => start + i),
@@ -324,7 +330,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       },
 
       addEditOperation: (kind, indices) => {
-        const { words, editOperations } = get();
+        const { words, deletedRanges, editOperations } = get();
         if (indices.length === 0) return;
 
         const sorted = [...new Set(indices)]
@@ -333,12 +339,15 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         if (sorted.length === 0) return;
 
         const ranges: EditOperation[] = [];
+        const usedIds = collectEditIds(deletedRanges, editOperations);
         let start = sorted[0];
         let prev = sorted[0];
 
         const flush = () => {
+          const id = createUniqueEditId('op', usedIds);
+          usedIds.add(id);
           ranges.push({
-            id: `op_${nextRangeId++}`,
+            id,
             kind,
             start: words[start].start,
             end: words[prev].end,
@@ -364,7 +373,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       },
 
       renameSpeaker: (speaker, label) => {
-        const { words, segments, editOperations } = get();
+        const { words, segments, deletedRanges, editOperations } = get();
         const nextLabel = label.trim();
         if (!nextLabel || nextLabel === speaker) return;
         const wordIndices = words
@@ -373,8 +382,9 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         if (wordIndices.length === 0) return;
         const firstWord = words[wordIndices[0]];
         const lastWord = words[wordIndices[wordIndices.length - 1]];
+        const usedIds = collectEditIds(deletedRanges, editOperations);
         const operation: EditOperation = {
-          id: `op_${nextRangeId++}`,
+          id: createUniqueEditId('op', usedIds),
           kind: 'speaker-label',
           start: firstWord.start,
           end: lastWord.end,
@@ -531,9 +541,12 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         return getWordIndexAtTime(get().words, time);
       },
 
-      loadProject: (data) => {
+      loadProject: (data, videoUrl) => {
         const backend = get().backendUrl;
-        const url = `${backend}/file?path=${encodeURIComponent(data.videoPath)}`;
+        const normalizedEdits = normalizeLoadedEditIds(
+          data.deletedRanges || [],
+          data.editOperations || [],
+        );
 
         let globalIdx = 0;
         const annotatedSegments = (data.segments || []).map((seg: Segment) => {
@@ -546,22 +559,30 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           ...initialState,
           backendUrl: backend,
           videoPath: data.videoPath,
-          videoUrl: url,
+          videoUrl,
           words: data.words || [],
           segments: annotatedSegments,
-          deletedRanges: data.deletedRanges || [],
-          editOperations: reconcileDeleteOperations(data.deletedRanges || [], data.editOperations || []),
+          deletedRanges: normalizedEdits.deletedRanges,
+          editOperations: normalizedEdits.editOperations,
           exportOptions: mergeExportOptions(data.exportOptions),
           language: data.language || '',
           activeWordIndex: getWordIndexAtTime(data.words || [], 0),
           projectCreatedAt: data.createdAt || '',
           projectModifiedAt: data.modifiedAt || '',
         });
+        useEditorStore.temporal.getState().clear();
       },
 
-      reset: () => set(initialState),
+      reset: () => {
+        set(initialState);
+        useEditorStore.temporal.getState().clear();
+      },
     }),
-    { limit: 100 },
+    {
+      limit: 100,
+      partialize: partializeEditorHistory,
+      equality: editorHistoryEqual,
+    },
   ),
 );
 
@@ -573,14 +594,6 @@ function deletedRangeToOperation(range: DeletedRange): EditOperation {
     end: range.end,
     wordIndices: range.wordIndices,
   };
-}
-
-function reconcileDeleteOperations(deletedRanges: DeletedRange[], editOperations: EditOperation[]) {
-  const existingIds = new Set(editOperations.map((operation) => operation.id));
-  const missingDeleteOperations = deletedRanges
-    .filter((range) => !existingIds.has(range.id))
-    .map(deletedRangeToOperation);
-  return [...editOperations, ...missingDeleteOperations];
 }
 
 function getWordIndexAtTime(words: Word[], time: number) {

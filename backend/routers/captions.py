@@ -5,9 +5,9 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from services.caption_generator import generate_srt, generate_vtt, generate_ass, save_captions
+from services.caption_generator import generate_srt, generate_vtt, generate_ass
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,12 +33,13 @@ class CaptionStyle(BaseModel):
 
 
 class CaptionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     words: List[CaptionWord]
     deleted_indices: List[int] = []
     format: str = "srt"
     words_per_line: int = 8
     style: Optional[CaptionStyle] = None
-    output_path: Optional[str] = None
 
 
 @router.post("/captions")
@@ -56,10 +57,6 @@ async def generate_captions(req: CaptionRequest):
             content = generate_ass(words_dicts, deleted_set, req.words_per_line, style_dict)
         else:
             raise HTTPException(status_code=400, detail=f"Unknown format: {req.format}")
-
-        if req.output_path:
-            saved = save_captions(content, req.output_path)
-            return {"status": "ok", "output_path": saved}
 
         return PlainTextResponse(content, media_type="text/plain")
 

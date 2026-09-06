@@ -166,7 +166,9 @@ class CaptionTimelineSmokeTests(unittest.TestCase):
             with patch.object(export_router, "export_stream_copy", fake_stream_copy):
                 result = export_router.run_export(request)
 
-            self.assertEqual(result, {"status": "ok", "output_path": output_path})
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(Path(result["output_path"]).resolve(), Path(output_path).resolve())
+            self.assertRegex(result["file_capability"], r"^[0-9a-f]{64}$")
             self.assertFalse(Path(output_path).with_suffix(".srt").exists())
 
     def test_declared_export_timeline_words_remain_supported(self) -> None:

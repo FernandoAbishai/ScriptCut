@@ -58,7 +58,7 @@ const uploadBody = appSource.match(/const uploadBrowserFile = async \(file: File
 assert.match(uploadBody, /if \(!res\.ok\) \{[\s\S]*throw new Error\([\s\S]*?\n\s*\}/);
 assert.match(uploadBody, /const data = \(await res\.json\(\)\)[\s\S]*resetMediaAIWorkspaceForNewMedia\(\)/);
 assert.ok(uploadBody.indexOf('resetMediaAIWorkspaceForNewMedia()') > uploadBody.indexOf('const data ='));
-assert.match(appSource, /const restoreProject = \(data: ReturnType<typeof parseProjectFile>\) => \{\s*invalidateTranscriptionRun\(\);\s*loadProjectState\(data\)/);
+assert.match(appSource, /const restoreProject = async \(data: ReturnType<typeof parseProjectFile>\) => \{\s*invalidateTranscriptionRun\(\);[\s\S]*resolveBackendFileUrl\(backendUrl, data\.videoPath\);\s*loadProjectState\(data, videoUrl\)/);
 assert.match(appSource, /const resetMediaAIWorkspaceForNewMedia = useCallback\(\(\) => \{\s*invalidateTranscriptionRun\(\);/);
 assert.doesNotMatch(appSource, /clipWorkspaceEpoch/);
 

@@ -127,11 +127,17 @@ jobs:
       - name: Test playback sync workflow
         run: npm run test:playback-sync --prefix frontend
 
+      - name: Test editor state and undo invariants
+        run: npm run test:editor-state --prefix frontend
+
       - name: Build frontend
         run: npm run build --prefix frontend
 
       - name: Test packaged renderer policy
         run: npm run smoke:renderer-policy
+
+      - name: Test atomic project-file writes
+        run: npm run smoke:project-file-io
 
       - name: Run backend smoke tests
         run: npm run smoke:backend

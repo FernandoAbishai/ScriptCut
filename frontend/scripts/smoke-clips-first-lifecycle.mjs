@@ -52,7 +52,7 @@ const openFileBody = appSource.match(/const handleOpenFile = async \(intent: Wor
 const browserChangeBody = appSource.match(/const handleBrowserFileChange = async \(e: React\.ChangeEvent<HTMLInputElement>\) => \{([\s\S]*?)\n\s*\};\s*const handleBrowserDrop/)?.[1] || '';
 assert.match(openFileBody, /const path = await window\.electronAPI!\.openFile\(\);[\s\S]*if \(path\) \{[\s\S]*resetMediaAIWorkspaceForNewMedia\(\)/);
 assert.match(browserChangeBody, /e\.target\.value = '';[\s\S]*if \(!file\) return;/);
-assert.match(appSource, /const restoreProject = \(data: ReturnType<typeof parseProjectFile>\) => \{[\s\S]*loadProjectState\(data\)/);
+assert.match(appSource, /const restoreProject = async \(data: ReturnType<typeof parseProjectFile>\) => \{[\s\S]*loadProjectState\(data, videoUrl\)/);
 assert.match(appSource, /useAIStore\.getState\(\)\.loadProjectAIState\(data\.aiWorkspace\)/);
 
 function loadTsModule(relativePath) {

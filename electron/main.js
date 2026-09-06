@@ -3,16 +3,28 @@ const fs = require('fs');
 const path = require('path');
 const { PythonBackend } = require('./python-bridge');
 const { selectRuntimeMode } = require('./runtime-contract');
+const { MediaReadAllowlist } = require('./file-capabilities');
+const { createAtomicTextWriteQueue } = require('./project-file-io');
+const {
+  assertTrustedIpcSender,
+  isTrustedRendererUrl,
+  packagedRendererUrl,
+} = require('./renderer-security');
 
 let mainWindow = null;
 let pythonBackend = null;
 let backendStartupError = '';
 
 const isDev = !app.isPackaged;
+const PROJECT_ROOT = path.join(__dirname, '..');
+const PACKAGED_RENDERER_URL = packagedRendererUrl(PROJECT_ROOT);
+const RENDERER_POLICY = { isDev, packagedUrl: PACKAGED_RENDERER_URL };
 const BACKEND_PORT = 8642;
 const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 const MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024;
 const PROJECT_EXTENSIONS = new Set(['.scriptcut', '.aive', '.cutscript']);
+const mediaReadAllowlist = new MediaReadAllowlist();
+const writeProjectFileAtomic = createAtomicTextWriteQueue();
 
 function fileExtension(filePath) {
   return typeof filePath === 'string' ? path.extname(filePath).toLowerCase() : '';
@@ -49,14 +61,26 @@ function assertSafeFilePath(filePath) {
   }
 }
 
-function isTrustedAppUrl(url) {
-  if (isDev) return url.startsWith('http://localhost:5173/');
-  return url.startsWith('file://');
+function assertTrustedSender(event) {
+  assertTrustedIpcSender(event, mainWindow, RENDERER_POLICY);
 }
 
-function assertTrustedSender(event) {
-  const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || '';
-  if (!isTrustedAppUrl(senderUrl)) throw new Error('IPC request came from an untrusted frame.');
+function approveProjectMediaFromContent(content) {
+  try {
+    const project = JSON.parse(content);
+    if (project && typeof project === 'object' && typeof project.videoPath === 'string') {
+      mediaReadAllowlist.tryApprove(project.videoPath);
+    }
+  } catch {
+    // Project parsing/validation belongs to the renderer. Do not grant a path
+    // when the project text cannot be parsed safely here.
+  }
+}
+
+function createApprovedBackendFileUrl(filePath) {
+  const secret = pythonBackend?.fileTokenSecret;
+  if (!secret) throw new Error('Local file capability authority is unavailable.');
+  return mediaReadAllowlist.createUrl(BACKEND_ORIGIN, filePath, secret);
 }
 
 function openExternalUrl(url) {
@@ -85,7 +109,7 @@ function createWindow({ hidden = false } = {}) {
     mainWindow.loadURL('http://localhost:5173');
     if (process.env.SCRIPTCUT_OPEN_DEVTOOLS === '1') mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(PROJECT_ROOT, 'frontend', 'dist', 'index.html'));
   }
 
   if (!hidden) mainWindow.once('ready-to-show', () => mainWindow.show());
@@ -94,7 +118,7 @@ function createWindow({ hidden = false } = {}) {
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (isTrustedAppUrl(url)) return;
+    if (isTrustedRendererUrl(url, RENDERER_POLICY)) return;
     event.preventDefault();
     openExternalUrl(url);
   });
@@ -125,7 +149,7 @@ app.whenReady().then(async () => {
     runtimeMode,
     resourcesPath: process.resourcesPath,
     userDataPath: app.getPath('userData'),
-    projectRoot: path.join(__dirname, '..'),
+    projectRoot: PROJECT_ROOT,
   });
   try {
     await pythonBackend.start();
@@ -140,6 +164,7 @@ app.whenReady().then(async () => {
       const { runRendererTransportSmoke } = require('./renderer-transport-smoke');
       const mediaPath = process.env.SCRIPTCUT_RENDERER_SMOKE_MEDIA_PATH;
       if (!mediaPath) throw new Error('renderer transport smoke media fixture is missing');
+      mediaReadAllowlist.approve(mediaPath);
       const smokeWindow = createWindow({ hidden: true });
       const result = await runRendererTransportSmoke({
         window: smokeWindow,
@@ -179,7 +204,10 @@ ipcMain.handle('dialog:openFile', async (event, options) => {
     ],
     ...options,
   });
-  return result.canceled ? null : result.filePaths[0];
+  if (result.canceled) return null;
+  const selectedPath = result.filePaths[0];
+  mediaReadAllowlist.tryApprove(selectedPath);
+  return selectedPath;
 });
 
 ipcMain.handle('dialog:openDirectory', async (event, options) => {
@@ -223,6 +251,10 @@ ipcMain.handle('safe-storage:decrypt', (event, encrypted) => {
   return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
 });
 ipcMain.handle('get-backend-url', (event) => { assertTrustedSender(event); return BACKEND_ORIGIN; });
+ipcMain.handle('file:getUrl', (event, filePath) => {
+  assertTrustedSender(event);
+  return createApprovedBackendFileUrl(filePath);
+});
 ipcMain.handle('app:getStartupStatus', (event) => { assertTrustedSender(event); return { backendError: backendStartupError }; });
 ipcMain.handle('app:getInfo', (event) => {
   assertTrustedSender(event);
@@ -234,13 +266,15 @@ ipcMain.handle('project:read', async (event, filePath) => {
   assertTrustedSender(event);
   assertProjectPath(filePath);
   if (fs.statSync(filePath).size > MAX_PROJECT_FILE_BYTES) throw new Error('Project file is larger than 50 MB.');
-  return fs.readFileSync(filePath, 'utf-8');
+  const content = fs.readFileSync(filePath, 'utf-8');
+  approveProjectMediaFromContent(content);
+  return content;
 });
 ipcMain.handle('project:write', async (event, filePath, content) => {
   assertTrustedSender(event);
   assertProjectPath(filePath);
   assertTextContent(content);
-  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
+  await writeProjectFileAtomic(filePath, content, { mode: 0o600 });
   return true;
 });
 ipcMain.handle('clip-manifest:write', async (event, filePath, content) => {

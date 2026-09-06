@@ -9,14 +9,19 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
+
+from pydantic import ValidationError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from local_api_auth import is_authorized_local_api_request, validate_local_api_startup
+from file_access import authorize_file_capability, issue_file_capability, sign_file_capability
 from network_security import validate_provider_url
+from routers.captions import CaptionRequest
 from services.job_manager import JobManager
 
 
@@ -74,6 +79,32 @@ class SecuritySmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "queue is full"):
             manager.create("second", blocked)
         release.set()
+
+    def test_local_file_capability_is_exact_and_media_scoped(self):
+        self.assertEqual(
+            sign_file_capability("/tmp/example.mp4", b"scriptcut-test-secret"),
+            "ee2e8d32cb960a352d3c0c1d628b5ecd494c0848ba36d9a3b41239d96ae0fd68",
+        )
+        with TemporaryDirectory() as tmp:
+            allowed = Path(tmp) / "creator.mp4"
+            other = Path(tmp) / "other.mp4"
+            text = Path(tmp) / "secret.txt"
+            allowed.write_bytes(b"creator-media")
+            other.write_bytes(b"other-media")
+            text.write_text("not media", encoding="utf-8")
+
+            canonical, capability = issue_file_capability(str(allowed))
+            self.assertEqual(authorize_file_capability(canonical, capability), allowed.resolve())
+            with self.assertRaises(PermissionError):
+                authorize_file_capability(str(other), capability)
+            with self.assertRaises(PermissionError):
+                authorize_file_capability(canonical, "wrong-capability")
+            with self.assertRaisesRegex(ValueError, "File type"):
+                issue_file_capability(str(text))
+
+    def test_caption_endpoint_model_rejects_output_path_authority(self):
+        with self.assertRaises(ValidationError):
+            CaptionRequest(words=[], output_path="/tmp/should-not-be-written.srt")
 
 
 if __name__ == "__main__":

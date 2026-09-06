@@ -9,6 +9,7 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from file_access import issue_file_capability
 from services.video_editor import export_stream_copy, export_reencode, export_reencode_with_subs, supports_ass_subtitles
 from services.audio_cleaner import clean_audio
 from services.caption_generator import (
@@ -317,9 +318,17 @@ def run_export(req: ExportRequest, progress_callback=None):
             save_captions(srt_content, srt_path)
             logger.info(f"Sidecar SRT saved to {srt_path}")
 
-        result = {"status": "ok", "output_path": output}
+        _output_canonical, output_capability = issue_file_capability(output)
+        result = {
+            "status": "ok",
+            "output_path": output,
+            "file_capability": output_capability,
+        }
         if srt_path:
             result["srt_path"] = srt_path
+            if os.path.isfile(srt_path):
+                _srt_canonical, srt_capability = issue_file_capability(srt_path)
+                result["srt_file_capability"] = srt_capability
         if warnings:
             result["warnings"] = warnings
         progress(100, "Export complete")

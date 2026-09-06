@@ -50,6 +50,7 @@ import CaptionPreview from './CaptionPreview';
 import ClipReviewWorkspace from './ClipReviewWorkspace';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
+import { buildBackendFileUrl } from '../utils/backendFile';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
 
@@ -83,7 +84,13 @@ type ExportJob = {
   progress: number;
   message: string;
   logs?: Array<{ time: string; message: string }>;
-  result?: { output_path?: string; srt_path?: string; warnings?: string[] };
+  result?: {
+    output_path?: string;
+    srt_path?: string;
+    file_capability?: string;
+    srt_file_capability?: string;
+    warnings?: string[];
+  };
   error?: string;
 };
 
@@ -114,6 +121,8 @@ type BatchExportResult = {
 type ClipExportOutput = {
   outputPath: string;
   srtPath?: string;
+  fileCapability?: string;
+  srtFileCapability?: string;
   warnings: string[];
 };
 
@@ -984,6 +993,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           return {
             outputPath,
             srtPath: job.result?.srt_path,
+            fileCapability: job.result?.file_capability,
+            srtFileCapability: job.result?.srt_file_capability,
             warnings: job.result?.warnings || [],
           };
         }
@@ -2323,7 +2334,7 @@ function ClipDraftCard({
                 </button>
               ) : (
                 <a
-                  href={getBackendFileUrl(backendUrl, draft.exportPath)}
+                  href={buildBackendFileUrl(backendUrl, draft.exportPath, exportResult?.fileCapability)}
                   download={getFileNameFromPath(draft.exportPath, `${draft.title || 'scriptcut_clip'}.${draft.format}`)}
                   className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
                 >
@@ -2346,7 +2357,7 @@ function ClipDraftCard({
                   </button>
                 ) : (
                   <a
-                    href={getBackendFileUrl(backendUrl, exportResult.srtPath)}
+                    href={buildBackendFileUrl(backendUrl, exportResult.srtPath, exportResult.srtFileCapability)}
                     download={getFileNameFromPath(exportResult.srtPath, 'captions.srt')}
                     className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
                   >
@@ -3186,10 +3197,6 @@ function formatClipTime(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-function getBackendFileUrl(backendUrl: string, path?: string) {
-  return path ? `${backendUrl}/file?path=${encodeURIComponent(path)}` : '';
 }
 
 function getFileNameFromPath(path: string, fallback: string) {
