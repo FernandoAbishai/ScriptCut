@@ -64,8 +64,13 @@ assert.match(panelSource, /getNewManualClipDrafts\(clipDrafts, knownClipDraftIds
 assert.match(panelSource, /if \(mode !== 'clips' \|\| newlyAddedManualDrafts\.length === 0\) return/);
 assert.match(panelSource, /setClipStage\('prepare'\);\s+setActiveClipDraftId\(draft\.id\);\s+setSelectedWordIndices\(getWordIndicesForClip\(words, draft\)\)/);
 assert.match(findStageSource, /Find moments with AI/);
-assert.match(findStageSource, />Find moments<\/h3>/);
-assert.match(findStageSource, /Choose moments yourself/);
+assert.match(findStageSource, />Choose moments<\/h3>/);
+assert.match(findStageSource, /Start from the transcript — no AI required/);
+assert.match(findStageSource, /Optional AI discovery/);
+assert.ok(
+  findStageSource.indexOf('Start from the transcript — no AI required') < findStageSource.indexOf('Find moments with AI'),
+  'manual transcript clipping must be presented before optional AI discovery',
+);
 assert.match(reviewSource, /Preview each moment/);
 assert.match(reviewSource, /Prepare approved clips/);
 assert.match(reviewSource, /Find more moments/);
