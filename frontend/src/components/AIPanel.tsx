@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isClipTimelineMutationBlocked, useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, RotateCcw, Filter } from 'lucide-react';
-import type { ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult } from '../types/project';
+import type { ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
   getClipDraftUserEditResult,
   getClipDraftReadinessScore,
@@ -69,6 +69,17 @@ type AIJob<T> = {
 type AIJobContext = {
   label: string;
   draftId?: string;
+  inputFingerprint?: string;
+};
+
+type AIJobRunContext = {
+  id: number;
+  workspaceEpoch: number;
+};
+
+type ActiveAIJob = AIJob<unknown> & AIJobContext & {
+  workspaceEpoch: number;
+  runId: number;
 };
 
 type ClipDiscoveryResult = {
@@ -86,6 +97,14 @@ type ClipMetadataResult = {
   caption?: string;
   hashtags?: string[];
 };
+
+function getClipMetadataInputFingerprint(draft: ClipDraft, words: Word[]) {
+  const transcriptFingerprint = words
+    .slice(draft.startWordIndex, draft.endWordIndex + 1)
+    .map((word) => `${word.start}:${word.end}:${word.word}`)
+    .join('\u001f');
+  return `${draft.startWordIndex}:${draft.endWordIndex}:${transcriptFingerprint}`;
+}
 
 export type AIPanelMode = 'general' | 'clips';
 
@@ -141,7 +160,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   );
   const [fillerQueueFilter, setFillerQueueFilter] = useState<FillerQueueFilter>('all');
   const [fillerReasonFilter, setFillerReasonFilter] = useState('all');
-  const [activeAIJob, setActiveAIJob] = useState<(AIJob<unknown> & AIJobContext) | null>(null);
+  const [activeAIJob, setActiveAIJob] = useState<ActiveAIJob | null>(null);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [activeClipDraftId, setActiveClipDraftId] = useState<string | null>(null);
   const [activeClipPreviewKey, setActiveClipPreviewKey] = useState<string | null>(null);
@@ -165,12 +184,41 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     updateClipExportDirectory,
   } = useClipExportController({ setCreatorNotice });
   const knownClipDraftIdsRef = useRef(new Set(clipDrafts.map((draft) => draft.id)));
+  const aiJobRunEpochRef = useRef(0);
+  const activeAIJobRunRef = useRef<AIJobRunContext | null>(null);
   const secondaryToolsVisible =
     mode === 'clips' && (showSecondaryTools || activeTab === 'edit' || activeTab === 'filler');
   const isCurrentClipWorkspace = useCallback(
     () => useAIStore.getState().clipWorkspaceEpoch === clipWorkspaceEpoch,
     [clipWorkspaceEpoch],
   );
+  const isCurrentAIJobRun = useCallback((run: AIJobRunContext) => {
+    const activeRun = activeAIJobRunRef.current;
+    return (
+      activeRun?.id === run.id &&
+      activeRun.workspaceEpoch === run.workspaceEpoch &&
+      useAIStore.getState().clipWorkspaceEpoch === run.workspaceEpoch
+    );
+  }, []);
+  const beginAIJobRun = useCallback(() => {
+    const workspaceEpoch = useAIStore.getState().clipWorkspaceEpoch;
+    const activeRun = activeAIJobRunRef.current;
+    if (activeRun?.workspaceEpoch === workspaceEpoch) {
+      throw new Error('Another AI action is still running. Wait for it to finish or cancel it first.');
+    }
+    const run = {
+      id: aiJobRunEpochRef.current + 1,
+      workspaceEpoch,
+    };
+    aiJobRunEpochRef.current = run.id;
+    activeAIJobRunRef.current = run;
+    return run;
+  }, []);
+  const finishAIJobRun = useCallback((run: AIJobRunContext) => {
+    if (activeAIJobRunRef.current?.id === run.id) {
+      activeAIJobRunRef.current = null;
+    }
+  }, []);
 
   const activeReviewPreviewKey =
     isPlaying && previewRangeEnd !== null ? activeClipPreviewKey : null;
@@ -179,6 +227,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setActiveTab(mode === 'clips' ? 'clips' : 'edit');
     setShowSecondaryTools(false);
   }, [mode]);
+
+  useEffect(() => {
+    setActiveAIJob((current) =>
+      current && current.workspaceEpoch !== clipWorkspaceEpoch ? null : current,
+    );
+    if (activeAIJobRunRef.current?.workspaceEpoch !== clipWorkspaceEpoch) {
+      activeAIJobRunRef.current = null;
+    }
+  }, [clipWorkspaceEpoch]);
 
   useEffect(() => {
     if (mode === 'clips') return () => clearClipPresentationPreview();
@@ -387,14 +444,49 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   }, [words]);
 
   const pollAIJob = useCallback(
-    async <T,>(jobId: string, fallbackMessage: string, context: AIJobContext) => {
+    async <T,>(jobId: string, fallbackMessage: string, context: AIJobContext, run: AIJobRunContext) => {
       for (;;) {
         await new Promise((resolve) => window.setTimeout(resolve, 700));
-        const jobRes = await fetch(`${backendUrl}/jobs/${jobId}`);
-        if (!jobRes.ok) throw new Error(`${fallbackMessage} status failed: ${jobRes.statusText}`);
-        const job = (await jobRes.json()) as AIJob<T>;
-        if (!isCurrentClipWorkspace()) throw new Error('The media workspace changed while this job was running.');
-        setActiveAIJob({ ...job, ...context });
+        if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was running.');
+        let jobRes: Response;
+        try {
+          jobRes = await fetch(`${backendUrl}/jobs/${jobId}`);
+        } catch {
+          if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was running.');
+          setActiveAIJob((current) =>
+            current?.runId === run.id
+              ? { ...current, message: 'Connection interrupted; checking AI job status...' }
+              : current,
+          );
+          setProcessing(true, 'Connection interrupted; checking AI job status...');
+          continue;
+        }
+        if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was running.');
+        if (!jobRes.ok) {
+          if (jobRes.status === 404) throw new Error(`${fallbackMessage} job is no longer available`);
+          setActiveAIJob((current) =>
+            current?.runId === run.id
+              ? { ...current, message: 'AI job status unavailable; retrying...' }
+              : current,
+          );
+          setProcessing(true, 'AI job status unavailable; retrying...');
+          continue;
+        }
+        let job: AIJob<T>;
+        try {
+          job = (await jobRes.json()) as AIJob<T>;
+        } catch {
+          if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was running.');
+          setActiveAIJob((current) =>
+            current?.runId === run.id
+              ? { ...current, message: 'AI job status was unreadable; retrying...' }
+              : current,
+          );
+          setProcessing(true, 'AI job status was unreadable; retrying...');
+          continue;
+        }
+        if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was running.');
+        setActiveAIJob({ ...job, ...context, workspaceEpoch: run.workspaceEpoch, runId: run.id });
         setProcessing(
           job.status === 'queued' || job.status === 'running' || job.status === 'canceling',
           job.message || fallbackMessage,
@@ -409,42 +501,65 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         }
       }
     },
-    [backendUrl, isCurrentClipWorkspace, setProcessing],
+    [backendUrl, isCurrentAIJobRun, setProcessing],
   );
 
   const startAIJob = useCallback(
-    async <T,>(path: string, body: unknown, fallbackMessage: string, context?: Partial<AIJobContext>) => {
+    async <T,>(
+      path: string,
+      body: unknown,
+      fallbackMessage: string,
+      context?: Partial<AIJobContext>,
+      processingMessage = fallbackMessage,
+    ) => {
+      const run = beginAIJobRun();
       setCreatorNotice(null);
-      const startRes = await fetch(`${backendUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!startRes.ok) {
-        const errorData = await startRes.json().catch(() => null);
-        throw new Error(errorData?.detail || `${fallbackMessage} start failed`);
-      }
+      setProcessing(true, processingMessage);
+      try {
+        const startRes = await fetch(`${backendUrl}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was starting.');
+        if (!startRes.ok) {
+          const errorData = await startRes.json().catch(() => null);
+          if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was starting.');
+          throw new Error(errorData?.detail || `${fallbackMessage} start failed`);
+        }
 
-      const { job_id: jobId } = await startRes.json();
-      const jobContext = { label: context?.label || fallbackMessage, draftId: context?.draftId };
-      setActiveAIJob({
-        id: jobId,
-        kind: path.replace('/jobs/', ''),
-        status: 'queued',
-        progress: 0,
-        message: 'Queued',
-        logs: [],
-        ...jobContext,
-      });
-      return pollAIJob<T>(jobId, fallbackMessage, jobContext);
+        const { job_id: jobId } = await startRes.json();
+        if (!isCurrentAIJobRun(run)) throw new Error('The media workspace changed while this AI job was starting.');
+        const jobContext = {
+          label: context?.label || fallbackMessage,
+          draftId: context?.draftId,
+          inputFingerprint: context?.inputFingerprint,
+        };
+        setActiveAIJob({
+          id: jobId,
+          kind: path.replace('/jobs/', ''),
+          status: 'queued',
+          progress: 0,
+          message: 'Queued',
+          logs: [],
+          ...jobContext,
+          workspaceEpoch: run.workspaceEpoch,
+          runId: run.id,
+        });
+        return await pollAIJob<T>(jobId, fallbackMessage, jobContext, run);
+      } finally {
+        if (isCurrentAIJobRun(run)) {
+          finishAIJobRun(run);
+          setProcessing(false);
+        }
+      }
     },
-    [backendUrl, pollAIJob],
+    [backendUrl, beginAIJobRun, finishAIJobRun, isCurrentAIJobRun, pollAIJob, setProcessing],
   );
 
   const createEditPlan = useCallback(async () => {
     const instruction = editPlanInstruction.trim();
     if (words.length === 0 || !instruction) return;
-    setProcessing(true, 'Planning edits...');
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
@@ -466,14 +581,13 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         },
         'Edit planning',
         { label: 'Edit planning' },
+        'Planning edits...',
       );
       if (!isCurrentClipWorkspace()) return;
       setEditPlanResult(data);
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
-    } finally {
-      if (isCurrentClipWorkspace()) setProcessing(false);
     }
   }, [
     defaultProvider,
@@ -481,7 +595,6 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     isCurrentClipWorkspace,
     providers,
     setEditPlanResult,
-    setProcessing,
     startAIJob,
     words,
   ]);
@@ -489,7 +602,6 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const createDirectorPlan = useCallback(async () => {
     const instruction = editPlanInstruction.trim() || 'Create a fast, high-retention 60 second Short from the strongest moment.';
     if (words.length === 0) return;
-    setProcessing(true, 'Directing short-form edit...');
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
@@ -514,6 +626,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         },
         'AI Director',
         { label: 'AI Director' },
+        'Directing short-form edit...',
       );
       if (!isCurrentClipWorkspace()) return;
       setEditPlanResult(data);
@@ -536,8 +649,6 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
-    } finally {
-      if (isCurrentClipWorkspace()) setProcessing(false);
     }
   }, [
     defaultProvider,
@@ -547,7 +658,6 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setClipDrafts,
     setClipStage,
     setEditPlanResult,
-    setProcessing,
     startAIJob,
     words,
   ]);
@@ -587,19 +697,28 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   }, [isCurrentClipWorkspace, setClipDrafts, setClipReviewDecisions, setClipStage, setClipSuggestions]);
 
   const cancelAIJob = useCallback(async () => {
-    if (!activeAIJob || !['queued', 'running'].includes(activeAIJob.status)) return;
-    const res = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/cancel`, { method: 'POST' });
-    if (!isCurrentClipWorkspace()) return;
+    const job = activeAIJob;
+    const run = activeAIJobRunRef.current;
+    if (!job || !run || !['queued', 'running'].includes(job.status)) return;
+    if (job.workspaceEpoch !== run.workspaceEpoch || job.runId !== run.id || !isCurrentAIJobRun(run)) return;
+    const res = await fetch(`${backendUrl}/jobs/${job.id}/cancel`, { method: 'POST' });
+    if (!isCurrentAIJobRun(run)) return;
     if (res.ok) {
-      const job = (await res.json()) as AIJob<unknown>;
-      setActiveAIJob({ ...job, label: activeAIJob.label, draftId: activeAIJob.draftId });
+      const canceledJob = (await res.json()) as AIJob<unknown>;
+      if (!isCurrentAIJobRun(run)) return;
+      setActiveAIJob({
+        ...canceledJob,
+        label: job.label,
+        draftId: job.draftId,
+        inputFingerprint: job.inputFingerprint,
+        workspaceEpoch: job.workspaceEpoch,
+        runId: job.runId,
+      });
     }
-    setProcessing(false);
-  }, [activeAIJob, backendUrl, isCurrentClipWorkspace, setProcessing]);
+  }, [activeAIJob, backendUrl, isCurrentAIJobRun]);
 
   const detectFillers = useCallback(async () => {
     if (words.length === 0) return;
-    setProcessing(true, 'Detecting filler words...');
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
@@ -616,20 +735,18 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         },
         'Filler detection',
         { label: 'Filler detection' },
+        'Detecting filler words...',
       );
       if (!isCurrentClipWorkspace()) return;
       setFillerResult(data);
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
-    } finally {
-      if (isCurrentClipWorkspace()) setProcessing(false);
     }
-  }, [words, defaultProvider, providers, customFillerWords, isCurrentClipWorkspace, setProcessing, setFillerResult, startAIJob]);
+  }, [words, defaultProvider, providers, customFillerWords, isCurrentClipWorkspace, setFillerResult, startAIJob]);
 
   const createClips = useCallback(async () => {
     if (words.length === 0) return;
-    setProcessing(true, 'Finding best clip segments...');
     try {
       const config = providers[defaultProvider];
       const transcript = words.map((w) => w.word).join(' ');
@@ -651,15 +768,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         },
         'Clip discovery',
         { label: 'Clip discovery' },
+        'Finding best clip segments...',
       );
       applyClipDiscoveryResult(data);
     } catch (err) {
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
-    } finally {
-      if (isCurrentClipWorkspace()) setProcessing(false);
     }
-  }, [applyClipDiscoveryResult, defaultProvider, isCurrentClipWorkspace, providers, setProcessing, startAIJob, words]);
+  }, [applyClipDiscoveryResult, defaultProvider, providers, startAIJob, words]);
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
@@ -1009,6 +1125,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       setPublishingCopyDraftId(draft.id);
       try {
         const config = providers[defaultProvider];
+        const inputFingerprint = getClipMetadataInputFingerprint(draft, words);
         const transcript = words
           .slice(draft.startWordIndex, draft.endWordIndex + 1)
           .map((word) => word.word)
@@ -1024,11 +1141,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             base_url: config.baseUrl || undefined,
           },
           'Generate publishing copy',
-          { label: 'Generate publishing copy', draftId: draft.id },
+          { label: 'Generate publishing copy', draftId: draft.id, inputFingerprint },
         );
-        const patch = mergeGeneratedPublishingCopy(draft, data);
+        const currentDraft = useAIStore.getState().clipDrafts.find((item) => item.id === draft.id);
+        const currentWords = useEditorStore.getState().words;
+        if (!currentDraft || getClipMetadataInputFingerprint(currentDraft, currentWords) !== inputFingerprint) return;
+        const patch = mergeGeneratedPublishingCopy(currentDraft, data);
         if (!patch) throw new Error('Publishing copy generation returned no usable copy.');
-        updateClipDraft(draft.id, patch);
+        updateClipDraft(currentDraft.id, patch);
       } catch (err) {
         console.error(err);
         setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
@@ -1040,42 +1160,97 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   );
 
   const retryAIJob = useCallback(async () => {
-    if (!activeAIJob || !['failed', 'canceled'].includes(activeAIJob.status)) return;
-    setCreatorNotice(null);
-    setProcessing(true, `Retrying ${activeAIJob.label}...`);
+    const sourceJob = activeAIJob;
+    if (!sourceJob || !['failed', 'canceled'].includes(sourceJob.status)) return;
+    if (sourceJob.workspaceEpoch !== useAIStore.getState().clipWorkspaceEpoch) {
+      setActiveAIJob(null);
+      return;
+    }
+    if (sourceJob.kind === 'ai:clip-metadata') {
+      const currentDraft = sourceJob.draftId
+        ? useAIStore.getState().clipDrafts.find((item) => item.id === sourceJob.draftId)
+        : undefined;
+      const currentWords = useEditorStore.getState().words;
+      if (
+        !currentDraft ||
+        !sourceJob.inputFingerprint ||
+        getClipMetadataInputFingerprint(currentDraft, currentWords) !== sourceJob.inputFingerprint
+      ) {
+        setActiveAIJob(null);
+        return;
+      }
+    }
+
+    let run: AIJobRunContext;
     try {
-      const retryRes = await fetch(`${backendUrl}/jobs/${activeAIJob.id}/retry`, { method: 'POST' });
+      run = beginAIJobRun();
+    } catch (err) {
+      setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
+      return;
+    }
+    setCreatorNotice(null);
+    setProcessing(true, `Retrying ${sourceJob.label}...`);
+    try {
+      const retryRes = await fetch(`${backendUrl}/jobs/${sourceJob.id}/retry`, { method: 'POST' });
+      if (!isCurrentAIJobRun(run)) return;
       if (!retryRes.ok) throw new Error(`Retry failed: ${retryRes.statusText}`);
       const { job_id: jobId } = await retryRes.json();
-      const context = { label: activeAIJob.label, draftId: activeAIJob.draftId };
-      const result = await pollAIJob<unknown>(jobId, activeAIJob.label, context);
-      if (!isCurrentClipWorkspace()) return;
+      if (!isCurrentAIJobRun(run)) return;
+      const context = {
+        label: sourceJob.label,
+        draftId: sourceJob.draftId,
+        inputFingerprint: sourceJob.inputFingerprint,
+      };
+      setActiveAIJob({
+        id: jobId,
+        kind: sourceJob.kind,
+        status: 'queued',
+        progress: 0,
+        message: 'Queued',
+        logs: [],
+        ...context,
+        workspaceEpoch: run.workspaceEpoch,
+        runId: run.id,
+      });
+      const result = await pollAIJob<unknown>(jobId, sourceJob.label, context, run);
+      if (!isCurrentAIJobRun(run)) return;
 
-      if (activeAIJob.kind === 'ai:filler-removal') {
+      if (sourceJob.kind === 'ai:filler-removal') {
         setFillerResult(result as FillerWordResult);
-      } else if (activeAIJob.kind === 'ai:create-clip') {
+      } else if (sourceJob.kind === 'ai:create-clip') {
         applyClipDiscoveryResult(result as ClipDiscoveryResult, 'suggested_clip_retry');
-      } else if (activeAIJob.kind === 'ai:edit-plan') {
+      } else if (sourceJob.kind === 'ai:edit-plan') {
         setEditPlanResult(result as EditPlanResult);
-      } else if (activeAIJob.kind === 'ai:clip-metadata' && activeAIJob.draftId) {
+      } else if (sourceJob.kind === 'ai:clip-metadata' && sourceJob.draftId) {
         const metadata = result as ClipMetadataResult;
-        const draft = clipDrafts.find((item) => item.id === activeAIJob.draftId);
-        const patch = draft ? mergeGeneratedPublishingCopy(draft, metadata) : null;
+        const currentDraft = useAIStore.getState().clipDrafts.find((item) => item.id === sourceJob.draftId);
+        const currentWords = useEditorStore.getState().words;
+        if (
+          !currentDraft ||
+          !sourceJob.inputFingerprint ||
+          getClipMetadataInputFingerprint(currentDraft, currentWords) !== sourceJob.inputFingerprint
+        ) return;
+        const patch = mergeGeneratedPublishingCopy(currentDraft, metadata);
         if (!patch) throw new Error('Publishing copy generation returned no usable copy.');
-        updateClipDraft(activeAIJob.draftId, patch);
+        updateClipDraft(currentDraft.id, patch);
       }
     } catch (err) {
+      if (!isCurrentAIJobRun(run)) return;
       console.error(err);
       setCreatorNotice({ ...getCreatorErrorPresentation('ai-action', err), onDismiss: () => setCreatorNotice(null) });
     } finally {
-      if (isCurrentClipWorkspace()) setProcessing(false);
+      if (isCurrentAIJobRun(run)) {
+        finishAIJobRun(run);
+        setProcessing(false);
+      }
     }
   }, [
     activeAIJob,
     applyClipDiscoveryResult,
     backendUrl,
-    clipDrafts,
-    isCurrentClipWorkspace,
+    beginAIJobRun,
+    finishAIJobRun,
+    isCurrentAIJobRun,
     pollAIJob,
     setEditPlanResult,
     setFillerResult,
@@ -1156,7 +1331,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       <div className="flex-1 overflow-y-auto p-4">
         {creatorNotice && <CreatorNotice notice={creatorNotice} className="mb-3" />}
         {activeAIJob && (
-          <AIJobStatusCard job={activeAIJob} onCancel={cancelAIJob} onRetry={retryAIJob} />
+          <AIJobStatusCard job={activeAIJob} busy={isProcessing} onCancel={cancelAIJob} onRetry={retryAIJob} />
         )}
 
         {activeTab === 'edit' && (
@@ -1521,6 +1696,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                         onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
                         onDuplicate={() => duplicateClipDraft(draft)}
                         onRemove={() => removeClipDraft(draft.id)}
+                        aiBusy={isProcessing}
                         isGeneratingPublishingCopy={publishingCopyDraftId === draft.id}
                       />
                     ))}
@@ -1634,15 +1810,17 @@ function getFillerReasonBucket(word: string, reason: string) {
 
 function AIJobStatusCard({
   job,
+  busy,
   onCancel,
   onRetry,
 }: {
-  job: AIJob<unknown> & AIJobContext;
+  job: ActiveAIJob;
+  busy: boolean;
   onCancel: () => void;
   onRetry: () => void;
 }) {
   const canCancel = job.status === 'queued' || job.status === 'running';
-  const canRetry = job.status === 'failed' || job.status === 'canceled';
+  const canRetry = !busy && (job.status === 'failed' || job.status === 'canceled');
   const latestLogs = (job.logs || [])
     .filter((log) => !log.message.includes('Traceback (most recent call last):'))
     .slice(-4);

@@ -14,6 +14,7 @@ export default function ClipDraftCard({
   draft,
   isExporting,
   exportBusy,
+  aiBusy,
   isGeneratingPublishingCopy,
   exportJob,
   exportResult,
@@ -44,6 +45,7 @@ export default function ClipDraftCard({
   draft: ClipDraft;
   isExporting: boolean;
   exportBusy: boolean;
+  aiBusy: boolean;
   isGeneratingPublishingCopy: boolean;
   exportJob?: ExportJob;
   exportResult?: ClipExportOutput;
@@ -153,7 +155,7 @@ export default function ClipDraftCard({
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={onGeneratePublishingCopy}
-                disabled={isSuggested || isGeneratingPublishingCopy}
+                disabled={isSuggested || aiBusy || isGeneratingPublishingCopy}
                 className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
               >
                 {isGeneratingPublishingCopy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
