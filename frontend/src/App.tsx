@@ -669,6 +669,7 @@ export default function App() {
   const sidePanelLabel = activePanel === 'ai'
     ? editorWorkflow === 'short' ? 'Create Clips' : 'AI tools'
     : activePanel === 'export' ? 'Export' : 'Settings';
+  const currentWorkflowIntent: WorkflowIntent = editorWorkflow === 'short' ? 'short' : 'full-video';
 
   const resolveAutosaveRestore = (restore: boolean) => {
     const request = autosaveRestoreRequest;
@@ -771,7 +772,7 @@ export default function App() {
           <ToolbarButton
             icon={<FolderOpen className="w-4 h-4" />}
             label="Open"
-            onClick={() => void handleOpenFile()}
+            onClick={() => void handleOpenFile(currentWorkflowIntent)}
             disabled={isBrowserUploading}
           />
           <ToolbarButton
@@ -797,7 +798,7 @@ export default function App() {
           />
           <ToolbarButton
             icon={<Download className="w-4 h-4" />}
-            label={editorWorkflow === 'short' ? 'Export Video' : 'Export'}
+            label={editorWorkflow === 'short' ? 'Export Full Video' : 'Export'}
             active={activePanel === 'export'}
             onClick={() => togglePanel('export')}
             disabled={words.length === 0}

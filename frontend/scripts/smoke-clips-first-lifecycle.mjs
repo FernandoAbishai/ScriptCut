@@ -13,7 +13,9 @@ const appSource = readSource('../src/App.tsx');
 const panelSource = readSource('../src/components/AIPanel.tsx');
 const aiStoreSource = readSource('../src/store/aiStore.ts');
 
-assert.match(appSource, /label=\{editorWorkflow === 'short' \? 'Export Video' : 'Export'\}/);
+assert.match(appSource, /const currentWorkflowIntent: WorkflowIntent = editorWorkflow === 'short' \? 'short' : 'full-video'/);
+assert.match(appSource, /onClick=\{\(\) => void handleOpenFile\(currentWorkflowIntent\)\}/);
+assert.match(appSource, /label=\{editorWorkflow === 'short' \? 'Export Full Video' : 'Export'\}/);
 assert.match(appSource, /dataAction="full-video-export"/);
 assert.match(appSource, /const resetMediaAIWorkspaceForNewMedia = useCallback/);
 assert.match(appSource, /useAIStore\.getState\(\)\.resetMediaAIWorkspace\(\)/);

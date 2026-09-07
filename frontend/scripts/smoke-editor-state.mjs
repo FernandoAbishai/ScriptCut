@@ -112,7 +112,7 @@ assert.equal(historyStore.temporal.getState().pastStates.length, 1, 'transient p
 
 const appSource = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8');
 const editorStoreSource = readFileSync(resolve(__dirname, '../src/store/editorStore.ts'), 'utf8');
-assert.match(appSource, /onClick=\{\(\) => void handleOpenFile\(\)\}/);
+assert.match(appSource, /onClick=\{\(\) => void handleOpenFile\(currentWorkflowIntent\)\}/);
 assert.doesNotMatch(appSource, /onClick=\{handleOpenFile\}/);
 assert.match(editorStoreSource, /partialize:\s*partializeEditorHistory/);
 assert.match(editorStoreSource, /equality:\s*editorHistoryEqual/);
