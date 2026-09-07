@@ -118,7 +118,6 @@ class JobManager:
                 job["status"] = "canceled"
                 job["message"] = "Canceled"
                 job["completedAt"] = now
-                job["_target"] = None
             else:
                 job["status"] = "canceling"
                 job["message"] = "Cancel requested"
@@ -127,11 +126,14 @@ class JobManager:
             return self._public_job(job)
 
     def _run(self, job_id: str, target: Callable[[Callable[[int, str], None]], Any]) -> None:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if not job or job.get("status") == "canceled":
-                return
-        self._update(job_id, status="running", progress=1, message="Started")
+        if not self._update(
+            job_id,
+            expected_status="queued",
+            status="running",
+            progress=1,
+            message="Started",
+        ):
+            return
 
         def progress(percent: int, message: str) -> None:
             self._raise_if_canceled(job_id)
@@ -144,15 +146,15 @@ class JobManager:
             result = target(progress)
             job = self.get(job_id)
             if job and job.get("cancelRequested"):
-                self._update(job_id, status="canceled", message="Canceled", _target=None)
+                self._update(job_id, status="canceled", message="Canceled")
                 return
             self._update(job_id, status="succeeded", progress=100, message="Complete", result=result, _target=None)
         except JobCanceled:
-            self._update(job_id, status="canceled", message="Canceled", _target=None)
+            self._update(job_id, status="canceled", message="Canceled")
         except Exception as exc:
             job = self.get(job_id)
             if job and job.get("cancelRequested"):
-                self._update(job_id, status="canceled", message="Canceled", _target=None)
+                self._update(job_id, status="canceled", message="Canceled")
                 return
             self._update(
                 job_id,
@@ -162,11 +164,13 @@ class JobManager:
                 log=traceback.format_exc(limit=4),
             )
 
-    def _update(self, job_id: str, **patch: Any) -> None:
+    def _update(self, job_id: str, *, expected_status: str | None = None, **patch: Any) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
-                return
+                return False
+            if expected_status is not None and job.get("status") != expected_status:
+                return False
             previous_status = job.get("status")
             now = _now()
             job.update({key: value for key, value in patch.items() if key != "log"})
@@ -177,6 +181,7 @@ class JobManager:
                 self._append_log_locked(job, now, patch["message"])
             if patch.get("log"):
                 self._append_log_locked(job, now, patch["log"])
+            return True
 
     @staticmethod
     def _public_job(job: dict[str, Any]) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import unittest
 import subprocess
+from threading import Event
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -373,6 +374,87 @@ class BackendSmokeTests(unittest.TestCase):
         final = manager.get(job_id)
         self.assertIsNotNone(final)
         self.assertEqual(final["status"], "canceled")
+        self.assertNotIn("_target", final)
+
+        retry_job_id = manager.retry(job_id)
+        self.assertIsNotNone(retry_job_id)
+        time.sleep(0.12)
+        retried = manager.get(retry_job_id)
+        self.assertIsNotNone(retried)
+        self.assertEqual(retried["status"], "succeeded")
+        self.assertEqual(retried["originalJobId"], job_id)
+        self.assertEqual(retried["attempt"], 2)
+
+    def test_queued_canceled_job_can_be_retried(self) -> None:
+        manager = JobManager(max_workers=1, max_pending_jobs=2)
+        blocker_started = Event()
+        release_blocker = Event()
+
+        def blocker(progress):
+            blocker_started.set()
+            release_blocker.wait(timeout=1)
+            progress(100, "blocker done")
+
+        def queued_target(progress):
+            progress(100, "queued target done")
+            return {"ok": True}
+
+        manager.create("blocker", blocker)
+        self.assertTrue(blocker_started.wait(timeout=0.5))
+        job_id = manager.create("smoke", queued_target)
+        cancel_response = manager.cancel(job_id)
+        self.assertIsNotNone(cancel_response)
+        self.assertEqual(cancel_response["status"], "canceled")
+        self.assertNotIn("_target", cancel_response)
+
+        retry_job_id = manager.retry(job_id)
+        self.assertIsNotNone(retry_job_id)
+        release_blocker.set()
+        time.sleep(0.12)
+
+        retried = manager.get(retry_job_id)
+        self.assertIsNotNone(retried)
+        self.assertEqual(retried["status"], "succeeded")
+        self.assertEqual(retried["originalJobId"], job_id)
+        self.assertEqual(retried["attempt"], 2)
+
+    def test_queued_cancel_cannot_resurrect_during_running_transition(self) -> None:
+        manager = JobManager(max_workers=2, max_pending_jobs=2)
+        transition_reached = Event()
+        release_transition = Event()
+        target_invocations: list[str] = []
+        original_update = manager._update
+
+        def delayed_running_transition(job_id: str, **update):
+            if update.get("status") == "running" and not transition_reached.is_set():
+                transition_reached.set()
+                release_transition.wait(timeout=1)
+            return original_update(job_id, **update)
+
+        def target(progress):
+            target_invocations.append("run")
+            return {"ok": True}
+
+        with patch.object(manager, "_update", side_effect=delayed_running_transition):
+            job_id = manager.create("smoke", target)
+            self.assertTrue(transition_reached.wait(timeout=0.5))
+
+            cancel_response = manager.cancel(job_id)
+            self.assertIsNotNone(cancel_response)
+            self.assertEqual(cancel_response["status"], "canceled")
+
+            retry_job_id = manager.retry(job_id)
+            self.assertIsNotNone(retry_job_id)
+            release_transition.set()
+            time.sleep(0.12)
+
+        original = manager.get(job_id)
+        retried = manager.get(retry_job_id)
+        self.assertIsNotNone(original)
+        self.assertIsNotNone(retried)
+        self.assertEqual(original["status"], "canceled")
+        self.assertEqual(retried["status"], "succeeded")
+        self.assertEqual(target_invocations, ["run"])
 
     def test_retry_failed_job_tracks_original_and_attempt(self) -> None:
         manager = JobManager()
