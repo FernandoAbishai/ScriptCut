@@ -10,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const readSource = (relativePath) => readFileSync(resolve(__dirname, relativePath), 'utf8');
 
 const panelSource = readSource('../src/components/AIPanel.tsx');
+const cardSource = readSource('../src/features/clips/ClipDraftCard.tsx');
 const exportDialogSource = readSource('../src/components/ExportDialog.tsx');
 const reviewSource = readSource('../src/components/ClipReviewWorkspace.tsx');
 const appSource = readSource('../src/App.tsx');
@@ -21,6 +22,14 @@ const projectTypeSource = readSource('../src/types/project.ts');
 const projectSchemaSource = readSource('../../shared/project-schema.json');
 
 assert.match(panelSource, /export default function AIPanel\(\{ mode = 'general' \}/);
+assert.match(panelSource, /import ClipDraftCard from '\.\.\/features\/clips\/ClipDraftCard'/);
+assert.match(panelSource, /<ClipDraftCard/);
+assert.doesNotMatch(panelSource, /function ClipDraftCard\(/);
+assert.match(cardSource, /export default function ClipDraftCard\(/);
+assert.doesNotMatch(cardSource, /useAIStore|useEditorStore/, 'clip draft card must stay store-agnostic');
+assert.doesNotMatch(cardSource, /fetch\(|\/jobs\//, 'clip draft card must not own backend job orchestration');
+assert.match(cardSource, /onExport: \(\) => void/);
+assert.match(cardSource, /onPreview: \(\) => void/);
 assert.match(panelSource, /getInitialClipWorkspaceStage\(clipDrafts, clipSuggestions\)/);
 assert.match(panelSource, /getNewManualClipDrafts\(clipDrafts, knownClipDraftIdsRef\.current\)/);
 assert.match(panelSource, /if \(mode !== 'clips' \|\| newlyAddedManualDrafts\.length === 0\) return/);

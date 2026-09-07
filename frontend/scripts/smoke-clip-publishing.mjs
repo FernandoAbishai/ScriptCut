@@ -20,6 +20,7 @@ function loadTsModule(relativePath) {
 }
 
 const panelSource = readSource('../src/components/AIPanel.tsx');
+const cardSource = readSource('../src/features/clips/ClipDraftCard.tsx');
 const autosaveSource = readSource('../src/hooks/useProjectAutosave.ts');
 const projectTypeSource = readSource('../src/types/project.ts');
 const projectSchemaSource = readSource('../../shared/project-schema.json');
@@ -118,13 +119,13 @@ assert.equal(
 assert.equal(validateClipDraftForExport({ ...exportReadyWithoutCopy, status: 'packaged' }, words, '/tmp/video.mp4').ready, true);
 assert.equal(mergeGeneratedPublishingCopy(exportReadyWithoutCopy, { hook: ' ' }), null);
 
-assert.match(panelSource, /Generate publishing copy/);
-assert.match(panelSource, /Refresh publishing copy/);
-assert.match(panelSource, /Copy ready/);
-assert.match(panelSource, /onChange\(\{ title: suggestion \}\)/);
+assert.match(cardSource, /Generate publishing copy/);
+assert.match(cardSource, /Refresh publishing copy/);
+assert.match(cardSource, /Copy ready/);
+assert.match(cardSource, /onChange\(\{ title: suggestion \}\)/);
 assert.match(panelSource, /mergeGeneratedPublishingCopy\(draft, data\)/);
 assert.match(panelSource, /mergeGeneratedPublishingCopy\(draft, metadata\)/);
-assert.doesNotMatch(panelSource, /\bPackage\b|\bPackaged\b/);
+assert.doesNotMatch(`${panelSource}\n${cardSource}`, /\bPackage\b|\bPackaged\b/);
 const generationBody = panelSource.match(/const generatePublishingCopy = useCallback\(([\s\S]*?)\n\s{2}\);\n\s{2}\n\s{2}const retryAIJob/)?.[1] || '';
 assert.doesNotMatch(generationBody, /lastError/);
 assert.match(autosaveSource, /titleSuggestions: normalizeTitleSuggestions\(draft\.titleSuggestions\)/);
