@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const panelSource = readFileSync(resolve(__dirname, '../src/components/AIPanel.tsx'), 'utf8');
+const controllerSource = readFileSync(resolve(__dirname, '../src/features/clips/useClipExportController.ts'), 'utf8');
 const cardSource = readFileSync(resolve(__dirname, '../src/features/clips/ClipDraftCard.tsx'), 'utf8');
 
 assert.match(cardSource, /const \[advancedExportOpen, setAdvancedExportOpen\] = useState\(false\)/);
@@ -51,7 +52,7 @@ assert.match(panelSource, /srtPath: undefined/);
 assert.match(panelSource, /exportedAt: undefined/);
 assert.match(cardSource, /disabled=\{!exportValidation\.ready \|\| exportBusy\}/);
 
-assert.match(panelSource, /const \[clipExportOutputs, setClipExportOutputs\]/);
+assert.match(controllerSource, /const \[clipExportOutputs, setClipExportOutputs\]/);
 assert.match(cardSource, /Clip ready/);
 assert.match(cardSource, /Video output/);
 assert.match(cardSource, /Reveal in Finder/);
@@ -60,4 +61,4 @@ assert.match(cardSource, /SRT sidecar/);
 assert.match(cardSource, /Download SRT/);
 assert.match(cardSource, /const srtPath = exportResult\?\.srtPath \|\| draft\.srtPath/);
 assert.match(cardSource, /const exportWarnings = exportResult\?\.warnings \|\| draft\.exportWarnings \|\| \[\]/);
-assert.match(panelSource, /\$\{successCount\} clip\$\{successCount === 1 \? '' : 's'\} ready/);
+assert.match(controllerSource, /\$\{successCount\} clip\$\{successCount === 1 \? '' : 's'\} ready/);
