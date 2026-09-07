@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, RotateCcw, Filter } from 'lucide-react';
-import type { ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
+import type { ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult } from '../types/project';
 import {
   getClipDraftReadinessScore,
   buildClipExportCaptionWords,
@@ -21,7 +21,7 @@ import {
   updateClipPresentationPreviewForDraft,
 } from '../utils/clipPresentation';
 import { buildSocialPublishingPack, type SocialPlatform } from '../utils/socialPublishing';
-import { formatHookFrameBrief, getSelectedHookFrame, type HookFrameCandidate } from '../utils/hookFrames';
+import { formatHookFrameBrief, type HookFrameCandidate } from '../utils/hookFrames';
 import {
   getInitialClipWorkspaceStage,
   getClipQueueSummary,
@@ -50,6 +50,13 @@ import ClipPrepareExportControls from '../features/clips/ClipPrepareExportContro
 import ClipWorkspaceHeader from '../features/clips/ClipWorkspaceHeader';
 import { formatClipTime } from '../features/clips/presentation';
 import { appendDiscoveredClipDrafts, createShortsClipDraft, SHORTS_DRAFT_DEFAULTS } from '../features/clips/clipDraftModel';
+import {
+  buildClipOutputPath,
+  formatPublishingCopy,
+  getPathDirectory,
+  writeClipBatchManifest,
+  type ClipBatchExportResult,
+} from '../features/clips/clipExportFiles';
 import type { BackgroundCapabilities, ClipExportOutput, ExportJob } from '../features/clips/types';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
@@ -84,14 +91,6 @@ type ClipMetadataResult = {
   description?: string;
   caption?: string;
   hashtags?: string[];
-};
-
-type BatchExportResult = {
-  draft: ClipDraft;
-  outputPath?: string;
-  srtPath?: string;
-  warnings?: string[];
-  error?: string;
 };
 
 const CLIP_EXPORT_DIRECTORY_KEY = 'scriptcut.clipExport.directory';
@@ -1282,7 +1281,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         stopping: false,
       }),
     );
-    const results: BatchExportResult[] = [];
+    const results: ClipBatchExportResult[] = [];
     try {
       for (let index = 0; index < exportableDrafts.length; index++) {
         if (stopBatchExportRef.current) break;
@@ -1318,6 +1317,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       try {
         manifestPath = await writeClipBatchManifest({
           directory: clipExportDirectory || (videoPath ? getPathDirectory(videoPath) : ''),
+          writeManifest: window.electronAPI?.writeClipManifest,
           videoPath,
           results,
           words,
@@ -1971,148 +1971,6 @@ function isEditSuggestionAlreadyCut(suggestion: EditPlanSuggestion, deletedWordM
     if (!deletedWordMap.has(index)) return false;
   }
   return true;
-}
-
-function formatPublishingCopy(draft: ClipDraft, words: Word[]) {
-  const transcript = words.map((word) => word.word).join(' ').replace(/\s+/g, ' ').trim();
-  const hashtags = (draft.hashtags || [])
-    .map((tag) => `#${tag.replace(/^#/, '')}`)
-    .join(' ');
-  const lines = [
-    `Title: ${draft.title}`,
-    draft.hook ? `Hook: ${draft.hook}` : '',
-    draft.caption ? `Caption: ${draft.caption}` : '',
-    draft.description ? `Description: ${draft.description}` : '',
-    hashtags ? `Hashtags: ${hashtags}` : '',
-    `Timing: ${formatClipTime(draft.startTime)} - ${formatClipTime(draft.endTime)} (${Math.round(draft.endTime - draft.startTime)}s)`,
-    `Frame: ${draft.aspectRatio === 'vertical' ? '9:16' : draft.aspectRatio === 'square' ? '1:1' : 'source'}`,
-    `Export: ${draft.resolution} ${draft.format.toUpperCase()}${draft.captions && draft.captions !== 'none' ? `, ${draft.captions} captions` : ''}`,
-    draft.reframe && draft.aspectRatio !== 'source'
-      ? `Reframe: ${Math.round(draft.reframe.x)}% horizontal, ${Math.round(draft.reframe.y)}% vertical`
-      : '',
-    draft.backgroundRemoval?.enabled
-      ? `Background: ${draft.backgroundRemoval.replacement}`
-      : '',
-    transcript ? `Transcript: ${transcript}` : '',
-  ];
-
-  return lines.filter(Boolean).join('\n');
-}
-
-function getPathSeparator(path: string) {
-  return path.includes('\\') ? '\\' : '/';
-}
-
-function getPathDirectory(path: string) {
-  const separator = getPathSeparator(path);
-  const index = path.lastIndexOf(separator);
-  return index > 0 ? path.slice(0, index) : '';
-}
-
-function joinPath(directory: string, filename: string) {
-  const separator = getPathSeparator(directory);
-  const trimmed = directory.replace(/[\\/]+$/, '');
-  if (!trimmed) return filename;
-  return `${trimmed}${separator}${filename}`;
-}
-
-function safeFileStem(value: string) {
-  const stem = value
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 42);
-  return stem || 'scriptcut_clip';
-}
-
-function buildClipOutputPath(directory: string, title: string, format: ClipDraft['format'], id?: string) {
-  const suffix = id ? `_${safeFileStem(id).slice(-12)}` : `_${Date.now()}`;
-  return joinPath(directory, `${safeFileStem(title)}${suffix}.${format}`);
-}
-
-function timestampForFilename(date = new Date()) {
-  return date.toISOString().replace(/[:.]/g, '-');
-}
-
-async function writeClipBatchManifest({
-  directory,
-  videoPath,
-  results,
-  words,
-  plannedDraftIds,
-  remainingDraftIds,
-  stopped,
-}: {
-  directory: string;
-  videoPath: string | null;
-  results: BatchExportResult[];
-  words: Word[];
-  plannedDraftIds: string[];
-  remainingDraftIds: string[];
-  stopped: boolean;
-}) {
-  if (!directory || !window.electronAPI?.writeClipManifest) return '';
-  const manifestPath = joinPath(directory, `scriptcut_clip_manifest_${timestampForFilename()}.json`);
-  const manifest = {
-    app: 'ScriptCut',
-    schema: 'scriptcut.clipBatchManifest.v1',
-    generatedAt: new Date().toISOString(),
-    videoPath,
-    summary: {
-      total: results.length,
-      exported: results.filter((result) => result.outputPath).length,
-      failed: results.filter((result) => result.error).length,
-      planned: plannedDraftIds.length,
-      processed: results.length,
-      remaining: remainingDraftIds.length,
-      stopped,
-    },
-    remainingDraftIds,
-    clips: results.map(({ draft, outputPath, srtPath, warnings, error }) => ({
-      id: draft.id,
-      title: draft.title,
-      status: outputPath ? 'exported' : 'failed',
-      outputPath,
-      srtPath,
-      error,
-      startTime: draft.startTime,
-      endTime: draft.endTime,
-      duration: draft.endTime - draft.startTime,
-      platform: draft.platform || 'shorts',
-      package: {
-        hook: draft.hook || '',
-        caption: draft.caption || '',
-        description: draft.description || '',
-        hashtags: draft.hashtags || [],
-      },
-      socialPublishing: buildSocialPublishingPack(draft).map((item) => ({
-        platform: item.platform,
-        title: item.title,
-        caption: item.caption,
-        hashtags: item.hashtags,
-        ready: item.ready,
-        warnings: item.warnings,
-      })),
-      hookFrame: {
-        label: draft.hookFrameLabel || getSelectedHookFrame(draft).label,
-        time: draft.hookFrameTime ?? getSelectedHookFrame(draft).time,
-        thumbnailText: draft.thumbnailText || draft.hook || draft.title,
-        filename: getSelectedHookFrame(draft).filename,
-        brief: formatHookFrameBrief(draft),
-      },
-      export: {
-        format: draft.format,
-        resolution: draft.resolution,
-        aspectRatio: draft.aspectRatio,
-        captions: draft.captions || 'none',
-        enhanceAudio: !!draft.enhanceAudio,
-      },
-      warnings: warnings || [],
-      transcript: getClipTranscript(words, draft),
-    })),
-  };
-  await window.electronAPI.writeClipManifest(manifestPath, JSON.stringify(manifest, null, 2));
-  return manifestPath;
 }
 
 function getFillerReasonBucket(word: string, reason: string) {
