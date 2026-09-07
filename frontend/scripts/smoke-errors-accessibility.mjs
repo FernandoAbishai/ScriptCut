@@ -26,6 +26,7 @@ const transcript = readSource('../src/components/TranscriptEditor.tsx');
 const status = readSource('../src/components/TranscriptionStatus.tsx');
 const waveform = readSource('../src/components/WaveformTimeline.tsx');
 const ai = readSource('../src/components/AIPanel.tsx');
+const aiJobController = readSource('../src/features/ai/useAIJobController.ts');
 const dialog = readSource('../src/components/CreatorDialog.tsx');
 const notice = readSource('../src/components/CreatorNotice.tsx');
 const shortcuts = readSource('../src/hooks/useKeyboardShortcuts.ts');
@@ -82,13 +83,13 @@ assert.match(waveform, /aria-label=\{followPlayhead \? 'Stop following playhead'
 assert.match(waveform, /aria-label="Zoom out"/);
 assert.match(waveform, /aria-label="Zoom in"/);
 
-assert.match(ai, /\/jobs\/\$\{sourceJob\.id\}\/retry/);
+assert.match(aiJobController, /\/jobs\/\$\{sourceJob\.id\}\/retry/);
 assert.match(ai, /ai:clip-metadata/);
 assert.match(ai, /appendDiscoveredClipDrafts/);
 assert.match(ai, /setCreatorNotice/);
-assert.match(ai, /setCreatorNotice\(null\);\s*setProcessing\(true, processingMessage\);\s*try \{\s*const startRes/);
-assert.match(ai, /setCreatorNotice\(null\);\s*setProcessing\(true, `Retrying \$\{sourceJob\.label\}/);
-assert.match(ai, /Another AI action is still running/);
+assert.match(ai, /setCreatorNotice\(null\);\s*return startAIJobTransport<T>\(path, body, fallbackMessage, context, processingMessage\)/);
+assert.match(ai, /setCreatorNotice\(null\);\s*try \{\s*const retryResult = await retryAIJobTransport\(\)/);
+assert.match(aiJobController, /Another AI action is still running/);
 assert.match(ai, /const canRetry = !busy && \(job\.status === 'failed' \|\| job\.status === 'canceled'\)/);
 const generatePublishingCopyBody = ai.match(/const generatePublishingCopy = useCallback\(([\s\S]*?)\n  \);\n\n  const retryAIJob/)?.[1] || '';
 assert.match(generatePublishingCopyBody, /getCreatorErrorPresentation\('ai-action', err\)/);
