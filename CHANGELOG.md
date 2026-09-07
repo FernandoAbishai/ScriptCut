@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## v0.1.0-alpha.6
+
+### Added
+
+- Release qualification now includes one consolidated golden creator-path gate plus a packaged, provider-independent creator smoke that exercises authenticated clip export and project write/read round-trip through the packaged Electron boundary.
+- Packaged creator qualification verifies that the exported clip is non-empty, probeable, fully decodable, and reachable only through the expected capability-scoped local-file transport.
+
+### Changed
+
+- Create Clips presentation, review, draft-domain, prepare/export controls, export-file handling, and review actions are now separated behind focused feature boundaries while preserving the existing Find → Review → Prepare → Export workflow.
+- Desktop QA now treats the manual transcript-selection clip path as the required provider-independent qualification path and explicitly covers save, close, relaunch, and project-state restoration.
+
+### Fixed
+
+- Electron renderer and IPC trust now require the exact ScriptCut renderer/main frame instead of accepting arbitrary local `file://` documents.
+- Local media reads now use capability-scoped URLs, and the captions API no longer accepts arbitrary output-path authority.
+- Project saves and autosaves are serialized and atomically replaced to reduce stale-write races and partial project files.
+- Edit-operation IDs remain collision-safe after project reopen, including migration of duplicate legacy IDs.
+- Undo history now tracks durable editing state instead of playback/transient state, and resets at media/project boundaries.
+- The toolbar Open action no longer allows a React event object to be interpreted as a workflow intent.
+
+### Current alpha notes
+
+- Product version remains `0.1.0`; this release identity is `v0.1.0-alpha.6`.
+- The public build remains macOS Apple Silicon (arm64) only, ad-hoc signed, and not notarized; macOS **Open Anyway** approval may be required.
+- AI providers remain optional for the manual creator path. Baseline local transcription still downloads and verifies its managed model on first use.
+
 ## v0.1.0-alpha.5
 
 ### Added
