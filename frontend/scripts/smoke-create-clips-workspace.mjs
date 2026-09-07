@@ -51,6 +51,7 @@ assert.doesNotMatch(prepareExportSource, /useAIStore|useEditorStore|fetch\(|loca
 assert.match(panelSource, /from '\.\.\/features\/clips\/clipDraftModel'/);
 assert.match(clipDraftModelSource, /export function createShortsClipDraft\(/);
 assert.match(clipDraftModelSource, /export function appendDiscoveredClipDrafts\(/);
+assert.match(clipDraftModelSource, /export function appendTranscriptSelectionClipDraft\(/);
 assert.doesNotMatch(clipDraftModelSource, /useAIStore|useEditorStore|fetch\(|localStorage/, 'clip draft domain helpers must stay pure');
 assert.match(panelSource, /from '\.\.\/features\/clips\/clipExportFiles'/);
 assert.match(clipExportFilesSource, /export function buildClipOutputPath\(/);
@@ -66,6 +67,8 @@ assert.match(panelSource, /setClipStage\('prepare'\);\s+setActiveClipDraftId\(dr
 assert.match(findStageSource, /Find moments with AI/);
 assert.match(findStageSource, />Choose moments<\/h3>/);
 assert.match(findStageSource, /Start from the transcript — no AI required/);
+assert.match(findStageSource, /Draft selected clip/);
+assert.match(findStageSource, /selectedWordCount/);
 assert.match(findStageSource, /Optional AI discovery/);
 assert.ok(
   findStageSource.indexOf('Start from the transcript — no AI required') < findStageSource.indexOf('Find moments with AI'),
@@ -104,7 +107,9 @@ assert.match(panelSource, /const activeReviewPreviewKey =\s*isPlaying && preview
 assert.match(panelSource, /activePreviewKey=\{activeReviewPreviewKey\}/);
 assert.doesNotMatch(panelSource, /activePreviewKey=\{activeClipPreviewKey\}/);
 assert.doesNotMatch(panelSource, /clipQueueSummary\.suggested === 0/);
-assert.match(transcriptSource, /source: 'transcript-selection'/);
+assert.match(clipDraftModelSource, /'transcript-selection'/);
+assert.match(transcriptSource, /appendTranscriptSelectionClipDraft\(current, selectionSummary\)/);
+assert.match(panelSource, /appendTranscriptSelectionClipDraft\(current, transcriptSelectionSummary\)/);
 assert.match(panelSource, /type ClipDiscoveryResult/);
 assert.match(panelSource, /requestedCount\?: number/);
 assert.match(panelSource, /returnedCount\?: number/);

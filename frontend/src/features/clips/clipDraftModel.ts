@@ -1,5 +1,6 @@
 import type { ClipDraft, ClipDraftStatus, ClipSuggestion } from '../../types/project';
 import { isSameClipRange } from '../../utils/clipWorkspace';
+import type { TranscriptSelectionSummary } from '../../utils/transcriptSelection';
 import { CLIP_CAPTION_PRESETS } from './presentation';
 
 export const SHORTS_DRAFT_DEFAULTS = {
@@ -42,4 +43,34 @@ export function appendDiscoveredClipDrafts(
     next.push(createShortsClipDraft(clip, `${idPrefix}_${Date.now()}_${next.length}`, 'suggested'));
   }
   return next;
+}
+
+export function appendTranscriptSelectionClipDraft(
+  current: ClipDraft[],
+  selection: TranscriptSelectionSummary,
+) {
+  const title = selection.text.split(/\s+/).slice(0, 8).join(' ') || 'Transcript clip';
+  const clip: ClipSuggestion = {
+    title,
+    reason: 'Created from transcript selection',
+    startWordIndex: selection.startIndex,
+    endWordIndex: selection.endIndex,
+    startTime: selection.startTime,
+    endTime: selection.endTime,
+  };
+  return [
+    ...current,
+    {
+      ...createShortsClipDraft(
+        clip,
+        `transcript_clip_${Date.now()}_${current.length}`,
+        'draft',
+        'transcript-selection',
+      ),
+      hook: '',
+      description: '',
+      caption: '',
+      hashtags: [],
+    },
+  ];
 }

@@ -4,7 +4,10 @@ type ClipFindStageProps = {
   isProcessing: boolean;
   hasWords: boolean;
   processingMessage: string;
+  selectedWordCount: number;
+  selectionDurationLabel: string;
   speakerTurnCount: number;
+  onDraftSelection: () => void;
   onFindWithAI: () => void;
   onDraftSpeakerTurns: () => void;
 };
@@ -13,10 +16,15 @@ export default function ClipFindStage({
   isProcessing,
   hasWords,
   processingMessage,
+  selectedWordCount,
+  selectionDurationLabel,
   speakerTurnCount,
+  onDraftSelection,
   onFindWithAI,
   onDraftSpeakerTurns,
 }: ClipFindStageProps) {
+  const hasSelection = selectedWordCount > 0;
+
   return (
     <div className="space-y-3">
       <h3 className="text-xs font-medium text-editor-text">Choose moments</h3>
@@ -25,6 +33,21 @@ export default function ClipFindStage({
         <p className="mt-1">
           Select the words you want, preview the selection, then choose <span className="font-medium text-editor-text">Draft clip</span>.
         </p>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-editor-text-muted">
+            {hasSelection
+              ? `${selectedWordCount} words selected · ${selectionDurationLabel}`
+              : 'Select transcript words to create a manual clip.'}
+          </span>
+          <button
+            type="button"
+            onClick={onDraftSelection}
+            disabled={!hasSelection}
+            className="shrink-0 rounded bg-editor-success/20 px-2.5 py-1 text-[11px] font-medium text-editor-success hover:bg-editor-success/30 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Draft selected clip
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2 border-t border-editor-border pt-3">

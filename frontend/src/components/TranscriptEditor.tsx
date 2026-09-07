@@ -4,10 +4,10 @@ import { useAIStore } from '../store/aiStore';
 import { Virtuoso } from 'react-virtuoso';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import { CaptionsOff, ChevronLeft, ChevronRight, Copy, Film, Pencil, Play, RotateCcw, Search, Trash2, UserRoundCheck, VolumeX, Waves, X } from 'lucide-react';
-import type { ClipDraft } from '../types/project';
 import { adjustWordSelectionBoundary, formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
 import { findTranscriptMatches } from '../utils/transcriptSearch';
 import { formatSpeakerDuration, getSpeakerStats } from '../utils/speakerStats';
+import { appendTranscriptSelectionClipDraft } from '../features/clips/clipDraftModel';
 import CreatorDialog from './CreatorDialog';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
@@ -321,42 +321,7 @@ export default function TranscriptEditor() {
 
   const draftClipFromSelection = useCallback(() => {
     if (!selectionSummary) return;
-    const title = selectionSummary.text.split(/\s+/).slice(0, 8).join(' ') || 'Transcript clip';
-    const draft: ClipDraft = {
-      id: `transcript_clip_${Date.now()}`,
-      title,
-      reason: 'Created from transcript selection',
-      startWordIndex: selectionSummary.startIndex,
-      endWordIndex: selectionSummary.endIndex,
-      startTime: selectionSummary.startTime,
-      endTime: selectionSummary.endTime,
-      status: 'draft',
-      platform: 'shorts',
-      format: 'mp4',
-      resolution: '1080p',
-      aspectRatio: 'vertical',
-      reframe: { x: 50, y: 50 },
-      enhanceAudio: false,
-      captions: 'burn-in',
-      captionStyle: {
-        preset: 'creator',
-        fontName: 'Arial',
-        fontSize: 58,
-        fontColor: '#ffffff',
-        backgroundColor: '#111827',
-        position: 'bottom',
-        bold: true,
-        highlightColor: '#facc15',
-        wordsPerLine: 5,
-      },
-      backgroundRemoval: { enabled: false, replacement: 'blur', color: '#111827' },
-      hook: '',
-      description: '',
-      caption: '',
-      hashtags: [],
-      source: 'transcript-selection',
-    };
-    setClipDrafts((current) => [...current, draft]);
+    setClipDrafts((current) => appendTranscriptSelectionClipDraft(current, selectionSummary));
   }, [selectionSummary, setClipDrafts]);
 
   const renderSegment = useCallback(
