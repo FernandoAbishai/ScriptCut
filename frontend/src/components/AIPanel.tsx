@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
-import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Filter } from 'lucide-react';
+import { Sparkles, Scissors, Film, Loader2, Check, X, Play, RotateCcw, Filter } from 'lucide-react';
 import type { ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
   getClipDraftReadinessScore,
@@ -46,6 +46,7 @@ import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 import ClipDraftCard from '../features/clips/ClipDraftCard';
 import ClipFindStage from '../features/clips/ClipFindStage';
+import ClipPrepareExportControls from '../features/clips/ClipPrepareExportControls';
 import ClipWorkspaceHeader from '../features/clips/ClipWorkspaceHeader';
 import { CLIP_CAPTION_PRESETS, formatClipTime } from '../features/clips/presentation';
 import type { BackgroundCapabilities, ClipExportOutput, ExportJob } from '../features/clips/types';
@@ -861,6 +862,16 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory })));
     }
   }, [clipExportDirectory, isCurrentClipWorkspace, setClipDrafts, videoPath]);
+
+  const updateClipExportDirectory = useCallback((directory: string) => {
+    setClipExportDirectory(directory);
+    if (directory) window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
+    else window.localStorage.removeItem(CLIP_EXPORT_DIRECTORY_KEY);
+    setClipDrafts((current) => current.map((draft) => ({
+      ...draft,
+      exportDirectory: directory || undefined,
+    })));
+  }, [setClipDrafts]);
 
   const duplicateClipDraft = useCallback(
     (draft: ClipDraft) => {
@@ -1820,81 +1831,22 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
             {(clipStage === 'prepare' || clipStage === 'export') && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-xs font-medium">Your clips</h3>
-                    <p className="mt-1 text-[10px] text-editor-text-muted">
-                      {clipStage === 'prepare' ? 'Review the clip, adjust its settings, and optionally generate publishing copy.' : 'Export only clips that pass the existing readiness checks.'}
-                    </p>
-                  </div>
-                  {clipStage === 'export' && (
-                    <div className="flex items-center gap-1">
-                      {isBatchExporting && (
-                        <button onClick={stopBatchExport} className="flex items-center gap-1 rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-surface">
-                          <X className="w-3 h-3" /> {batchExportProgress.stopping ? 'Stopping' : 'Stop'}
-                        </button>
-                      )}
-                      <button
-                        onClick={handleExportAllDrafts}
-                        disabled={exportBusy || readyDraftCount === 0}
-                        className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
-                      >
-                        {isBatchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                        {clipQueueSummary.exported > 0 || clipQueueSummary.failed > 0 ? 'Export remaining' : 'Export all ready clips'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {clipStage === 'prepare' && readyDraftCount > 0 && (
-                  <button
-                    onClick={() => setClipStage('export')}
-                    className="w-full rounded bg-editor-success/20 px-3 py-2 text-xs text-editor-success hover:bg-editor-success/30"
-                  >
-                    Review {readyDraftCount} ready {readyDraftCount === 1 ? 'clip' : 'clips'}
-                  </button>
-                )}
-                {clipStage === 'export' && (
-                  <>
-                    <div className="rounded bg-editor-surface px-2 py-1.5 text-[10px] leading-4 text-editor-text-muted">
-                      Ready clips are exported in order. Failed clips remain available for retry.
-                    </div>
-                    <div className="space-y-1 rounded bg-editor-surface p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-medium uppercase tracking-wide text-editor-text-muted">Export folder</span>
-                        {window.electronAPI?.openDirectory && (
-                          <button onClick={chooseClipExportDirectory} className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg">Choose</button>
-                        )}
-                      </div>
-                      <input
-                        value={clipExportDirectory}
-                        onChange={(event) => {
-                          const directory = event.target.value;
-                          setClipExportDirectory(directory);
-                          if (directory) window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
-                          else window.localStorage.removeItem(CLIP_EXPORT_DIRECTORY_KEY);
-                          setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory || undefined })));
-                        }}
-                        placeholder={videoPath ? getPathDirectory(videoPath) : 'Default export folder'}
-                        className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
-                      />
-                    </div>
-                    {isBatchExporting && (
-                      <div className="space-y-1 rounded bg-editor-surface px-2.5 py-2 text-[11px] text-editor-text-muted">
-                        <div className="flex justify-between gap-2">
-                          <span>Exporting {Math.min(batchExportProgress.processed + 1, batchExportProgress.total)} of {batchExportProgress.total}</span>
-                          <span>{batchExportProgress.stopping ? 'Stopping after current clip' : `${batchExportProgress.exported} exported · ${batchExportProgress.failed} failed · ${batchExportProgress.total - batchExportProgress.processed} remaining`}</span>
-                        </div>
-                        <div className="flex justify-between gap-2 text-[10px]">
-                          <span>{batchExportProgress.exported} exported · {batchExportProgress.failed} failed · {batchExportProgress.total - batchExportProgress.processed} remaining</span>
-                          <span>{batchExportProgress.processed}/{batchExportProgress.total} processed</span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded bg-editor-border">
-                          <div className="h-full bg-editor-success" style={{ width: `${Math.max(4, Math.min(100, batchExportProgress.total ? (batchExportProgress.processed / batchExportProgress.total) * 100 : 0))}%` }} />
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
+                <ClipPrepareExportControls
+                  stage={clipStage}
+                  readyDraftCount={readyDraftCount}
+                  isBatchExporting={isBatchExporting}
+                  batchExportProgress={batchExportProgress}
+                  exportBusy={exportBusy}
+                  hasCompletedExports={clipQueueSummary.exported > 0 || clipQueueSummary.failed > 0}
+                  exportDirectory={clipExportDirectory}
+                  defaultExportDirectory={videoPath ? getPathDirectory(videoPath) : ''}
+                  canChooseDirectory={!!window.electronAPI?.openDirectory}
+                  onStopBatchExport={stopBatchExport}
+                  onExportAll={handleExportAllDrafts}
+                  onGoToExport={() => setClipStage('export')}
+                  onChooseExportDirectory={chooseClipExportDirectory}
+                  onExportDirectoryChange={updateClipExportDirectory}
+                />
                 {clipStageDrafts.length === 0 ? (
                   <p className="rounded bg-editor-surface px-3 py-3 text-xs text-editor-text-muted">
                     No approved clips are ready for this stage yet.
