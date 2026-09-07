@@ -11,11 +11,11 @@ ScriptCut is an open-source, local-first desktop video production tool for YouTu
 ## Download ScriptCut
 
 <p>
-  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.5/ScriptCut-v0.1.0-alpha.5-arm64.dmg"><img src="https://img.shields.io/badge/Download%20for%20macOS%20%E2%80%94%20Apple%20Silicon-2f81f7?style=for-the-badge" alt="Download for macOS — Apple Silicon" /></a>
-  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.5">Release notes &amp; verification</a>
+  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.6/ScriptCut-v0.1.0-alpha.6-arm64.dmg"><img src="https://img.shields.io/badge/Download%20for%20macOS%20%E2%80%94%20Apple%20Silicon-2f81f7?style=for-the-badge" alt="Download for macOS — Apple Silicon" /></a>
+  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.6">Release notes &amp; verification</a>
 </p>
 
-**v0.1.0-alpha.5 · macOS Apple Silicon / arm64 · Public alpha · ad-hoc signed · not notarized**
+**v0.1.0-alpha.6 · macOS Apple Silicon / arm64 · Public alpha · ad-hoc signed · not notarized**
 
 No Terminal setup is required for the supported packaged app. This public download is for Apple Silicon Macs; it is not a universal macOS, Windows, or Linux installer, and it is not signed with Apple Developer ID or notarized.
 For future beta runs, use the official [GitHub Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) as the release authority and record the exact tag.
