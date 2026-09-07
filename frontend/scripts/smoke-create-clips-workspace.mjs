@@ -14,6 +14,7 @@ const cardSource = readSource('../src/features/clips/ClipDraftCard.tsx');
 const headerSource = readSource('../src/features/clips/ClipWorkspaceHeader.tsx');
 const findStageSource = readSource('../src/features/clips/ClipFindStage.tsx');
 const prepareExportSource = readSource('../src/features/clips/ClipPrepareExportControls.tsx');
+const clipDraftModelSource = readSource('../src/features/clips/clipDraftModel.ts');
 const exportDialogSource = readSource('../src/components/ExportDialog.tsx');
 const reviewSource = readSource('../src/features/clips/ClipReviewWorkspace.tsx');
 const appSource = readSource('../src/App.tsx');
@@ -44,6 +45,10 @@ assert.doesNotMatch(reviewSource, /useAIStore|useEditorStore|fetch\(/, 'clip rev
 assert.doesNotMatch(headerSource, /useAIStore|useEditorStore|fetch\(/, 'clip workspace header must stay presentational');
 assert.doesNotMatch(findStageSource, /useAIStore|useEditorStore|fetch\(/, 'clip find stage must stay presentational');
 assert.doesNotMatch(prepareExportSource, /useAIStore|useEditorStore|fetch\(|localStorage/, 'clip prepare/export controls must stay presentational');
+assert.match(panelSource, /from '\.\.\/features\/clips\/clipDraftModel'/);
+assert.match(clipDraftModelSource, /export function createShortsClipDraft\(/);
+assert.match(clipDraftModelSource, /export function appendDiscoveredClipDrafts\(/);
+assert.doesNotMatch(clipDraftModelSource, /useAIStore|useEditorStore|fetch\(|localStorage/, 'clip draft domain helpers must stay pure');
 assert.match(panelSource, /getInitialClipWorkspaceStage\(clipDrafts, clipSuggestions\)/);
 assert.match(panelSource, /getNewManualClipDrafts\(clipDrafts, knownClipDraftIdsRef\.current\)/);
 assert.match(panelSource, /if \(mode !== 'clips' \|\| newlyAddedManualDrafts\.length === 0\) return/);
