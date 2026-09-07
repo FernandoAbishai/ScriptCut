@@ -148,9 +148,10 @@ assert.deepEqual(
 const panelSource = sourceFor('../src/components/AIPanel.tsx');
 const cardSource = sourceFor('../src/features/clips/ClipDraftCard.tsx');
 const controlsSource = sourceFor('../src/features/clips/ClipPrepareExportControls.tsx');
+const exportFilesSource = sourceFor('../src/features/clips/clipExportFiles.ts');
 const autosaveSource = sourceFor('../src/hooks/useProjectAutosave.ts');
 const projectSource = sourceFor('../src/types/project.ts');
-const manifestSource = panelSource.slice(panelSource.indexOf('async function writeClipBatchManifest'));
+const manifestSource = exportFilesSource.slice(exportFilesSource.indexOf('export function buildClipBatchManifest'));
 
 assert.match(panelSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
 assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)/);
@@ -176,6 +177,7 @@ assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
 assert.match(panelSource, /outputPath/);
 assert.match(panelSource, /manifest/);
 assert.match(panelSource, /manifestWarning/);
+assert.match(panelSource, /writeManifest: window\.electronAPI\?\.writeClipManifest/);
 assert.match(manifestSource, /schema: 'scriptcut\.clipBatchManifest\.v1'/);
 assert.match(manifestSource, /remaining/);
 assert.match(manifestSource, /stopped/);
