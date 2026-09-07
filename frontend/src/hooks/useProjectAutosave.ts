@@ -416,11 +416,15 @@ function normalizeClipDrafts(drafts: ClipDraft[]) {
   return drafts
     .filter((draft) => typeof draft.id === 'string')
     .map((draft) => recoverInterruptedClipDraft({
-      ...draft,
+      ...stripClipRuntimeCapabilities(draft),
       status: oneOf(draft.status, ['suggested', 'draft', 'packaged', 'exporting', 'exported', 'failed'], 'draft'),
       platform: oneOf(draft.platform, ['shorts', 'generic'], 'shorts'),
       exportDirectory: typeof draft.exportDirectory === 'string' ? draft.exportDirectory : undefined,
       exportPath: typeof draft.exportPath === 'string' ? draft.exportPath : undefined,
+      srtPath: typeof draft.srtPath === 'string' ? draft.srtPath : undefined,
+      exportWarnings: Array.isArray(draft.exportWarnings)
+        ? draft.exportWarnings.filter((warning): warning is string => typeof warning === 'string')
+        : undefined,
       exportedAt: typeof draft.exportedAt === 'string' ? draft.exportedAt : undefined,
       lastError: typeof draft.lastError === 'string' ? draft.lastError : undefined,
       titleSuggestions: normalizeTitleSuggestions(draft.titleSuggestions),
@@ -443,6 +447,13 @@ function normalizeClipDrafts(drafts: ClipDraft[]) {
       },
       backgroundRemoval: normalizeBackgroundRemoval(draft.backgroundRemoval),
     }));
+}
+
+function stripClipRuntimeCapabilities(draft: ClipDraft) {
+  const durableDraft = { ...draft } as ClipDraft & { fileCapability?: unknown; srtFileCapability?: unknown };
+  delete durableDraft.fileCapability;
+  delete durableDraft.srtFileCapability;
+  return durableDraft;
 }
 
 function normalizeWords(words: Word[]) {

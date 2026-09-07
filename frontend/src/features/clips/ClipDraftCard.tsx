@@ -87,7 +87,8 @@ export default function ClipDraftCard({
   );
   const hookFrames = buildHookFrameCandidates(draft);
   const selectedHookFrame = getSelectedHookFrame(draft);
-  const exportWarnings = exportResult?.warnings || [];
+  const srtPath = exportResult?.srtPath || draft.srtPath;
+  const exportWarnings = exportResult?.warnings || draft.exportWarnings || [];
 
   return (
     <div className={`space-y-2 rounded border p-3 ${isActive ? 'border-editor-accent bg-editor-accent/5' : 'border-transparent bg-editor-surface'}`}>
@@ -209,22 +210,22 @@ export default function ClipDraftCard({
               )}
             </div>
           </div>
-          {exportResult?.srtPath && (
+          {srtPath && (
             <div className="space-y-1 rounded bg-editor-bg px-2 py-1.5">
               <div className="font-medium text-editor-text">SRT sidecar</div>
-              <div className="truncate" title={exportResult.srtPath}>{getFileNameFromPath(exportResult.srtPath, 'captions.srt')}</div>
+              <div className="truncate" title={srtPath}>{getFileNameFromPath(srtPath, 'captions.srt')}</div>
               <div className="flex flex-wrap gap-1">
                 {window.electronAPI ? (
                   <button
-                    onClick={() => window.electronAPI?.revealPath(exportResult.srtPath || '')}
+                    onClick={() => window.electronAPI?.revealPath(srtPath)}
                     className="inline-flex items-center gap-1 rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
                   >
                     <ExternalLink className="h-3 w-3" /> Reveal SRT in Finder
                   </button>
                 ) : (
                   <a
-                    href={buildBackendFileUrl(backendUrl, exportResult.srtPath, exportResult.srtFileCapability)}
-                    download={getFileNameFromPath(exportResult.srtPath, 'captions.srt')}
+                    href={buildBackendFileUrl(backendUrl, srtPath, exportResult?.srtFileCapability)}
+                    download={getFileNameFromPath(srtPath, 'captions.srt')}
                     className="inline-flex rounded bg-editor-success/20 px-2 py-0.5 text-[10px] text-editor-success hover:bg-editor-success/30"
                   >
                     Download SRT

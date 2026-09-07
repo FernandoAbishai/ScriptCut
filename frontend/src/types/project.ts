@@ -181,6 +181,8 @@ export interface ClipDraft extends ClipSuggestion {
   platform?: ClipPlatform;
   exportDirectory?: string;
   exportPath?: string;
+  srtPath?: string;
+  exportWarnings?: string[];
   exportedAt?: string;
   lastError?: string;
   format: ExportOptions['format'];

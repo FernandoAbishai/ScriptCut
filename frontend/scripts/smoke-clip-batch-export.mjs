@@ -127,12 +127,28 @@ const project = (clipDrafts) => ({
 const normalized = autosave.normalizeProjectFile(project([
   draft('loads-draft'),
   draft('loads-failed', 'failed', { lastError: 'Try again' }),
-  draft('loads-exported', 'exported', { exportPath: '/tmp/clip.mp4', exportedAt: '2026-08-21T00:00:00.000Z' }),
+  draft('loads-exported', 'exported', {
+    exportPath: '/tmp/clip.mp4',
+    srtPath: '/tmp/clip.srt',
+    exportWarnings: ['Captions were delivered as an SRT sidecar.', 42],
+    fileCapability: 'runtime-video-authority',
+    srtFileCapability: 'runtime-srt-authority',
+    exportedAt: '2026-08-21T00:00:00.000Z',
+  }),
   draft('loads-exporting', 'exporting'),
 ]));
 assert.deepEqual(normalized.aiWorkspace?.clipDrafts?.map((item) => item.status), ['draft', 'failed', 'exported', 'failed']);
 assert.equal(normalized.aiWorkspace?.clipDrafts?.[3]?.lastError, INTERRUPTED_CLIP_EXPORT_ERROR);
 assert.equal(normalized.aiWorkspace?.clipDrafts?.[2]?.exportPath, '/tmp/clip.mp4');
+assert.equal(normalized.aiWorkspace?.clipDrafts?.[2]?.srtPath, '/tmp/clip.srt');
+assert.deepEqual(normalized.aiWorkspace?.clipDrafts?.[2]?.exportWarnings, ['Captions were delivered as an SRT sidecar.']);
+assert.equal(normalized.aiWorkspace?.clipDrafts?.[2]?.fileCapability, undefined);
+assert.equal(normalized.aiWorkspace?.clipDrafts?.[2]?.srtFileCapability, undefined);
+const serialized = autosave.serializeProjectFile(normalized);
+assert.doesNotMatch(serialized, /runtime-video-authority|runtime-srt-authority/);
+const reopened = autosave.parseProjectFile(serialized);
+assert.equal(reopened.aiWorkspace?.clipDrafts?.[2]?.srtPath, '/tmp/clip.srt');
+assert.deepEqual(reopened.aiWorkspace?.clipDrafts?.[2]?.exportWarnings, ['Captions were delivered as an SRT sidecar.']);
 assert.equal(autosave.normalizeProjectFile(project(undefined)).version, 1);
 assert.equal(autosave.normalizeProjectFile(project([])).schema, 'scriptcut.project.v1');
 
@@ -175,6 +191,8 @@ assert.match(cardSource, /const exportRetryable = status === 'failed'/);
 assert.match(panelSource, /fetch\(`\$\{backendUrl\}\/jobs\/\$\{job\.id\}\/retry`/);
 assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
 assert.match(panelSource, /outputPath/);
+assert.match(panelSource, /srtPath: output\.srtPath/);
+assert.match(panelSource, /exportWarnings: output\.warnings/);
 assert.match(panelSource, /manifest/);
 assert.match(panelSource, /manifestWarning/);
 assert.match(panelSource, /writeManifest: window\.electronAPI\?\.writeClipManifest/);
@@ -184,6 +202,11 @@ assert.match(manifestSource, /stopped/);
 assert.doesNotMatch(manifestSource, /status: 'failed'.*unattempted/i);
 assert.doesNotMatch(projectSource, /batchExportProgress/);
 assert.doesNotMatch(projectSource, /clipExportJobs/);
+assert.match(projectSource, /srtPath\?: string/);
+assert.match(projectSource, /exportWarnings\?: string\[\]/);
+assert.doesNotMatch(projectSource, /fileCapability|srtFileCapability/, 'runtime file capabilities must not become durable project state');
+assert.match(cardSource, /exportResult\?\.srtPath \|\| draft\.srtPath/);
+assert.match(cardSource, /exportResult\?\.warnings \|\| draft\.exportWarnings \|\| \[\]/);
 assert.match(projectSource, /version: 1/);
 assert.match(autosaveSource, /recoverInterruptedClipDraft/);
 assert.doesNotMatch(autosaveSource, /clipExportJobs/);
