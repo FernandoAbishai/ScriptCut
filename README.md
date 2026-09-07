@@ -68,7 +68,8 @@ In **Prepare**, trim the range, preview the clip, adjust framing/reframe, and ch
 - Source, vertical, and square exports with creator presets, reframe controls, optional Studio Sound audio cleanup, and optional background removal.
 - Word-level captions with caption styling. Depending on the FFmpeg build, captions are burned into the video or delivered as a matching `.srt` sidecar file; the export preflight shows the actual result.
 - Approved-clip batch export with per-draft progress, retry state, and a batch manifest in the desktop workflow.
-- `.scriptcut` project save/load, recent projects, autosave, recovery snapshots, and compatibility with legacy `.aive` and `.cutscript` files.
+- `.scriptcut` project save/load, recent projects, serialized autosave, atomic project-file replacement, recovery snapshots, and compatibility with legacy `.aive` and `.cutscript` files.
+- Capability-scoped packaged media access and an exact packaged-renderer/main-frame IPC trust boundary for local desktop media operations.
 
 Some capabilities depend on optional local packages, model downloads, provider configuration, or the capabilities of the packaged FFmpeg build. The setup assistant and export preflight are the source of truth for a particular machine.
 
@@ -147,12 +148,12 @@ Expected response:
 ```text
 scriptcut/
 ├── electron/   # desktop shell, IPC, and local backend lifecycle
-├── frontend/   # React/Vite creator interface
+├── frontend/   # React/Vite creator interface; creator features live under src/features/
 ├── backend/    # FastAPI transcription, AI, caption, audio, and export services
 └── shared/     # project schema and shared contracts
 ```
 
-The main technical pieces are Electron + React, a local FastAPI backend, Parakeet/WhisperX/Whisper transcription, and FFmpeg export. The local API includes health, transcription, export, job lifecycle, AI helper, caption, audio, and background-capability endpoints. See the backend routers for the current endpoint contract.
+The main technical pieces are Electron + React, a local FastAPI backend, Parakeet/WhisperX/Whisper transcription, and FFmpeg export. The Create Clips workflow is progressively isolated under `frontend/src/features/clips/` while stores, project schema, and backend authority remain explicit boundaries. The local API includes health, transcription, export, job lifecycle, AI helper, caption, audio, and background-capability endpoints. See the backend routers for the current endpoint contract.
 
 Project files are canonical JSON with `schema: "scriptcut.project.v1"` and `version: 1`. Manual saves and autosaves use the same serializer, with compatibility for legacy `.aive` and `.cutscript` files.
 
@@ -197,16 +198,34 @@ Long-running jobs use `queued`, `running`, `canceling`, `succeeded`, `failed`, a
 
 ## Quality checks
 
-For release-oriented changes, run the checks appropriate to the affected area:
+For creator-path changes, the consolidated source/persistence gate is:
+
+```bash
+npm run smoke:golden-creator-path
+```
+
+For the fuller local desktop qualification set:
+
+```bash
+npm run qa:desktop
+```
+
+Release-candidate preparation on a native Apple Silicon Mac uses:
+
+```bash
+npm run release:rc:arm64
+```
+
+Useful focused checks still include:
 
 ```bash
 npm run lint
-npm run build
+npm run build:frontend
 npm run smoke:backend
 python -m compileall -q backend
 ```
 
-Use [docs/DESKTOP_QA.md](docs/DESKTOP_QA.md) for the creator workflow checklist and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) when setup or runtime checks fail.
+Automated candidate gates do not replace the physical installed-DMG creator journey when [Release QA](docs/RELEASE_QA.md) requires it. Use [docs/DESKTOP_QA.md](docs/DESKTOP_QA.md) for that checklist and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) when setup or runtime checks fail.
 
 ## Contributing
 
