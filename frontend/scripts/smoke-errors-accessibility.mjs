@@ -82,12 +82,14 @@ assert.match(waveform, /aria-label=\{followPlayhead \? 'Stop following playhead'
 assert.match(waveform, /aria-label="Zoom out"/);
 assert.match(waveform, /aria-label="Zoom in"/);
 
-assert.match(ai, /activeAIJob\.id.*\/jobs\/\$\{activeAIJob\.id\}\/retry|\/jobs\/\$\{activeAIJob\.id\}\/retry/);
+assert.match(ai, /\/jobs\/\$\{sourceJob\.id\}\/retry/);
 assert.match(ai, /ai:clip-metadata/);
 assert.match(ai, /appendDiscoveredClipDrafts/);
 assert.match(ai, /setCreatorNotice/);
-assert.match(ai, /setCreatorNotice\(null\);\s*const startRes/);
-assert.match(ai, /setCreatorNotice\(null\);\s*setProcessing\(true, `Retrying/);
+assert.match(ai, /setCreatorNotice\(null\);\s*setProcessing\(true, processingMessage\);\s*try \{\s*const startRes/);
+assert.match(ai, /setCreatorNotice\(null\);\s*setProcessing\(true, `Retrying \$\{sourceJob\.label\}/);
+assert.match(ai, /Another AI action is still running/);
+assert.match(ai, /const canRetry = !busy && \(job\.status === 'failed' \|\| job\.status === 'canceled'\)/);
 const generatePublishingCopyBody = ai.match(/const generatePublishingCopy = useCallback\(([\s\S]*?)\n  \);\n\n  const retryAIJob/)?.[1] || '';
 assert.match(generatePublishingCopyBody, /getCreatorErrorPresentation\('ai-action', err\)/);
 assert.doesNotMatch(generatePublishingCopyBody, /getCreatorErrorPresentation\('clip-action', err\)/);
