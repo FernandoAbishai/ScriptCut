@@ -84,7 +84,8 @@ assert.doesNotMatch(reviewSource, /Remove/);
 assert.match(prepareExportSource, /Export (Ready Clips|all ready clips)/);
 assert.match(panelSource, /setClipStage\(discovery\.stage\)/);
 assert.match(panelSource, /setClipStage\('prepare'\)/);
-assert.match(prepareExportSource, /Review \{readyDraftCount\} ready/);
+assert.match(prepareExportSource, /Prepare \{preparableDraftCount\} ready/);
+assert.match(panelSource, /status: 'packaged'/);
 assert.match(panelSource, /appendDiscoveredClipDrafts/);
 assert.match(panelSource, /status: 'draft'/);
 assert.match(reviewActionsSource, /['"]speaker-turn['"]/);
@@ -184,6 +185,7 @@ const suggestion = {
 };
 const matchingDraft = { ...suggestion, id: 'clip_1', status: 'suggested', format: 'mp4', resolution: '1080p', aspectRatio: 'vertical' };
 const approvedDraft = { ...matchingDraft, id: 'clip_2', status: 'draft' };
+const packagedDraft = { ...matchingDraft, id: 'clip_prepared', status: 'packaged' };
 const exportedDraft = { ...matchingDraft, id: 'clip_3', status: 'exported' };
 const manualDraft = { ...matchingDraft, id: 'clip_4', status: 'draft', source: 'speaker-turn' };
 const unmatchedSuggestion = { ...suggestion, startWordIndex: 5, endWordIndex: 9 };
@@ -210,6 +212,8 @@ assert.equal(emptyDiscovery.shortfall, 5);
 assert.equal(getInitialClipWorkspaceStage([matchingDraft], []), 'review');
 assert.equal(getInitialClipWorkspaceStage([approvedDraft], []), 'prepare');
 assert.equal(getInitialClipWorkspaceStage([manualDraft], []), 'prepare');
+assert.equal(getInitialClipWorkspaceStage([packagedDraft], []), 'export');
+assert.equal(getInitialClipWorkspaceStage([approvedDraft, packagedDraft], []), 'prepare');
 assert.equal(getInitialClipWorkspaceStage([exportedDraft], []), 'export');
 assert.equal(getInitialClipWorkspaceStage([approvedDraft], [suggestion]), 'prepare');
 assert.deepEqual(getNewManualClipDrafts([restoredManualDraft], new Set(['manual-restored'])), []);
@@ -270,10 +274,13 @@ assert.equal(getPendingReviewItems([], [suggestion], { [getClipReviewKey(suggest
 assert.equal(getSkippedReviewItems([], [suggestion], { [getClipReviewKey(suggestion)]: 'skipped' }).length, 1);
 assert.equal(isClipDraftInStage(matchingDraft, 'review'), true);
 assert.equal(isClipDraftInStage(approvedDraft, 'prepare'), true);
-assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'packaged' }, 'prepare'), true);
+assert.equal(isClipDraftInStage(packagedDraft, 'prepare'), false);
+assert.equal(isClipDraftInStage(packagedDraft, 'export'), true);
 assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'exporting' }, 'prepare'), false);
 assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'failed' }, 'prepare'), false);
+assert.equal(isClipDraftInStage({ ...approvedDraft, status: 'failed' }, 'export'), true);
 assert.equal(isClipDraftInStage(exportedDraft, 'export'), true);
+assert.equal(isClipDraftInStage(approvedDraft, 'export'), false);
 assert.equal(isClipDraftInStage(matchingDraft, 'export'), false);
 const queueSummary = getClipQueueSummary(
   [
@@ -287,7 +294,7 @@ const queueSummary = getClipQueueSummary(
   ],
   new Set(['failed-retryable']),
 );
-assert.deepEqual(queueSummary, { suggested: 1, prepare: 2, exporting: 1, retry: 1, exported: 1, failed: 2 });
+assert.deepEqual(queueSummary, { suggested: 1, prepare: 1, exporting: 1, retry: 1, exported: 1, failed: 2 });
 assert.match(panelSource, /getClipBatchExportCandidates/);
 assert.match(panelSource, /updateClipDraft\(id, \{ status: 'draft', lastError: undefined \}\)/);
 assert.match(transcriptSource, /Draft clip/);

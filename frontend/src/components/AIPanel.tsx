@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useEditorStore } from '../store/editorStore';
+import { isClipTimelineMutationBlocked, useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, RotateCcw, Filter } from 'lucide-react';
 import type { ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult } from '../types/project';
 import {
+  getClipDraftUserEditResult,
   getClipDraftReadinessScore,
   buildClipExportCaptionWords,
   getClipExportSegments,
   getClipTranscript,
   getWordIndicesForClip,
   normalizeClipDraftRange,
+  prepareReadyClipDraftsForExport,
   validateClipDraftForExport,
 } from '../utils/clipDrafts';
 import {
@@ -37,6 +39,7 @@ import {
 } from '../utils/clipWorkspace';
 import {
   getClipBatchExportCandidates,
+  getCurrentClipBatchDraftForExport,
   getClipBatchProgressSummary,
   type ClipBatchProgressInput,
 } from '../utils/clipBatchExport';
@@ -298,6 +301,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   }, [deletedWordMap, editPlanDecisions, editPlanResult]);
 
   const acceptVisibleFillerDeletions = useCallback(() => {
+    if (isClipTimelineMutationBlocked()) return;
     const sorted = visibleFillerWords
       .filter((fw) => fillerDecisions[fw.index] !== 'rejected' && !deletedWordMap.has(fw.index))
       .sort((a, b) => b.index - a.index);
@@ -320,6 +324,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const acceptEditSuggestion = useCallback(
     (suggestion: EditPlanSuggestion) => {
+      if (isClipTimelineMutationBlocked()) return;
       if (!isEditSuggestionAlreadyCut(suggestion, deletedWordMap)) {
         deleteWordRange(suggestion.startWordIndex, suggestion.endWordIndex);
       }
@@ -336,6 +341,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   );
 
   const applyPendingEditSuggestions = useCallback(() => {
+    if (isClipTimelineMutationBlocked()) return;
     const sorted = [...pendingEditSuggestions].sort((a, b) => b.startWordIndex - a.startWordIndex);
     for (const suggestion of sorted) {
       deleteWordRange(suggestion.startWordIndex, suggestion.endWordIndex);
@@ -659,6 +665,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const applyFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
+    if (isClipTimelineMutationBlocked()) return;
     const sorted = fillerResult.fillerWords
       .filter((fw) => fillerDecisions[fw.index] !== 'rejected' && !deletedWordMap.has(fw.index))
       .sort((a, b) => b.index - a.index);
@@ -674,6 +681,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const acceptSafeFillerDeletions = useCallback(() => {
     if (!fillerResult) return;
+    if (isClipTimelineMutationBlocked()) return;
     const sorted = fillerResult.fillerWords
       .filter(
         (fw) =>
@@ -705,6 +713,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const acceptFiller = useCallback(
     (index: number) => {
+      if (isClipTimelineMutationBlocked()) return;
       if (!deletedWordMap.has(index)) {
         deleteWordRange(index, index);
       }
@@ -719,6 +728,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const restoreAcceptedFiller = useCallback(
     (index: number) => {
+      if (isClipTimelineMutationBlocked()) return;
       const rangeId = deletedWordMap.get(index);
       if (rangeId) restoreRange(rangeId);
       setFillerDecisions((current) => {
@@ -782,6 +792,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     () => getClipBatchExportCandidates(clipDrafts, words, videoPath),
     [clipDrafts, videoPath, words],
   );
+  const preparableDrafts = useMemo(
+    () => clipDrafts.filter(
+      (draft) =>
+        (draft.status || 'draft') === 'draft' &&
+        validateClipDraftForExport(draft, words, videoPath).ready,
+    ),
+    [clipDrafts, videoPath, words],
+  );
   const retryableDraftIds = useMemo(
     () => new Set(
       exportCandidateDrafts
@@ -801,11 +819,26 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     () => Object.values(clipReviewDecisions).filter((decision) => decision === 'approved').length,
     [clipReviewDecisions],
   );
-  const readyDraftCount = exportCandidateDrafts.length;
+  const readyDraftCount = useMemo(
+    () => clipDrafts.filter(
+      (draft) =>
+        draft.status === 'packaged' &&
+        validateClipDraftForExport(draft, words, videoPath).ready,
+    ).length,
+    [clipDrafts, videoPath, words],
+  );
+  const exportableDraftCount = exportCandidateDrafts.length;
   const clipStageDrafts = useMemo(
     () => clipDrafts.filter((draft) => isClipDraftInStage(draft, clipStage)),
     [clipDrafts, clipStage],
   );
+
+  useEffect(() => {
+    if (mode !== 'clips' || clipStage !== 'export') return;
+    const hasPrepareDrafts = clipDrafts.some((draft) => (draft.status || 'draft') === 'draft');
+    const hasExportStageDrafts = clipDrafts.some((draft) => isClipDraftInStage(draft, 'export'));
+    if (hasPrepareDrafts && !hasExportStageDrafts) setClipStage('prepare');
+  }, [clipDrafts, clipStage, mode]);
 
   useEffect(() => {
     if (!activeClipDraftId) return;
@@ -848,6 +881,55 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     updateClipDraft(id, { status: 'draft', lastError: undefined });
   }, [updateClipDraft]);
 
+  const prepareClipDraft = useCallback((draft: ClipDraft) => {
+    if ((draft.status || 'draft') !== 'draft') return;
+    if (!validateClipDraftForExport(draft, words, videoPath).ready) return;
+    setActiveClipDraftId(draft.id);
+    updateClipDraft(draft.id, { status: 'packaged', lastError: undefined });
+    const hasOtherDrafts = clipDrafts.some(
+      (candidate) => candidate.id !== draft.id && (candidate.status || 'draft') === 'draft',
+    );
+    if (!hasOtherDrafts) setClipStage('export');
+  }, [clipDrafts, updateClipDraft, videoPath, words]);
+
+  const prepareReadyDraftsForExport = useCallback(() => {
+    if (preparableDrafts.length === 0) return;
+    let hasRemainingDrafts = false;
+    setClipDrafts((current) => {
+      const next = prepareReadyClipDraftsForExport(current, words, videoPath);
+      hasRemainingDrafts = next.some((draft) => (draft.status || 'draft') === 'draft');
+      return next;
+    });
+    setClipStage(hasRemainingDrafts ? 'prepare' : 'export');
+  }, [preparableDrafts.length, setClipDrafts, videoPath, words]);
+
+  const clearClipExportAttempt = useCallback((draftId: string) => {
+    setClipExportJobs((current) => {
+      if (!current[draftId]) return current;
+      const next = { ...current };
+      delete next[draftId];
+      return next;
+    });
+    setClipExportOutputs((current) => {
+      if (!current[draftId]) return current;
+      const next = { ...current };
+      delete next[draftId];
+      return next;
+    });
+  }, []);
+
+  const changeClipDraft = useCallback((draft: ClipDraft, patch: Partial<ClipDraft>) => {
+    const edit = getClipDraftUserEditResult(draft, patch);
+    if (edit.blocked) return;
+    if (edit.invalidated) {
+      clearClipExportAttempt(draft.id);
+      updateClipDraft(draft.id, edit.patch);
+      setClipStage('prepare');
+      return;
+    }
+    updateClipDraft(draft.id, edit.patch);
+  }, [clearClipExportAttempt, updateClipDraft]);
+
   const {
     approveReviewItem,
     skipReviewItem,
@@ -865,6 +947,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   });
 
   const chooseClipExportDirectory = useCallback(async () => {
+    if (exportBusy) return;
     if (window.electronAPI?.openDirectory) {
       const directory = await window.electronAPI.openDirectory({
         title: 'Choose clip export folder',
@@ -876,9 +959,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
       setClipDrafts((current) => current.map((draft) => ({ ...draft, exportDirectory: directory })));
     }
-  }, [clipExportDirectory, isCurrentClipWorkspace, setClipDrafts, videoPath]);
+  }, [clipExportDirectory, exportBusy, isCurrentClipWorkspace, setClipDrafts, videoPath]);
 
   const updateClipExportDirectory = useCallback((directory: string) => {
+    if (exportBusy) return;
     setClipExportDirectory(directory);
     if (directory) window.localStorage.setItem(CLIP_EXPORT_DIRECTORY_KEY, directory);
     else window.localStorage.removeItem(CLIP_EXPORT_DIRECTORY_KEY);
@@ -886,7 +970,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       ...draft,
       exportDirectory: directory || undefined,
     })));
-  }, [setClipDrafts]);
+  }, [exportBusy, setClipDrafts]);
 
   const duplicateClipDraft = useCallback(
     (draft: ClipDraft) => {
@@ -923,14 +1007,15 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
   const trimClipDraft = useCallback(
     (draft: ClipDraft, patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => {
+      if (draft.status === 'exporting') return;
       const normalizedPatch = normalizeClipDraftRange(draft, patch, words);
       const nextDraft = { ...draft, ...normalizedPatch };
       setActiveClipDraftId(draft.id);
-      updateClipDraft(draft.id, normalizedPatch);
+      changeClipDraft(draft, normalizedPatch);
       setSelectedWordIndices(getWordIndicesForClip(words, nextDraft));
       requestSeek(nextDraft.startTime, 'forward', false);
     },
-    [requestSeek, setSelectedWordIndices, updateClipDraft, words],
+    [changeClipDraft, requestSeek, setSelectedWordIndices, words],
   );
 
   const pollClipExportJob = useCallback(
@@ -1000,6 +1085,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           (range) => range.end > clip.startTime && range.start < clip.endTime,
         );
 
+        if (settings?.id) {
+          updateClipDraft(settings.id, { status: 'exporting', lastError: undefined });
+        }
+
         const res = await fetch(`${backendUrl}/jobs/export`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1034,7 +1123,6 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         const { job_id: jobId } = await res.json();
         if (!isCurrentClipWorkspace()) throw new Error('The media workspace changed while this export was running.');
         if (settings?.id) {
-          updateClipDraft(settings.id, { status: 'exporting', lastError: undefined });
           setClipExportJobs((current) => ({
             ...current,
             [settings.id!]: {
@@ -1092,43 +1180,32 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       if (res.ok) {
         const canceledJob = (await res.json()) as ExportJob;
         setClipExportJobs((current) => ({ ...current, [draftId]: canceledJob }));
-        updateClipDraft(draftId, { status: 'failed', lastError: canceledJob.error || canceledJob.message || 'Export canceled' });
       }
-      setExportingDraftId((current) => (current === draftId ? null : current));
     },
-    [backendUrl, clipExportJobs, updateClipDraft],
+    [backendUrl, clipExportJobs],
   );
 
   const retryDraftExport = useCallback(
     async (draft: ClipDraft) => {
       if (exportBusy) return;
-      const job = clipExportJobs[draft.id];
-      setExportingDraftId(draft.id);
+      const currentDraft = useAIStore.getState().clipDrafts.find((candidate) => candidate.id === draft.id) || draft;
+      if ((currentDraft.status || 'draft') !== 'failed') return;
+      const validation = validateClipDraftForExport(currentDraft, words, videoPath);
+      if (!validation.ready) {
+        setCreatorNotice({
+          tone: 'warning',
+          title: 'Clip needs preparation before retry',
+          message: 'Review the clip in Prepare before retrying this export.',
+          technicalDetails: validation.reasons.join('\n'),
+          onDismiss: () => setCreatorNotice(null),
+        });
+        return;
+      }
+      clearClipExportAttempt(currentDraft.id);
+      setExportingDraftId(currentDraft.id);
       try {
-        updateClipDraft(draft.id, { status: 'exporting', lastError: undefined });
-        let output: ClipExportOutput;
-        if (job && ['failed', 'canceled'].includes(job.status)) {
-          const res = await fetch(`${backendUrl}/jobs/${job.id}/retry`, { method: 'POST' });
-          if (res.ok) {
-            const { job_id: jobId } = await res.json();
-            setClipExportJobs((current) => ({
-              ...current,
-              [draft.id]: {
-                id: jobId,
-                status: 'queued',
-                progress: 0,
-                message: 'Retry queued',
-                logs: [],
-              },
-            }));
-            output = await pollClipExportJob(jobId, draft.id);
-          } else {
-            output = await handleExportClip(draft, draft, true);
-          }
-        } else {
-          output = await handleExportClip(draft, draft, true);
-        }
-        updateClipDraft(draft.id, {
+        const output = await handleExportClip(currentDraft, currentDraft, true);
+        updateClipDraft(currentDraft.id, {
           status: 'exported',
           exportPath: output.outputPath,
           srtPath: output.srtPath,
@@ -1136,7 +1213,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           exportedAt: new Date().toISOString(),
           lastError: undefined,
         });
-        setClipExportOutputs((current) => ({ ...current, [draft.id]: output }));
+        setClipExportOutputs((current) => ({ ...current, [currentDraft.id]: output }));
         setCreatorNotice({
           tone: 'success',
           title: 'Clip exported',
@@ -1146,13 +1223,13 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         });
       } catch (err) {
         console.error(err);
-        updateClipDraft(draft.id, { status: 'failed', lastError: err instanceof Error ? err.message : String(err) });
+        updateClipDraft(currentDraft.id, { status: 'failed', lastError: err instanceof Error ? err.message : String(err) });
         setCreatorNotice({ ...getCreatorErrorPresentation('clip-action', err), onDismiss: () => setCreatorNotice(null) });
       } finally {
         setExportingDraftId(null);
       }
     },
-    [backendUrl, clipExportJobs, exportBusy, handleExportClip, pollClipExportJob, updateClipDraft],
+    [clearClipExportAttempt, exportBusy, handleExportClip, updateClipDraft, videoPath, words],
   );
 
   const copyPublishingCopy = useCallback(
@@ -1209,14 +1286,24 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   const handleExportDraft = useCallback(
     async (draft: ClipDraft) => {
       if (exportBusy) return;
-      const validation = validateClipDraftForExport(draft, words, videoPath);
+      const currentDraft = useAIStore.getState().clipDrafts.find((candidate) => candidate.id === draft.id) || draft;
+      if (currentDraft.status !== 'packaged') {
+        setCreatorNotice({
+          tone: 'warning',
+          title: 'Prepare this clip first',
+          message: 'Move the clip through Prepare before exporting it.',
+          onDismiss: () => setCreatorNotice(null),
+        });
+        return;
+      }
+      const validation = validateClipDraftForExport(currentDraft, words, videoPath);
       if (!validation.ready) {
         setCreatorNotice({ tone: 'warning', title: 'Clip isn’t ready to export', message: 'Review the readiness details before exporting.', technicalDetails: validation.reasons.join('\n'), onDismiss: () => setCreatorNotice(null) });
         return;
       }
-      setExportingDraftId(draft.id);
+      setExportingDraftId(currentDraft.id);
       try {
-        await handleExportClip(draft, draft);
+        await handleExportClip(currentDraft, currentDraft);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (!message.toLowerCase().includes('canceled')) {
@@ -1245,10 +1332,21 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       }),
     );
     const results: ClipBatchExportResult[] = [];
+    let pausedForDraftChange = false;
     try {
       for (let index = 0; index < exportableDrafts.length; index++) {
         if (stopBatchExportRef.current) break;
-        const draft = exportableDrafts[index];
+        const plannedDraft = exportableDrafts[index];
+        const draft = getCurrentClipBatchDraftForExport(
+          useAIStore.getState().clipDrafts,
+          plannedDraft.id,
+          words,
+          videoPath,
+        );
+        if (!draft) {
+          pausedForDraftChange = true;
+          break;
+        }
         setExportingDraftId(draft.id);
         setClipExportJobs((current) => {
           const next = { ...current };
@@ -1274,7 +1372,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       const successCount = results.filter((result) => result.outputPath).length;
       const failedCount = results.filter((result) => result.error).length;
       const remainingDrafts = exportableDrafts.slice(results.length);
-      const stopped = stopBatchExportRef.current && remainingDrafts.length > 0;
+      const stopped = (stopBatchExportRef.current || pausedForDraftChange) && remainingDrafts.length > 0;
       let manifestPath = '';
       let manifestWarning = '';
       try {
@@ -1294,10 +1392,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
       }
       const warningDetails = [
         ...results.flatMap((result) => result.warnings || []),
+        pausedForDraftChange ? 'Batch paused because a planned clip changed and needs to be prepared again.' : '',
         manifestWarning,
       ].filter(Boolean);
       setCreatorNotice({
-        tone: failedCount > 0 || manifestWarning ? 'warning' : 'success',
+        tone: failedCount > 0 || pausedForDraftChange || manifestWarning ? 'warning' : 'success',
         title: successCount > 0
           ? `${successCount} clip${successCount === 1 ? '' : 's'} ready`
           : stopped
@@ -1788,7 +1887,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
               <div className="space-y-3">
                 <ClipPrepareExportControls
                   stage={clipStage}
-                  readyDraftCount={readyDraftCount}
+                  preparableDraftCount={preparableDrafts.length}
+                  exportableDraftCount={exportableDraftCount}
                   isBatchExporting={isBatchExporting}
                   batchExportProgress={batchExportProgress}
                   exportBusy={exportBusy}
@@ -1798,7 +1898,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                   canChooseDirectory={!!window.electronAPI?.openDirectory}
                   onStopBatchExport={stopBatchExport}
                   onExportAll={handleExportAllDrafts}
-                  onGoToExport={() => setClipStage('export')}
+                  onPrepareReady={prepareReadyDraftsForExport}
                   onChooseExportDirectory={chooseClipExportDirectory}
                   onExportDirectoryChange={updateClipExportDirectory}
                 />
@@ -1824,9 +1924,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                         isActive={activeClipDraftId === draft.id}
                         exportValidation={validateClipDraftForExport(draft, words, videoPath)}
                         readinessScore={getClipDraftReadinessScore(draft, words, videoPath)}
-                        onChange={(patch) => updateClipDraft(draft.id, patch)}
+                        onChange={(patch) => changeClipDraft(draft, patch)}
                         onTrim={(patch) => trimClipDraft(draft, patch)}
                         onApprove={() => approveClipDraft(draft.id)}
+                        onPrepare={() => prepareClipDraft(draft)}
                         onPreview={() => handlePreviewClip(draft)}
                         onExport={() => handleExportDraft(draft)}
                         onCancelExport={() => cancelDraftExport(draft.id)}

@@ -1,4 +1,4 @@
-import type { ClipDraft, ClipSuggestion, DeletedRange, Word } from '../types/project';
+import type { ClipDraft, ClipSuggestion, DeletedRange, EditOperation, Word } from '../types/project';
 
 export type ClipDraftExportValidation = {
   ready: boolean;
@@ -15,6 +15,93 @@ export type ClipExportSegment = {
   start: number;
   end: number;
 };
+
+const PREPARATION_INVALIDATING_FIELDS = new Set<keyof ClipDraft>([
+  'title',
+  'startWordIndex',
+  'endWordIndex',
+  'startTime',
+  'endTime',
+  'format',
+  'resolution',
+  'aspectRatio',
+  'reframe',
+  'enhanceAudio',
+  'captions',
+  'captionStyle',
+  'backgroundRemoval',
+]);
+
+export function clipDraftPatchInvalidatesPreparation(patch: Partial<ClipDraft>) {
+  return (Object.keys(patch) as Array<keyof ClipDraft>).some((key) =>
+    PREPARATION_INVALIDATING_FIELDS.has(key),
+  );
+}
+
+export function getClipDraftUserEditResult(
+  draft: ClipDraft,
+  patch: Partial<ClipDraft>,
+): { patch: Partial<ClipDraft>; invalidated: boolean; blocked: boolean } {
+  const invalidatesPreparation = clipDraftPatchInvalidatesPreparation(patch);
+  if (!invalidatesPreparation) return { patch, invalidated: false, blocked: false };
+  if (draft.status === 'exporting') return { patch: {}, invalidated: false, blocked: true };
+  if (draft.status !== 'packaged' && draft.status !== 'failed' && draft.status !== 'exported') {
+    return { patch, invalidated: false, blocked: false };
+  }
+  return {
+    patch: {
+      ...patch,
+      status: 'draft',
+      lastError: undefined,
+      exportPath: undefined,
+      srtPath: undefined,
+      exportWarnings: undefined,
+      exportedAt: undefined,
+    },
+    invalidated: true,
+    blocked: false,
+  };
+}
+
+export function invalidateClipDraftsForTimelineChange(drafts: ClipDraft[]): ClipDraft[] {
+  let changed = false;
+  const next = drafts.map((draft) => {
+    if (draft.status !== 'packaged' && draft.status !== 'failed' && draft.status !== 'exported') return draft;
+    changed = true;
+    return {
+      ...draft,
+      status: 'draft' as const,
+      lastError: undefined,
+      exportPath: undefined,
+      srtPath: undefined,
+      exportWarnings: undefined,
+      exportedAt: undefined,
+    };
+  });
+  return changed ? next : drafts;
+}
+
+export function getClipTimelineExportFingerprint(
+  deletedRanges: DeletedRange[],
+  editOperations: EditOperation[],
+) {
+  const outputOperations = editOperations.filter((operation) =>
+    operation.kind === 'delete' ||
+    operation.kind === 'mute' ||
+    operation.kind === 'room-tone' ||
+    operation.kind === 'caption-only',
+  );
+  return JSON.stringify({
+    deletedRanges: deletedRanges.map((range) => [range.id, range.start, range.end, range.wordIndices]),
+    editOperations: outputOperations.map((operation) => [
+      operation.id,
+      operation.kind,
+      operation.start,
+      operation.end,
+      operation.wordIndices,
+    ]),
+  });
+}
 
 export function findWordIndexAtOrAfter(words: Word[], time: number) {
   if (words.length === 0) return -1;
@@ -96,6 +183,18 @@ export function validateClipDraftForExport(
     ready: reasons.length === 0,
     reasons,
   };
+}
+
+export function prepareReadyClipDraftsForExport(
+  drafts: ClipDraft[],
+  words: Word[],
+  videoPath: string | null,
+): ClipDraft[] {
+  return drafts.map((draft) => {
+    if ((draft.status || 'draft') !== 'draft') return draft;
+    if (!validateClipDraftForExport(draft, words, videoPath).ready) return draft;
+    return { ...draft, status: 'packaged' as const, lastError: undefined };
+  });
 }
 
 /**

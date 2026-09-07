@@ -53,6 +53,7 @@ const { validateClipDraftForExport } = loadTsModule('../src/utils/clipDrafts.ts'
 const {
   INTERRUPTED_CLIP_EXPORT_ERROR,
   getClipBatchExportCandidates,
+  getCurrentClipBatchDraftForExport,
   getClipBatchProgressSummary,
   hasRecoverableClipExports,
   recoverInterruptedClipDraft,
@@ -90,17 +91,35 @@ const candidates = [
   draft('exporting', 'exporting'),
   draft('exported', 'exported'),
   draft('invalid', 'draft', { title: '' }),
+  draft('invalid-packaged', 'packaged', { title: '' }),
 ];
 assert.deepEqual(
   getClipBatchExportCandidates(candidates, words, '/tmp/video.mp4').map((item) => item.id),
-  ['draft', 'packaged', 'failed'],
+  ['packaged', 'failed'],
 );
 assert.deepEqual(
   getClipBatchExportCandidates([candidates[2], candidates[0]], words, '/tmp/video.mp4').map((item) => item.id),
-  ['failed', 'draft'],
+  ['failed'],
 );
 assert.equal(hasRecoverableClipExports(candidates, words, '/tmp/video.mp4'), true);
 assert.equal(validateClipDraftForExport(candidates[6], words, '/tmp/video.mp4').ready, false);
+assert.equal(validateClipDraftForExport(candidates[7], words, '/tmp/video.mp4').ready, false);
+assert.equal(
+  getCurrentClipBatchDraftForExport(
+    [draft('planned', 'draft')],
+    'planned',
+    words,
+    '/tmp/video.mp4',
+  ),
+  null,
+  'a planned batch item demoted back to draft must not be submitted from an old packaged snapshot',
+);
+const currentPrepared = draft('planned', 'packaged', { title: 'Current durable title' });
+assert.equal(
+  getCurrentClipBatchDraftForExport([currentPrepared], 'planned', words, '/tmp/video.mp4'),
+  currentPrepared,
+  'batch export must use the current durable prepared draft',
+);
 
 const recovered = recoverInterruptedClipDraft(draft('interrupted', 'exporting'));
 assert.equal(recovered.status, 'failed');
@@ -149,6 +168,13 @@ assert.doesNotMatch(serialized, /runtime-video-authority|runtime-srt-authority/)
 const reopened = autosave.parseProjectFile(serialized);
 assert.equal(reopened.aiWorkspace?.clipDrafts?.[2]?.srtPath, '/tmp/clip.srt');
 assert.deepEqual(reopened.aiWorkspace?.clipDrafts?.[2]?.exportWarnings, ['Captions were delivered as an SRT sidecar.']);
+const preparedProject = autosave.normalizeProjectFile(project([draft('loads-packaged', 'packaged')]));
+assert.equal(preparedProject.aiWorkspace?.clipDrafts?.[0]?.status, 'packaged');
+assert.equal(
+  autosave.parseProjectFile(autosave.serializeProjectFile(preparedProject)).aiWorkspace?.clipDrafts?.[0]?.status,
+  'packaged',
+  'prepared clip lifecycle state must survive project v1 save/reopen',
+);
 assert.equal(autosave.normalizeProjectFile(project(undefined)).version, 1);
 assert.equal(autosave.normalizeProjectFile(project([])).schema, 'scriptcut.project.v1');
 
@@ -174,22 +200,44 @@ assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length;
 assert.doesNotMatch(panelSource, /Promise\.all\([^)]*export/);
 assert.match(panelSource, /const exportBusy = isBatchExporting \|\| exportingDraftId !== null/);
 assert.match(panelSource, /exportBusy=\{exportBusy\}/);
-assert.match(controlsSource, /disabled=\{exportBusy \|\| readyDraftCount === 0\}/);
+assert.match(controlsSource, /disabled=\{exportBusy \|\| exportableDraftCount === 0\}/);
 assert.match(cardSource, /disabled=\{!canExport \|\| exportBusy \|\| isExporting \|\| exportActive\}/);
-assert.match(cardSource, /disabled=\{exportBusy\}/);
+assert.match(cardSource, /disabled=\{!exportValidation\.ready \|\| exportBusy\}/);
 assert.doesNotMatch(controlsSource, /useAIStore|useEditorStore|fetch\(|localStorage/, 'prepare/export controls must stay presentational');
 assert.ok((panelSource.match(/if \(exportBusy\) return;/g) || []).length >= 3, 'export handlers have defensive busy guards');
 assert.match(controlsSource, /onClick=\{onStopBatchExport\}/);
 assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)[\s\S]*?await handleExportClip/);
 assert.doesNotMatch(panelSource, /\/jobs\/export-batch|\/export\/v2/);
+const cancelHandlerSource = panelSource.slice(panelSource.indexOf('const cancelDraftExport'), panelSource.indexOf('const retryDraftExport'));
+assert.match(cancelHandlerSource, /\/cancel/);
+assert.doesNotMatch(cancelHandlerSource, /status: 'failed'/, 'cancel request must not mark the draft terminal before polling confirms cancellation');
+assert.doesNotMatch(cancelHandlerSource, /setExportingDraftId/, 'cancel request must keep exportBusy active until the export poll reaches a terminal state');
 assert.match(panelSource, /failedCount/);
 assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
 assert.match(panelSource, /if \(stopBatchExportRef\.current\) break/);
 assert.match(controlsSource, /Stopping after current clip/);
 assert.match(cardSource, /Retry export/);
 assert.match(cardSource, /const exportRetryable = status === 'failed'/);
-assert.match(panelSource, /fetch\(`\$\{backendUrl\}\/jobs\/\$\{job\.id\}\/retry`/);
+assert.match(cardSource, /const exportActive =[\s\S]*?isExporting[\s\S]*?status === 'exporting'/);
+assert.match(cardSource, /disabled=\{!exportJobCancelable\}/);
+assert.match(panelSource, /import \{ isClipTimelineMutationBlocked, useEditorStore \} from '\.\.\/store\/editorStore';/);
+assert.ok(
+  (panelSource.match(/if \(isClipTimelineMutationBlocked\(\)\) return;/g) || []).length >= 7,
+  'compound filler/edit-plan timeline actions must not update decisions while a clip export blocks timeline mutation',
+);
+assert.match(panelSource, /const currentDraft = useAIStore\.getState\(\)\.clipDrafts\.find/);
+assert.match(panelSource, /clearClipExportAttempt\(currentDraft\.id\)/);
+assert.doesNotMatch(panelSource, /\/jobs\/\$\{job\.id\}\/retry/, 'clip retry must not replay an old backend export target');
 assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
+assert.match(panelSource, /handleExportClip\(currentDraft, currentDraft, true\)/);
+const handleExportClipSource = panelSource.slice(panelSource.indexOf('const handleExportClip'), panelSource.indexOf('const cancelDraftExport'));
+assert.ok(
+  handleExportClipSource.indexOf("status: 'exporting'") < handleExportClipSource.indexOf('await fetch(`${backendUrl}/jobs/export`'),
+  'durable exporting claim must happen before the first export request await',
+);
+assert.match(panelSource, /getCurrentClipBatchDraftForExport\([\s\S]*?plannedDraft\.id/);
+assert.match(panelSource, /pausedForDraftChange = true/);
+assert.match(panelSource, /Batch paused because a planned clip changed/);
 assert.match(panelSource, /outputPath/);
 assert.match(panelSource, /srtPath: output\.srtPath/);
 assert.match(panelSource, /exportWarnings: output\.warnings/);

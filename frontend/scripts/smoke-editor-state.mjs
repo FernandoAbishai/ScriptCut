@@ -112,11 +112,27 @@ assert.equal(historyStore.temporal.getState().pastStates.length, 1, 'transient p
 
 const appSource = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8');
 const editorStoreSource = readFileSync(resolve(__dirname, '../src/store/editorStore.ts'), 'utf8');
+const keyboardSource = readFileSync(resolve(__dirname, '../src/hooks/useKeyboardShortcuts.ts'), 'utf8');
 assert.match(appSource, /onClick=\{\(\) => void handleOpenFile\(currentWorkflowIntent\)\}/);
 assert.doesNotMatch(appSource, /onClick=\{handleOpenFile\}/);
 assert.match(editorStoreSource, /partialize:\s*partializeEditorHistory/);
 assert.match(editorStoreSource, /equality:\s*editorHistoryEqual/);
 assert.doesNotMatch(editorStoreSource, /nextRangeId/);
+assert.match(editorStoreSource, /invalidateClipDraftsForTimelineChange/);
+assert.match(editorStoreSource, /isClipTimelineMutationBlocked\(\)/);
+assert.ok(
+  (editorStoreSource.match(/invalidateClipPreparationForTimelineChange\(\)/g) || []).length >= 5,
+  'output-affecting timeline edits and restores must invalidate prepared clip state',
+);
+assert.match(keyboardSource, /getClipTimelineExportFingerprint/);
+assert.ok(
+  (keyboardSource.match(/isClipTimelineMutationBlocked\(\)/g) || []).length >= 2,
+  'undo and redo must be blocked while clip export is active',
+);
+assert.ok(
+  (keyboardSource.match(/invalidateClipPreparationForTimelineChange\(\)/g) || []).length >= 2,
+  'undo and redo must invalidate prepared clips when output-affecting timeline state changes',
+);
 assert.ok(
   (editorStoreSource.match(/temporal\.getState\(\)\.clear\(\)/g) || []).length >= 4,
   'new media, transcription, project load, and reset must clear cross-project undo history',
