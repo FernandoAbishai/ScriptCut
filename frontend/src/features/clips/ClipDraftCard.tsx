@@ -28,6 +28,7 @@ export default function ClipDraftCard({
   onChange,
   onTrim,
   onApprove,
+  onPrepare,
   onPreview,
   onExport,
   onCancelExport,
@@ -57,6 +58,7 @@ export default function ClipDraftCard({
   onChange: (patch: Partial<ClipDraft>) => void;
   onTrim: (patch: Pick<Partial<ClipDraft>, 'startTime' | 'endTime'>) => void;
   onApprove: () => void;
+  onPrepare: () => void;
   onPreview: () => void;
   onExport: () => void;
   onCancelExport: () => void;
@@ -71,11 +73,17 @@ export default function ClipDraftCard({
 }) {
   const [advancedExportOpen, setAdvancedExportOpen] = useState(false);
   const [publishingCopyOpen, setPublishingCopyOpen] = useState(false);
-  const exportActive = exportJob?.status === 'queued' || exportJob?.status === 'running' || exportJob?.status === 'canceling';
   const status = draft.status || 'draft';
-  const exportRetryable = status === 'failed' || exportJob?.status === 'failed' || exportJob?.status === 'canceled';
+  const exportJobCancelable = exportJob?.status === 'queued' || exportJob?.status === 'running';
+  const exportActive =
+    isExporting ||
+    status === 'exporting' ||
+    exportJobCancelable ||
+    exportJob?.status === 'canceling';
+  const exportRetryable = status === 'failed';
   const isSuggested = status === 'suggested';
-  const canExport = exportValidation.ready && !isSuggested;
+  const canPrepare = status === 'draft' && exportValidation.ready;
+  const canExport = exportValidation.ready && status === 'packaged';
   const socialPack = buildSocialPublishingPack(draft);
   const publishingCopyState = getPublishingCopyState(draft);
   const hasGeneratedPublishingCopy = Boolean(
@@ -591,25 +599,40 @@ export default function ClipDraftCard({
         >
           <Play className="w-3 h-3" /> Preview
         </button>
-        <button
-          onClick={onExport}
-          disabled={!canExport || exportBusy || isExporting || exportActive}
-          className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
-        >
-          {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-          Export
-        </button>
+        {status === 'draft' ? (
+          <button
+            onClick={onPrepare}
+            disabled={!canPrepare}
+            className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
+          >
+            <Check className="w-3 h-3" /> Ready for export
+          </button>
+        ) : status === 'packaged' ? (
+          <button
+            onClick={onExport}
+            disabled={!canExport || exportBusy || isExporting || exportActive}
+            className="flex items-center justify-center gap-1 rounded bg-editor-success/20 px-2 py-1.5 text-xs text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
+          >
+            {isExporting || exportActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+            Export
+          </button>
+        ) : (
+          <div className="flex items-center justify-center rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted">
+            {status === 'failed' ? 'Retry required' : status === 'exported' ? 'Export complete' : 'Export in progress'}
+          </div>
+        )}
         {exportActive ? (
           <button
             onClick={onCancelExport}
-            className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg"
+            disabled={!exportJobCancelable}
+            className="flex items-center justify-center gap-1 rounded bg-editor-border px-2 py-1.5 text-xs text-editor-text-muted hover:bg-editor-bg disabled:opacity-50"
           >
-            <X className="w-3 h-3" /> Cancel
+            <X className="w-3 h-3" /> {exportJobCancelable ? 'Cancel' : exportJob?.status === 'canceling' || exportJob?.status === 'canceled' ? 'Canceling' : 'Starting'}
           </button>
         ) : exportRetryable ? (
           <button
             onClick={onRetryExport}
-            disabled={exportBusy}
+            disabled={!exportValidation.ready || exportBusy}
             className="flex items-center justify-center gap-1 rounded bg-editor-accent/20 px-2 py-1.5 text-xs text-editor-accent hover:bg-editor-accent/30 disabled:opacity-50"
           >
             <RotateCcw className="w-3 h-3" /> Retry export

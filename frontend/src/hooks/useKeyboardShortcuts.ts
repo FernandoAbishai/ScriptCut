@@ -1,5 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { useEditorStore } from '../store/editorStore';
+import {
+  invalidateClipPreparationForTimelineChange,
+  isClipTimelineMutationBlocked,
+  useEditorStore,
+} from '../store/editorStore';
+import { getClipTimelineExportFingerprint } from '../utils/clipDrafts';
 import { createProjectSnapshot, serializeProjectFile } from './useProjectAutosave';
 
 export function useKeyboardShortcuts() {
@@ -23,12 +28,26 @@ export function useKeyboardShortcuts() {
         // --- Undo / Redo ---
         case e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey: {
           e.preventDefault();
+          if (isClipTimelineMutationBlocked()) return;
+          const before = useEditorStore.getState();
+          const beforeFingerprint = getClipTimelineExportFingerprint(before.deletedRanges, before.editOperations);
           useEditorStore.temporal.getState().redo();
+          const after = useEditorStore.getState();
+          if (getClipTimelineExportFingerprint(after.deletedRanges, after.editOperations) !== beforeFingerprint) {
+            invalidateClipPreparationForTimelineChange();
+          }
           return;
         }
         case e.key === 'z' && (e.ctrlKey || e.metaKey): {
           e.preventDefault();
+          if (isClipTimelineMutationBlocked()) return;
+          const before = useEditorStore.getState();
+          const beforeFingerprint = getClipTimelineExportFingerprint(before.deletedRanges, before.editOperations);
           useEditorStore.temporal.getState().undo();
+          const after = useEditorStore.getState();
+          if (getClipTimelineExportFingerprint(after.deletedRanges, after.editOperations) !== beforeFingerprint) {
+            invalidateClipPreparationForTimelineChange();
+          }
           return;
         }
 

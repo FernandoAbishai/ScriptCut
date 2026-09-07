@@ -4,7 +4,7 @@ import { validateClipDraftForExport } from './clipDrafts';
 export const INTERRUPTED_CLIP_EXPORT_ERROR =
   'Export was interrupted before ScriptCut could confirm completion. Retry this clip.';
 
-const BATCH_EXPORT_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged', 'failed']);
+const BATCH_EXPORT_STATUSES = new Set<ClipDraftStatus>(['packaged', 'failed']);
 
 export function getClipBatchExportCandidates(
   drafts: ClipDraft[],
@@ -16,6 +16,17 @@ export function getClipBatchExportCandidates(
       BATCH_EXPORT_STATUSES.has(draft.status || 'draft') &&
       validateClipDraftForExport(draft, words, videoPath).ready,
   );
+}
+
+export function getCurrentClipBatchDraftForExport(
+  drafts: ClipDraft[],
+  plannedDraftId: string,
+  words: Word[],
+  videoPath: string | null,
+) {
+  const currentDraft = drafts.find((draft) => draft.id === plannedDraftId);
+  if (!currentDraft) return null;
+  return getClipBatchExportCandidates([currentDraft], words, videoPath)[0] || null;
 }
 
 export function hasRecoverableClipExports(

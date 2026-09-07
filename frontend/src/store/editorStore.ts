@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { temporal } from 'zundo';
 import type { Word, Segment, DeletedRange, EditOperation, EditOperationKind, ProjectExportOptions, TranscriptionResult } from '../types/project';
 import type { ClipPresentationPreview } from '../utils/clipPresentation';
+import { useAIStore } from './aiStore';
+import { invalidateClipDraftsForTimelineChange } from '../utils/clipDrafts';
 import { collectEditIds, createUniqueEditId, normalizeLoadedEditIds } from '../utils/editIds';
 import { editorHistoryEqual, partializeEditorHistory, type EditorHistoryState } from '../utils/editorHistory';
 
@@ -150,6 +152,16 @@ const initialState: EditorState = {
   backendUrl: 'http://localhost:8642',
 };
 
+export function isClipTimelineMutationBlocked() {
+  return useAIStore.getState().clipDrafts.some((draft) => draft.status === 'exporting');
+}
+
+export function invalidateClipPreparationForTimelineChange() {
+  const aiState = useAIStore.getState();
+  const nextDrafts = invalidateClipDraftsForTimelineChange(aiState.clipDrafts);
+  if (nextDrafts !== aiState.clipDrafts) aiState.setClipDrafts(nextDrafts);
+}
+
 export const useEditorStore = create<EditorState & EditorActions>()(
   temporal<EditorState & EditorActions, [], [], EditorHistoryState>(
     (set, get) => ({
@@ -232,6 +244,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       deleteSelectedWords: () => {
         const { selectedWordIndices, words, deletedRanges, editOperations } = get();
         if (selectedWordIndices.length === 0) return;
+        if (isClipTimelineMutationBlocked()) return;
 
         const sorted = [...selectedWordIndices].sort((a, b) => a - b);
         const startWord = words[sorted[0]];
@@ -250,6 +263,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           editOperations: [...editOperations, deletedRangeToOperation(newRange)],
           selectedWordIndices: [],
         });
+        invalidateClipPreparationForTimelineChange();
       },
 
       muteSelectedWords: () => {
@@ -268,6 +282,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       },
 
       deleteWordRange: (startIndex, endIndex) => {
+        if (isClipTimelineMutationBlocked()) return;
         const { words, deletedRanges, editOperations } = get();
         const indices = [];
         for (let i = startIndex; i <= endIndex; i++) indices.push(i);
@@ -284,11 +299,13 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           deletedRanges: [...deletedRanges, newRange],
           editOperations: [...editOperations, deletedRangeToOperation(newRange)],
         });
+        invalidateClipPreparationForTimelineChange();
       },
 
       deleteWordIndices: (indices) => {
         const { words, deletedRanges, editOperations } = get();
         if (indices.length === 0) return;
+        if (isClipTimelineMutationBlocked()) return;
 
         const sorted = [...new Set(indices)]
           .filter((index) => index >= 0 && index < words.length)
@@ -327,11 +344,16 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           editOperations: [...editOperations, ...ranges.map(deletedRangeToOperation)],
           selectedWordIndices: [],
         });
+        invalidateClipPreparationForTimelineChange();
       },
 
       addEditOperation: (kind, indices) => {
         const { words, deletedRanges, editOperations } = get();
         if (indices.length === 0) return;
+        if (
+          (kind === 'mute' || kind === 'room-tone' || kind === 'caption-only' || kind === 'delete') &&
+          isClipTimelineMutationBlocked()
+        ) return;
 
         const sorted = [...new Set(indices)]
           .filter((index) => index >= 0 && index < words.length)
@@ -370,6 +392,9 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           editOperations: [...editOperations, ...ranges],
           selectedWordIndices: [],
         });
+        if (kind === 'mute' || kind === 'room-tone' || kind === 'caption-only' || kind === 'delete') {
+          invalidateClipPreparationForTimelineChange();
+        }
       },
 
       renameSpeaker: (speaker, label) => {
@@ -428,10 +453,13 @@ export const useEditorStore = create<EditorState & EditorActions>()(
 
       restoreRange: (rangeId) => {
         const { deletedRanges, editOperations } = get();
+        if (!deletedRanges.some((range) => range.id === rangeId)) return;
+        if (isClipTimelineMutationBlocked()) return;
         set({
           deletedRanges: deletedRanges.filter((r) => r.id !== rangeId),
           editOperations: editOperations.filter((operation) => operation.id !== rangeId),
         });
+        invalidateClipPreparationForTimelineChange();
       },
 
       restoreEditOperation: (operationId) => {
@@ -439,11 +467,19 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         const operation = editOperations.find((candidate) => candidate.id === operationId);
         if (!operation) return;
 
+        const outputAffecting =
+          operation.kind === 'delete' ||
+          operation.kind === 'mute' ||
+          operation.kind === 'room-tone' ||
+          operation.kind === 'caption-only';
+        if (outputAffecting && isClipTimelineMutationBlocked()) return;
+
         if (operation.kind === 'delete') {
           set({
             deletedRanges: get().deletedRanges.filter((range) => range.id !== operationId),
             editOperations: editOperations.filter((candidate) => candidate.id !== operationId),
           });
+          invalidateClipPreparationForTimelineChange();
           return;
         }
 
@@ -475,6 +511,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         }
 
         set({ editOperations: editOperations.filter((operation) => operation.id !== operationId) });
+        if (outputAffecting) invalidateClipPreparationForTimelineChange();
       },
 
       setTranscribing: (active, progress) =>

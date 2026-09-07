@@ -83,8 +83,8 @@ export function readClipDiscoveryResult(result: unknown): {
 }
 
 const REVIEW_STATUSES = new Set<ClipDraftStatus>(['suggested']);
-const PREPARE_STATUSES = new Set<ClipDraftStatus>(['draft', 'packaged']);
-const EXPORT_STATUSES = new Set<ClipDraftStatus>(['exporting', 'exported', 'failed']);
+const PREPARE_STATUSES = new Set<ClipDraftStatus>(['draft']);
+const EXPORT_STATUSES = new Set<ClipDraftStatus>(['packaged', 'exporting', 'exported', 'failed']);
 
 export type ClipQueueSummary = {
   suggested: number;
@@ -265,6 +265,6 @@ export function isClipDraftInStage(draft: ClipDraft, stage: ClipWorkspaceStage) 
   const status = draft.status || 'draft';
   if (stage === 'review') return status === 'suggested';
   if (stage === 'prepare') return PREPARE_STATUSES.has(status);
-  if (stage === 'export') return !REVIEW_STATUSES.has(status);
+  if (stage === 'export') return EXPORT_STATUSES.has(status);
   return false;
 }

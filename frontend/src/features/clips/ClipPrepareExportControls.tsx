@@ -4,7 +4,8 @@ import type { ClipWorkspaceStage } from '../../utils/clipWorkspace';
 
 type ClipPrepareExportControlsProps = {
   stage: ClipWorkspaceStage;
-  readyDraftCount: number;
+  preparableDraftCount: number;
+  exportableDraftCount: number;
   isBatchExporting: boolean;
   batchExportProgress: ClipBatchProgressInput;
   exportBusy: boolean;
@@ -14,14 +15,15 @@ type ClipPrepareExportControlsProps = {
   canChooseDirectory: boolean;
   onStopBatchExport: () => void;
   onExportAll: () => void;
-  onGoToExport: () => void;
+  onPrepareReady: () => void;
   onChooseExportDirectory: () => void;
   onExportDirectoryChange: (directory: string) => void;
 };
 
 export default function ClipPrepareExportControls({
   stage,
-  readyDraftCount,
+  preparableDraftCount,
+  exportableDraftCount,
   isBatchExporting,
   batchExportProgress,
   exportBusy,
@@ -31,7 +33,7 @@ export default function ClipPrepareExportControls({
   canChooseDirectory,
   onStopBatchExport,
   onExportAll,
-  onGoToExport,
+  onPrepareReady,
   onChooseExportDirectory,
   onExportDirectoryChange,
 }: ClipPrepareExportControlsProps) {
@@ -55,7 +57,7 @@ export default function ClipPrepareExportControls({
             )}
             <button
               onClick={onExportAll}
-              disabled={exportBusy || readyDraftCount === 0}
+              disabled={exportBusy || exportableDraftCount === 0}
               className="flex items-center gap-1 rounded bg-editor-success/20 px-2 py-1 text-[10px] text-editor-success hover:bg-editor-success/30 disabled:opacity-50"
             >
               {isBatchExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -65,12 +67,12 @@ export default function ClipPrepareExportControls({
         )}
       </div>
 
-      {stage === 'prepare' && readyDraftCount > 0 && (
+      {stage === 'prepare' && preparableDraftCount > 0 && (
         <button
-          onClick={onGoToExport}
+          onClick={onPrepareReady}
           className="w-full rounded bg-editor-success/20 px-3 py-2 text-xs text-editor-success hover:bg-editor-success/30"
         >
-          Review {readyDraftCount} ready {readyDraftCount === 1 ? 'clip' : 'clips'}
+          Prepare {preparableDraftCount} ready {preparableDraftCount === 1 ? 'clip' : 'clips'} for export
         </button>
       )}
 
@@ -83,12 +85,13 @@ export default function ClipPrepareExportControls({
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-medium uppercase tracking-wide text-editor-text-muted">Export folder</span>
               {canChooseDirectory && (
-                <button onClick={onChooseExportDirectory} className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg">Choose</button>
+                <button disabled={exportBusy} onClick={onChooseExportDirectory} className="rounded bg-editor-border px-2 py-1 text-[10px] text-editor-text-muted hover:bg-editor-bg disabled:opacity-50">Choose</button>
               )}
             </div>
             <input
               value={exportDirectory}
               onChange={(event) => onExportDirectoryChange(event.target.value)}
+              disabled={exportBusy}
               placeholder={defaultExportDirectory || 'Default export folder'}
               className="w-full rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"
             />
