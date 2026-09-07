@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Sparkles, Scissors, Film, Loader2, Check, X, Play, RotateCcw, Filter } from 'lucide-react';
-import type { ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
+import type { ClipDraft, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
   getClipDraftReadinessScore,
   buildClipExportCaptionWords,
@@ -48,7 +48,8 @@ import ClipDraftCard from '../features/clips/ClipDraftCard';
 import ClipFindStage from '../features/clips/ClipFindStage';
 import ClipPrepareExportControls from '../features/clips/ClipPrepareExportControls';
 import ClipWorkspaceHeader from '../features/clips/ClipWorkspaceHeader';
-import { CLIP_CAPTION_PRESETS, formatClipTime } from '../features/clips/presentation';
+import { formatClipTime } from '../features/clips/presentation';
+import { appendDiscoveredClipDrafts, createShortsClipDraft, SHORTS_DRAFT_DEFAULTS } from '../features/clips/clipDraftModel';
 import type { BackgroundCapabilities, ClipExportOutput, ExportJob } from '../features/clips/types';
 
 type FillerQueueFilter = 'all' | 'unreviewed' | 'safe' | 'review' | 'low' | 'accepted' | 'rejected';
@@ -92,18 +93,6 @@ type BatchExportResult = {
   warnings?: string[];
   error?: string;
 };
-
-const SHORTS_DRAFT_DEFAULTS = {
-  format: 'mp4',
-  resolution: '1080p',
-  aspectRatio: 'vertical',
-  reframe: { x: 50, y: 50 },
-  enhanceAudio: false,
-  captions: 'burn-in',
-  captionStyle: CLIP_CAPTION_PRESETS.creator,
-  backgroundRemoval: { enabled: false, replacement: 'blur', color: '#111827' },
-  platform: 'shorts',
-} satisfies Pick<ClipDraft, 'format' | 'resolution' | 'aspectRatio' | 'reframe' | 'enhanceAudio' | 'captions' | 'captionStyle' | 'backgroundRemoval' | 'platform'>;
 
 const CLIP_EXPORT_DIRECTORY_KEY = 'scriptcut.clipExport.directory';
 
@@ -1975,36 +1964,6 @@ function EditPlanReviewItem({
       </div>
     </div>
   );
-}
-
-function createShortsClipDraft(
-  clip: ClipSuggestion,
-  id: string,
-  status: ClipDraftStatus,
-  source: ClipDraft['source'] = 'ai',
-  speaker?: string,
-): ClipDraft {
-  return {
-    ...clip,
-    id,
-    status,
-    ...SHORTS_DRAFT_DEFAULTS,
-    source,
-    speaker,
-  };
-}
-
-function appendDiscoveredClipDrafts(
-  current: ClipDraft[],
-  clips: ClipSuggestion[],
-  idPrefix: string,
-) {
-  const next = [...current];
-  for (const clip of clips) {
-    if (next.some((draft) => isSameClipRange(draft, clip))) continue;
-    next.push(createShortsClipDraft(clip, `${idPrefix}_${Date.now()}_${next.length}`, 'suggested'));
-  }
-  return next;
 }
 
 function isEditSuggestionAlreadyCut(suggestion: EditPlanSuggestion, deletedWordMap: Map<number, string>) {
