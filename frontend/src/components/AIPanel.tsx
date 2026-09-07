@@ -888,6 +888,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           status: 'draft',
           exportDirectory: draft.exportDirectory || clipExportDirectory || undefined,
           exportPath: undefined,
+          srtPath: undefined,
+          exportWarnings: undefined,
           exportedAt: undefined,
           lastError: undefined,
         },
@@ -1039,6 +1041,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
           updateClipDraft(settings.id, {
             status: 'exported',
             exportPath: output.outputPath,
+            srtPath: output.srtPath,
+            exportWarnings: output.warnings,
             exportedAt: new Date().toISOString(),
             lastError: undefined,
           });
@@ -1116,6 +1120,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
         updateClipDraft(draft.id, {
           status: 'exported',
           exportPath: output.outputPath,
+          srtPath: output.srtPath,
+          exportWarnings: output.warnings,
           exportedAt: new Date().toISOString(),
           lastError: undefined,
         });

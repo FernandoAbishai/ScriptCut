@@ -44,5 +44,6 @@ assert.match(cardSource, /Reveal in Finder/);
 assert.match(cardSource, /Download clip/);
 assert.match(cardSource, /SRT sidecar/);
 assert.match(cardSource, /Download SRT/);
-assert.match(cardSource, /const exportWarnings = exportResult\?\.warnings \|\| \[\]/);
+assert.match(cardSource, /const srtPath = exportResult\?\.srtPath \|\| draft\.srtPath/);
+assert.match(cardSource, /const exportWarnings = exportResult\?\.warnings \|\| draft\.exportWarnings \|\| \[\]/);
 assert.match(panelSource, /\$\{successCount\} clip\$\{successCount === 1 \? '' : 's'\} ready/);
