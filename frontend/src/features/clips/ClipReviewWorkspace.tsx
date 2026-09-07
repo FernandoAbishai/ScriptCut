@@ -1,7 +1,7 @@
 import { Check, Play, RotateCcw, SkipForward } from 'lucide-react';
-import type { ClipSuggestion, Word } from '../types/project';
-import { getClipTranscript } from '../utils/clipDrafts';
-import { getClipReviewKey } from '../utils/clipWorkspace';
+import type { ClipSuggestion, Word } from '../../types/project';
+import { getClipTranscript } from '../../utils/clipDrafts';
+import { getClipReviewKey } from '../../utils/clipWorkspace';
 
 export interface ClipReviewWorkspaceProps {
   pendingItems: ClipSuggestion[];

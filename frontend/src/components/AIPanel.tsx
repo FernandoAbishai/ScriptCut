@@ -41,7 +41,7 @@ import {
   getClipBatchProgressSummary,
   type ClipBatchProgressInput,
 } from '../utils/clipBatchExport';
-import ClipReviewWorkspace from './ClipReviewWorkspace';
+import ClipReviewWorkspace from '../features/clips/ClipReviewWorkspace';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 import ClipDraftCard from '../features/clips/ClipDraftCard';
