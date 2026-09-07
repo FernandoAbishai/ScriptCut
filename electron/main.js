@@ -182,6 +182,35 @@ app.whenReady().then(async () => {
     return;
   }
 
+  if (process.env.SCRIPTCUT_CREATOR_QUALIFICATION_SMOKE === '1') {
+    try {
+      if (!app.isPackaged) throw new Error('creator qualification smoke requires a packaged app');
+      const { runCreatorQualificationSmoke } = require('./creator-qualification-smoke');
+      const mediaPath = process.env.SCRIPTCUT_CREATOR_QUALIFICATION_MEDIA_PATH;
+      const outputPath = process.env.SCRIPTCUT_CREATOR_QUALIFICATION_OUTPUT_PATH;
+      const projectPath = process.env.SCRIPTCUT_CREATOR_QUALIFICATION_PROJECT_PATH;
+      if (!mediaPath || !outputPath || !projectPath) {
+        throw new Error('creator qualification smoke paths are incomplete');
+      }
+      const smokeWindow = createWindow({ hidden: true });
+      const result = await runCreatorQualificationSmoke({
+        window: smokeWindow,
+        backendOrigin: BACKEND_ORIGIN,
+        mediaPath,
+        outputPath,
+        projectPath,
+      });
+      console.log(`SCRIPTCUT_CREATOR_QUALIFICATION_SMOKE_RESULT=${JSON.stringify(result)}`);
+      pythonBackend.stop();
+      app.exit(0);
+    } catch (error) {
+      console.error('[creator-qualification-smoke] Failed:', error instanceof Error ? error.stack || error.message : String(error));
+      pythonBackend.stop();
+      app.exit(1);
+    }
+    return;
+  }
+
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
