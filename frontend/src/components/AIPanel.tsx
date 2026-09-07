@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
-import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Users, Filter } from 'lucide-react';
+import { Sparkles, Scissors, Film, Loader2, Check, X, Play, Download, RotateCcw, Filter } from 'lucide-react';
 import type { ClipDraft, ClipDraftStatus, ClipSuggestion, EditPlanReviewDecision, EditPlanResult, EditPlanSuggestion, FillerReviewDecision, FillerWordResult, Word } from '../types/project';
 import {
   getClipDraftReadinessScore,
@@ -45,6 +45,8 @@ import ClipReviewWorkspace from './ClipReviewWorkspace';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 import ClipDraftCard from '../features/clips/ClipDraftCard';
+import ClipFindStage from '../features/clips/ClipFindStage';
+import ClipWorkspaceHeader from '../features/clips/ClipWorkspaceHeader';
 import { CLIP_CAPTION_PRESETS, formatClipTime } from '../features/clips/presentation';
 import type { BackgroundCapabilities, ClipExportOutput, ExportJob } from '../features/clips/types';
 
@@ -1780,74 +1782,24 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
 
         {activeTab === 'clips' && (
           <div className="space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold text-editor-text">Create Clips</h2>
-              <p className="mt-1 text-xs text-editor-text-muted">
-                Find moments, review suggestions, prepare approved clips, and export the ready results.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-4 gap-1" aria-label="Clip workspace stages">
-              {([
-                { stage: 'find', label: 'Find' },
-                { stage: 'review', label: `Review ${pendingReviewItems.length}` },
-                { stage: 'prepare', label: `Prepare ${clipQueueSummary.prepare}` },
-                { stage: 'export', label: `Export ${readyDraftCount} ready` },
-              ] as Array<{ stage: ClipWorkspaceStage; label: string }>).map(({ stage, label }) => (
-                <button
-                  key={stage}
-                  onClick={() => setClipStage(stage)}
-                  className={`rounded px-1.5 py-1.5 text-[10px] font-medium capitalize ${
-                    clipStage === stage
-                      ? 'bg-editor-accent/20 text-editor-accent'
-                      : 'bg-editor-surface text-editor-text-muted hover:text-editor-text'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {clipDrafts.length > 0 && (
-              <div className="grid grid-cols-8 gap-1 text-center text-[10px]">
-                <QueueStat label="Suggested" value={clipQueueSummary.suggested} />
-                <QueueStat label="Prepare" value={clipQueueSummary.prepare} />
-                <QueueStat label="Copy ready" value={clipQueueSummary.copyReady} />
-                <QueueStat label="Ready" value={readyDraftCount} />
-                <QueueStat label="Exporting" value={clipQueueSummary.exporting} />
-                <QueueStat label="Retry" value={clipQueueSummary.retry} warning={clipQueueSummary.retry > 0} />
-                <QueueStat label="Failed" value={clipQueueSummary.failed} warning={clipQueueSummary.failed > 0} />
-                <QueueStat label="Exported" value={clipQueueSummary.exported} />
-              </div>
-            )}
+            <ClipWorkspaceHeader
+              stage={clipStage}
+              pendingReviewCount={pendingReviewItems.length}
+              readyCount={readyDraftCount}
+              queueSummary={clipQueueSummary}
+              hasDrafts={clipDrafts.length > 0}
+              onStageChange={setClipStage}
+            />
 
             {clipStage === 'find' && (
-              <div className="space-y-3">
-                <h3 className="text-xs font-medium text-editor-text">Find moments</h3>
-                <p className="text-xs leading-5 text-editor-text-muted">
-                  Start with AI discovery, or choose moments yourself from the transcript. AI suggestions are never approved or exported automatically.
-                </p>
-                <button
-                  onClick={createClips}
-                  disabled={isProcessing || words.length === 0}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-editor-accent hover:bg-editor-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-                >
-                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
-                  {isProcessing ? processingMessage : 'Find moments with AI'}
-                </button>
-                <div className="rounded bg-editor-surface px-3 py-2 text-xs leading-5 text-editor-text-muted">
-                  <span className="font-medium text-editor-text">Choose moments yourself:</span> select transcript words, then choose <span className="text-editor-text">Draft clip</span>. Speaker turns are a secondary shortcut.
-                </div>
-                {speakerTurnClips.length > 0 && (
-                  <button
-                    onClick={createSpeakerTurnDrafts}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-editor-border text-editor-text-muted hover:bg-editor-surface rounded-lg text-xs font-medium transition-colors"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    Draft {speakerTurnClips.length} Speaker Turns
-                  </button>
-                )}
-              </div>
+              <ClipFindStage
+                isProcessing={isProcessing}
+                hasWords={words.length > 0}
+                processingMessage={processingMessage}
+                speakerTurnCount={speakerTurnClips.length}
+                onFindWithAI={createClips}
+                onDraftSpeakerTurns={createSpeakerTurnDrafts}
+              />
             )}
 
             {clipStage === 'review' && (
@@ -2069,15 +2021,6 @@ function EditPlanReviewItem({
           <X className="w-3 h-3" /> Reject
         </button>
       </div>
-    </div>
-  );
-}
-
-function QueueStat({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {
-  return (
-    <div className={`rounded bg-editor-surface px-1.5 py-1 ${warning ? 'text-editor-warning' : 'text-editor-text-muted'}`}>
-      <div className="text-xs font-semibold text-editor-text">{value}</div>
-      <div>{label}</div>
     </div>
   );
 }
