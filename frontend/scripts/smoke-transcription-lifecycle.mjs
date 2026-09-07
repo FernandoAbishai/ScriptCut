@@ -9,42 +9,47 @@ const ts = require('typescript');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const readSource = (relativePath) => readFileSync(resolve(__dirname, relativePath), 'utf8');
 const appSource = readSource('../src/App.tsx');
+const controllerSource = readSource('../src/features/transcription/useTranscriptionController.ts');
 const packageJson = JSON.parse(readSource('../package.json'));
 
 assert.equal(packageJson.scripts['test:transcription-lifecycle'], 'node scripts/smoke-transcription-lifecycle.mjs');
-assert.match(appSource, /transcriptionRunEpochRef/);
-assert.match(appSource, /transcriptionRunRef/);
-assert.match(appSource, /useEditorStore\.getState\(\)\.videoPath/);
-assert.match(appSource, /isCurrentTranscriptionRunContext/);
-assert.match(appSource, /const run = beginTranscriptionRun\(path, intent\)/);
-assert.match(appSource, /const run = beginTranscriptionRun\(previousRun\.mediaPath, previousRun\.intent/);
-assert.match(appSource, /const pollTranscriptionJob = async \(\s*jobId: string,\s*run:/);
+assert.match(appSource, /useTranscriptionController<WorkflowIntent>/);
+assert.doesNotMatch(appSource, /transcriptionRunEpochRef|transcriptionRunRef|pollTranscriptionJob|\/jobs\/transcribe/);
+assert.doesNotMatch(controllerSource, /useAIStore|getPostTranscriptionPanel|setActivePanel|ExportDialog|AIPanel/);
+assert.match(controllerSource, /transcriptionRunEpochRef/);
+assert.match(controllerSource, /transcriptionRunRef/);
+assert.match(controllerSource, /useEditorStore\.getState\(\)\.videoPath/);
+assert.match(controllerSource, /isCurrentTranscriptionRunContext/);
+assert.match(controllerSource, /const run = beginTranscriptionRun\(path, intent\)/);
+assert.match(controllerSource, /const run = beginTranscriptionRun\(previousRun\.mediaPath, previousRun\.intent/);
+assert.match(controllerSource, /const pollTranscriptionJob = useCallback\(async \(\s*jobId: string,\s*run:/);
 
-const completeBody = appSource.match(/const completeTranscription = \([\s\S]*?\n\s*\};\n\n\s*const transcribeVideo/)?.[0] || '';
+const completeBody = controllerSource.match(/const completeTranscription = useCallback\([\s\S]*?\n\s*const pollTranscriptionJob/)?.[0] || '';
 assert.match(completeBody, /if \(!isCurrentTranscriptionRun\(run\)\) return;/);
 assert.match(completeBody, /setTranscription\(data\)/);
-assert.match(completeBody, /setActivePanel\(getPostTranscriptionPanel\(run\.intent\)\)/);
+assert.match(completeBody, /onCompleted\(run\.intent\)/);
+assert.match(appSource, /setActivePanel\(getPostTranscriptionPanel\(intent\)\)/);
 
-const pollBody = appSource.match(/const pollTranscriptionJob = async \([\s\S]*?\n\s*\};\n\n\s*const togglePanel/)?.[0] || '';
+const pollBody = controllerSource.match(/const pollTranscriptionJob = useCallback\([\s\S]*?\n\s*const transcribeVideo/)?.[0] || '';
 assert.match(pollBody, /await new Promise\(\(resolve\) => window\.setTimeout\(resolve, 700\)\);[\s\S]*if \(!isCurrentTranscriptionRun\(run\)\) return null;/);
 assert.match(pollBody, /const res = await fetch\([\s\S]*?if \(!isCurrentTranscriptionRun\(run\)\) return null;/);
 assert.match(pollBody, /const job = \(await res\.json\(\)\)[\s\S]*if \(!isCurrentTranscriptionRun\(run\)\) return null;[\s\S]*setTranscriptionMessage/);
 assert.match(pollBody, /setTranscriptionLogs\(job\.logs \|\| \[\]\)/);
 assert.match(pollBody, /setTranscribing\(/);
 
-const transcribeBody = appSource.match(/const transcribeVideo = async \([\s\S]*?\n\s*\};\n\n\s*const cancelTranscription/)?.[0] || '';
+const transcribeBody = controllerSource.match(/const transcribeVideo = useCallback\([\s\S]*?\n\s*const cancelTranscription/)?.[0] || '';
 assert.match(transcribeBody, /setLastTranscriptionJobId\(jobId\)/);
 assert.match(transcribeBody, /if \(!isCurrentTranscriptionRun\(run\)\) return;[\s\S]*setLastTranscriptionJobId/);
 assert.match(transcribeBody, /catch \(err\) \{\s*if \(!isCurrentTranscriptionRun\(run\)\) return;/);
 assert.match(transcribeBody, /finally \{\s*if \(isCurrentTranscriptionRun\(run\)\) \{[\s\S]*setTranscriptionMessage\(''\)[\s\S]*setTranscribing\(false\)/);
 
-const retryBody = appSource.match(/const retryTranscription = async \(\) => \{([\s\S]*?)\n\s*\};\n\n\s*const startTranscriptionWithSettings/)?.[1] || '';
+const retryBody = controllerSource.match(/const retryTranscription = useCallback\(async \(\) => \{([\s\S]*?)\n\s*\}, \[/)?.[1] || '';
 assert.match(retryBody, /const previousRun = transcriptionRunRef\.current/);
 assert.match(retryBody, /const run = beginTranscriptionRun\(previousRun\.mediaPath, previousRun\.intent/);
 assert.match(retryBody, /if \(!isCurrentTranscriptionRun\(run\)\) return;/g);
 assert.match(retryBody, /finally \{\s*if \(isCurrentTranscriptionRun\(run\)\)/);
 
-const cancelBody = appSource.match(/const cancelTranscription = async \(\) => \{([\s\S]*?)\n\s*\};\n\n\s*const retryTranscription/)?.[1] || '';
+const cancelBody = controllerSource.match(/const cancelTranscription = useCallback\(async \(\) => \{([\s\S]*?)\n\s*\}, \[/)?.[1] || '';
 assert.match(cancelBody, /const run = transcriptionRunRef\.current/);
 assert.match(cancelBody, /await fetch\([\s\S]*?if \(!isCurrentTranscriptionRun\(run\)\) return;/);
 assert.match(cancelBody, /catch \(err\) \{\s*if \(!isCurrentTranscriptionRun\(run\)\) return;/);
