@@ -188,6 +188,7 @@ assert.deepEqual(
 );
 
 const panelSource = sourceFor('../src/components/AIPanel.tsx');
+const controllerSource = sourceFor('../src/features/clips/useClipExportController.ts');
 const cardSource = sourceFor('../src/features/clips/ClipDraftCard.tsx');
 const controlsSource = sourceFor('../src/features/clips/ClipPrepareExportControls.tsx');
 const exportFilesSource = sourceFor('../src/features/clips/clipExportFiles.ts');
@@ -195,26 +196,28 @@ const autosaveSource = sourceFor('../src/hooks/useProjectAutosave.ts');
 const projectSource = sourceFor('../src/types/project.ts');
 const manifestSource = exportFilesSource.slice(exportFilesSource.indexOf('export function buildClipBatchManifest'));
 
-assert.match(panelSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
-assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)/);
-assert.doesNotMatch(panelSource, /Promise\.all\([^)]*export/);
-assert.match(panelSource, /const exportBusy = isBatchExporting \|\| exportingDraftId !== null/);
+assert.match(panelSource, /useClipExportController\(\{ setCreatorNotice \}\)/);
+assert.doesNotMatch(panelSource, /pollClipExportJob|setClipExportJobs|stopBatchExportRef|\/jobs\/export/, 'AIPanel must not own clip export job orchestration');
+assert.match(controllerSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
+assert.match(controllerSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)/);
+assert.doesNotMatch(controllerSource, /Promise\.all\([^)]*export/);
+assert.match(controllerSource, /const exportBusy = isBatchExporting \|\| exportingDraftId !== null/);
 assert.match(panelSource, /exportBusy=\{exportBusy\}/);
 assert.match(controlsSource, /disabled=\{exportBusy \|\| exportableDraftCount === 0\}/);
 assert.match(cardSource, /disabled=\{!canExport \|\| exportBusy \|\| isExporting \|\| exportActive\}/);
 assert.match(cardSource, /disabled=\{!exportValidation\.ready \|\| exportBusy\}/);
 assert.doesNotMatch(controlsSource, /useAIStore|useEditorStore|fetch\(|localStorage/, 'prepare/export controls must stay presentational');
-assert.ok((panelSource.match(/if \(exportBusy\) return;/g) || []).length >= 3, 'export handlers have defensive busy guards');
+assert.ok((controllerSource.match(/if \(exportBusy\) return;/g) || []).length >= 4, 'export handlers have defensive busy guards');
 assert.match(controlsSource, /onClick=\{onStopBatchExport\}/);
-assert.match(panelSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)[\s\S]*?await handleExportClip/);
-assert.doesNotMatch(panelSource, /\/jobs\/export-batch|\/export\/v2/);
-const cancelHandlerSource = panelSource.slice(panelSource.indexOf('const cancelDraftExport'), panelSource.indexOf('const retryDraftExport'));
+assert.match(controllerSource, /for \(let index = 0; index < exportableDrafts.length; index\+\+\)[\s\S]*?await handleExportClip/);
+assert.doesNotMatch(controllerSource, /\/jobs\/export-batch|\/export\/v2/);
+const cancelHandlerSource = controllerSource.slice(controllerSource.indexOf('const cancelDraftExport'), controllerSource.indexOf('const retryDraftExport'));
 assert.match(cancelHandlerSource, /\/cancel/);
 assert.doesNotMatch(cancelHandlerSource, /status: 'failed'/, 'cancel request must not mark the draft terminal before polling confirms cancellation');
 assert.doesNotMatch(cancelHandlerSource, /setExportingDraftId/, 'cancel request must keep exportBusy active until the export poll reaches a terminal state');
-assert.match(panelSource, /failedCount/);
-assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
-assert.match(panelSource, /if \(stopBatchExportRef\.current\) break/);
+assert.match(controllerSource, /failedCount/);
+assert.match(controllerSource, /handleExportClip\(draft, draft, true\)/);
+assert.match(controllerSource, /if \(stopBatchExportRef\.current\) break/);
 assert.match(controlsSource, /Stopping after current clip/);
 assert.match(cardSource, /Retry export/);
 assert.match(cardSource, /const exportRetryable = status === 'failed'/);
@@ -225,25 +228,26 @@ assert.ok(
   (panelSource.match(/if \(isClipTimelineMutationBlocked\(\)\) return;/g) || []).length >= 7,
   'compound filler/edit-plan timeline actions must not update decisions while a clip export blocks timeline mutation',
 );
-assert.match(panelSource, /const currentDraft = useAIStore\.getState\(\)\.clipDrafts\.find/);
-assert.match(panelSource, /clearClipExportAttempt\(currentDraft\.id\)/);
-assert.doesNotMatch(panelSource, /\/jobs\/\$\{job\.id\}\/retry/, 'clip retry must not replay an old backend export target');
-assert.match(panelSource, /handleExportClip\(draft, draft, true\)/);
-assert.match(panelSource, /handleExportClip\(currentDraft, currentDraft, true\)/);
-const handleExportClipSource = panelSource.slice(panelSource.indexOf('const handleExportClip'), panelSource.indexOf('const cancelDraftExport'));
+assert.match(controllerSource, /const currentDraft = useAIStore\.getState\(\)\.clipDrafts\.find/);
+assert.match(controllerSource, /clearClipExportAttempt\(currentDraft\.id\)/);
+assert.doesNotMatch(controllerSource, /\/jobs\/\$\{job\.id\}\/retry/, 'clip retry must not replay an old backend export target');
+assert.match(controllerSource, /handleExportClip\(draft, draft, true\)/);
+assert.match(controllerSource, /handleExportClip\(currentDraft, currentDraft, true\)/);
+const handleExportClipSource = controllerSource.slice(controllerSource.indexOf('const handleExportClip'), controllerSource.indexOf('const cancelDraftExport'));
 assert.ok(
   handleExportClipSource.indexOf("status: 'exporting'") < handleExportClipSource.indexOf('await fetch(`${backendUrl}/jobs/export`'),
   'durable exporting claim must happen before the first export request await',
 );
-assert.match(panelSource, /getCurrentClipBatchDraftForExport\([\s\S]*?plannedDraft\.id/);
-assert.match(panelSource, /pausedForDraftChange = true/);
-assert.match(panelSource, /Batch paused because a planned clip changed/);
-assert.match(panelSource, /outputPath/);
-assert.match(panelSource, /srtPath: output\.srtPath/);
-assert.match(panelSource, /exportWarnings: output\.warnings/);
-assert.match(panelSource, /manifest/);
-assert.match(panelSource, /manifestWarning/);
-assert.match(panelSource, /writeManifest: window\.electronAPI\?\.writeClipManifest/);
+assert.match(controllerSource, /getCurrentClipBatchDraftForExport\([\s\S]*?plannedDraft\.id/);
+assert.match(controllerSource, /pausedForDraftChange = true/);
+assert.match(controllerSource, /Batch paused because a planned clip changed/);
+assert.match(controllerSource, /outputPath/);
+assert.match(controllerSource, /srtPath: output\.srtPath/);
+assert.match(controllerSource, /exportWarnings: output\.warnings/);
+assert.match(controllerSource, /manifest/);
+assert.match(controllerSource, /manifestWarning/);
+assert.match(controllerSource, /writeManifest: window\.electronAPI\?\.writeClipManifest/);
+assert.doesNotMatch(controllerSource, /defaultProvider|providers|startAIJob|clip-metadata/, 'clip export controller must not absorb AI/publishing orchestration');
 assert.match(manifestSource, /schema: 'scriptcut\.clipBatchManifest\.v1'/);
 assert.match(manifestSource, /remaining/);
 assert.match(manifestSource, /stopped/);

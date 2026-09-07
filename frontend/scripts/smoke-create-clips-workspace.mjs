@@ -16,6 +16,7 @@ const findStageSource = readSource('../src/features/clips/ClipFindStage.tsx');
 const prepareExportSource = readSource('../src/features/clips/ClipPrepareExportControls.tsx');
 const clipDraftModelSource = readSource('../src/features/clips/clipDraftModel.ts');
 const clipExportFilesSource = readSource('../src/features/clips/clipExportFiles.ts');
+const clipExportControllerSource = readSource('../src/features/clips/useClipExportController.ts');
 const reviewActionsSource = readSource('../src/features/clips/useClipReviewActions.ts');
 const exportDialogSource = readSource('../src/components/ExportDialog.tsx');
 const reviewSource = readSource('../src/features/clips/ClipReviewWorkspace.tsx');
@@ -34,6 +35,7 @@ assert.match(panelSource, /import ClipFindStage from '\.\.\/features\/clips\/Cli
 assert.match(panelSource, /import ClipPrepareExportControls from '\.\.\/features\/clips\/ClipPrepareExportControls'/);
 assert.match(panelSource, /import ClipWorkspaceHeader from '\.\.\/features\/clips\/ClipWorkspaceHeader'/);
 assert.match(panelSource, /import \{ useClipReviewActions \} from '\.\.\/features\/clips\/useClipReviewActions'/);
+assert.match(panelSource, /import \{ useClipExportController \} from '\.\.\/features\/clips\/useClipExportController'/);
 assert.match(panelSource, /<ClipDraftCard/);
 assert.match(panelSource, /<ClipFindStage/);
 assert.match(panelSource, /<ClipPrepareExportControls/);
@@ -136,9 +138,9 @@ assert.match(projectSchemaSource, /"clipReviewDecisions":/);
 assert.match(autosaveSource, /normalizeClipReviewDecisions\(workspace\.clipReviewDecisions\)/);
 assert.match(autosaveSource, /clipReviewDecisions: aiState\.clipReviewDecisions/);
 assert.match(panelSource, /validateClipDraftForExport\(draft, words, videoPath\)/);
-assert.match(panelSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
+assert.match(clipExportControllerSource, /getClipBatchExportCandidates\(clipDrafts, words, videoPath\)/);
 assert.match(
-  panelSource,
+  clipExportControllerSource,
   /const clipWords = buildClipExportCaptionWords\([\s\S]*?body: JSON\.stringify\(\{[\s\S]*?word_timeline: 'export',[\s\S]*?words: captions !== 'none' \? clipWords : undefined,/,
   'clip workspace marks pre-projected caption words as export timeline',
 );
@@ -295,7 +297,7 @@ const queueSummary = getClipQueueSummary(
   new Set(['failed-retryable']),
 );
 assert.deepEqual(queueSummary, { suggested: 1, prepare: 1, exporting: 1, retry: 1, exported: 1, failed: 2 });
-assert.match(panelSource, /getClipBatchExportCandidates/);
+assert.match(clipExportControllerSource, /getClipBatchExportCandidates/);
 assert.match(panelSource, /updateClipDraft\(id, \{ status: 'draft', lastError: undefined \}\)/);
 assert.match(transcriptSource, /Draft clip/);
 assert.match(prepareExportSource, /Export (Ready Clips|all ready clips)/);
