@@ -49,7 +49,8 @@ import ClipPrepareExportControls from '../features/clips/ClipPrepareExportContro
 import ClipWorkspaceHeader from '../features/clips/ClipWorkspaceHeader';
 import { useClipReviewActions } from '../features/clips/useClipReviewActions';
 import { formatClipTime } from '../features/clips/presentation';
-import { appendDiscoveredClipDrafts, createShortsClipDraft, SHORTS_DRAFT_DEFAULTS } from '../features/clips/clipDraftModel';
+import { appendDiscoveredClipDrafts, appendTranscriptSelectionClipDraft, createShortsClipDraft, SHORTS_DRAFT_DEFAULTS } from '../features/clips/clipDraftModel';
+import { formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
 import {
   buildClipOutputPath,
   formatPublishingCopy,
@@ -112,6 +113,7 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     getMutedRanges,
     getCaptionHiddenIndices,
     setSelectedWordIndices,
+    selectedWordIndices,
     activeWordIndex,
     isPlaying,
     previewRangeEnd,
@@ -181,6 +183,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     () => getPendingReviewItems(clipDrafts, clipSuggestions, clipReviewDecisions),
     [clipDrafts, clipReviewDecisions, clipSuggestions],
   );
+  const transcriptSelectionSummary = useMemo(
+    () => summarizeWordSelection(selectedWordIndices, words),
+    [selectedWordIndices, words],
+  );
   const skippedReviewItems = useMemo(
     () => getSkippedReviewItems(clipDrafts, clipSuggestions, clipReviewDecisions),
     [clipDrafts, clipReviewDecisions, clipSuggestions],
@@ -223,6 +229,11 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     setActiveClipDraftId(draft.id);
     setSelectedWordIndices(getWordIndicesForClip(words, draft));
   }, [clipDrafts, mode, setSelectedWordIndices, words]);
+
+  const draftSelectedTranscriptClip = useCallback(() => {
+    if (!transcriptSelectionSummary) return;
+    setClipDrafts((current) => appendTranscriptSelectionClipDraft(current, transcriptSelectionSummary));
+  }, [setClipDrafts, transcriptSelectionSummary]);
 
   const reviewedCount = useMemo(() => {
     if (!fillerResult) return 0;
@@ -1748,7 +1759,10 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                 isProcessing={isProcessing}
                 hasWords={words.length > 0}
                 processingMessage={processingMessage}
+                selectedWordCount={transcriptSelectionSummary?.indices.length || 0}
+                selectionDurationLabel={transcriptSelectionSummary ? formatSelectionDuration(transcriptSelectionSummary.duration) : ''}
                 speakerTurnCount={speakerTurnClips.length}
+                onDraftSelection={draftSelectedTranscriptClip}
                 onFindWithAI={createClips}
                 onDraftSpeakerTurns={createSpeakerTurnDrafts}
               />
