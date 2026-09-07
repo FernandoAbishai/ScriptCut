@@ -14,7 +14,7 @@ const cardSource = readSource('../src/features/clips/ClipDraftCard.tsx');
 const headerSource = readSource('../src/features/clips/ClipWorkspaceHeader.tsx');
 const findStageSource = readSource('../src/features/clips/ClipFindStage.tsx');
 const exportDialogSource = readSource('../src/components/ExportDialog.tsx');
-const reviewSource = readSource('../src/components/ClipReviewWorkspace.tsx');
+const reviewSource = readSource('../src/features/clips/ClipReviewWorkspace.tsx');
 const appSource = readSource('../src/App.tsx');
 const transcriptSource = readSource('../src/components/TranscriptEditor.tsx');
 const workspaceSource = readSource('../src/utils/clipWorkspace.ts');
@@ -25,6 +25,7 @@ const projectSchemaSource = readSource('../../shared/project-schema.json');
 
 assert.match(panelSource, /export default function AIPanel\(\{ mode = 'general' \}/);
 assert.match(panelSource, /import ClipDraftCard from '\.\.\/features\/clips\/ClipDraftCard'/);
+assert.match(panelSource, /import ClipReviewWorkspace from '\.\.\/features\/clips\/ClipReviewWorkspace'/);
 assert.match(panelSource, /import ClipFindStage from '\.\.\/features\/clips\/ClipFindStage'/);
 assert.match(panelSource, /import ClipWorkspaceHeader from '\.\.\/features\/clips\/ClipWorkspaceHeader'/);
 assert.match(panelSource, /<ClipDraftCard/);
@@ -36,6 +37,7 @@ assert.doesNotMatch(cardSource, /useAIStore|useEditorStore/, 'clip draft card mu
 assert.doesNotMatch(cardSource, /fetch\(|\/jobs\//, 'clip draft card must not own backend job orchestration');
 assert.match(cardSource, /onExport: \(\) => void/);
 assert.match(cardSource, /onPreview: \(\) => void/);
+assert.doesNotMatch(reviewSource, /useAIStore|useEditorStore|fetch\(/, 'clip review workspace must stay presentational');
 assert.doesNotMatch(headerSource, /useAIStore|useEditorStore|fetch\(/, 'clip workspace header must stay presentational');
 assert.doesNotMatch(findStageSource, /useAIStore|useEditorStore|fetch\(/, 'clip find stage must stay presentational');
 assert.match(panelSource, /getInitialClipWorkspaceStage\(clipDrafts, clipSuggestions\)/);
