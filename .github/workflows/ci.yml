@@ -100,11 +100,8 @@ jobs:
       - name: Lint frontend
         run: npm run lint
 
-      - name: Test clip draft workflow
-        run: npm run test:clip-drafts --prefix frontend
-
-      - name: Test transcript selection workflow
-        run: npm run test:transcript-selection --prefix frontend
+      - name: Test golden creator path
+        run: npm run smoke:golden-creator-path
 
       - name: Test transcript search workflow
         run: npm run test:transcript-search --prefix frontend
@@ -124,20 +121,11 @@ jobs:
       - name: Test support report redaction
         run: npm run test:support-report --prefix frontend
 
-      - name: Test playback sync workflow
-        run: npm run test:playback-sync --prefix frontend
-
-      - name: Test editor state and undo invariants
-        run: npm run test:editor-state --prefix frontend
-
       - name: Build frontend
         run: npm run build --prefix frontend
 
       - name: Test packaged renderer policy
         run: npm run smoke:renderer-policy
-
-      - name: Test atomic project-file writes
-        run: npm run smoke:project-file-io
 
       - name: Run backend smoke tests
         run: npm run smoke:backend

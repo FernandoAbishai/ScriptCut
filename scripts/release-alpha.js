@@ -296,6 +296,7 @@ async function main() {
   runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Electron-like packaged backend startup gate', 'scripts/check-packaged-electron-backend.js', ['--app', outputs.appPath], env);
   runPackagedGate('Packaged Electron renderer transport gate', 'scripts/smoke-packaged-electron-renderer.js', ['--app', outputs.appPath], env);
+  runPackagedGate('Packaged creator qualification gate', 'scripts/smoke-packaged-creator-qualification.js', ['--app', outputs.appPath], env);
   runPackagedPythonGate(
     'Whisper MPS word-timing compatibility gate',
     'scripts/smoke-whisper-mps-word-timing.py',

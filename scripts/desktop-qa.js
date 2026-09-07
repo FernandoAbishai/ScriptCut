@@ -53,15 +53,13 @@ const steps = [
   ['Frontend lint', 'npm', ['run', 'lint']],
   ['Frontend production build', 'npm', ['run', 'build:frontend']],
   ['Backend smoke tests', 'npm', ['run', 'smoke:backend']],
-  ['Clip draft smoke tests', 'npm', ['run', 'test:clip-drafts', '--prefix', 'frontend']],
-  ['Transcript selection smoke tests', 'npm', ['run', 'test:transcript-selection', '--prefix', 'frontend']],
+  ['Golden creator-path source and persistence gates', 'npm', ['run', 'smoke:golden-creator-path']],
   ['Transcript search smoke tests', 'npm', ['run', 'test:transcript-search', '--prefix', 'frontend']],
   ['Speaker stats smoke tests', 'npm', ['run', 'test:speaker-stats', '--prefix', 'frontend']],
   ['Caption designer smoke tests', 'npm', ['run', 'test:caption-designer', '--prefix', 'frontend']],
   ['Social publishing smoke tests', 'npm', ['run', 'test:social-publishing', '--prefix', 'frontend']],
   ['Hook frame smoke tests', 'npm', ['run', 'test:hook-frames', '--prefix', 'frontend']],
   ['Support report smoke tests', 'npm', ['run', 'test:support-report', '--prefix', 'frontend']],
-  ['Playback sync smoke tests', 'npm', ['run', 'test:playback-sync', '--prefix', 'frontend']],
 ];
 
 for (const [name, command, args] of steps) {

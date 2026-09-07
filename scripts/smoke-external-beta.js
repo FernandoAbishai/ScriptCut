@@ -36,6 +36,7 @@ function main() {
   const readme = read('README.md');
   const install = read('docs/INSTALL.md');
   const firstExport = read('docs/FIRST_EXPORT.md');
+  const desktopQa = read('docs/DESKTOP_QA.md');
   const feedback = read('.github/ISSUE_TEMPLATE/beta_feedback.yml');
 
   assert(/macOS on Apple Silicon only/i.test(beta), 'beta contract does not restrict the public path to Apple Silicon macOS');
@@ -92,7 +93,15 @@ function main() {
   assert(/official[\s\S]*Releases feed|Releases feed[\s\S]*official/i.test(install), 'INSTALL lacks official release authority');
   assert(/release-specific by design/i.test(firstExport), 'FIRST_EXPORT does not explain its intentional release-specific identity');
 
-  const creatorDocs = `${readme}\n${install}\n${firstExport}\n${beta}`;
+  assert(/physical supported Mac/i.test(desktopQa), 'desktop QA does not require a physical supported Mac for creator qualification');
+  assert(/exact release-candidate or public DMG being qualified/i.test(desktopQa), 'desktop QA does not bind physical qualification to the exact DMG');
+  assert(/not `npm run dev`/i.test(desktopQa), 'desktop QA does not distinguish the installed candidate from the development app');
+  assert(/clip \*\*manually\*\* from a transcript selection using `Draft clip`/i.test(desktopQa), 'desktop QA lacks the provider-independent manual clip path');
+  assert(/AI clip discovery is optional qualification coverage/i.test(desktopQa), 'desktop QA makes optional AI discovery ambiguous');
+  assert(/Save a `\.scriptcut` project[\s\S]*Close ScriptCut completely[\s\S]*reopen that project/i.test(desktopQa), 'desktop QA lacks explicit save/close/reopen coverage');
+  assert(/do not prove Finder reveal[\s\S]*Gatekeeper UX[\s\S]*edited-playback correctness/i.test(desktopQa), 'desktop QA overclaims automated qualification evidence');
+
+  const creatorDocs = `${readme}\n${install}\n${firstExport}\n${beta}\n${desktopQa}`;
   assert(!/\bxattr\s+-d\b|\bspctl\s+--master-disable\b|\bsudo\s+spctl\b/i.test(creatorDocs), 'creator docs contain a Gatekeeper-bypass command');
 
   assert(/ScriptCut version|release\/tag/i.test(feedback), 'feedback form lacks release identity');
