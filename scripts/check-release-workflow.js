@@ -7,6 +7,7 @@ const root = path.join(__dirname, '..');
 const workflowPath = path.join(root, '.github', 'workflows', 'release-unsigned.yml');
 const ciWorkflowPath = path.join(root, '.github', 'workflows', 'ci.yml');
 const releaseConfigPath = path.join(root, 'electron-builder.release.cjs');
+const signedReleaseConfigPath = path.join(root, 'electron-builder.signed.cjs');
 const releaseAlphaPath = path.join(root, 'scripts', 'release-alpha.js');
 
 function fail(message) {
@@ -207,6 +208,7 @@ function main() {
   assert(fs.existsSync(workflowPath), '.github/workflows/release-unsigned.yml is missing');
   assert(fs.existsSync(ciWorkflowPath), '.github/workflows/ci.yml is missing');
   assert(fs.existsSync(releaseConfigPath), 'electron-builder.release.cjs is missing');
+  assert(fs.existsSync(signedReleaseConfigPath), 'electron-builder.signed.cjs is missing');
   validateWorkflowText(fs.readFileSync(workflowPath, 'utf8'), {
     candidateWorkflowText: fs.readFileSync(ciWorkflowPath, 'utf8'),
   });
@@ -219,6 +221,33 @@ function main() {
   assert(/notarize:\s*false/.test(releaseConfig), 'release config must keep notarization disabled for public ad-hoc candidates');
   assert(!/disable-library-validation|get-task-allow|allow-dyld-environment-variables/i.test(releaseConfig), 'forbidden entitlement found in release config');
   assert(!/entitlements(?:Inherit)?\s*:/.test(releaseConfig), 'public ad-hoc release config must not apply signing entitlements');
+  const signedReleaseConfig = fs.readFileSync(signedReleaseConfigPath, 'utf8');
+  assert(/hardenedRuntime:\s*true/.test(signedReleaseConfig), 'signed release config must enable Hardened Runtime');
+  assert(/notarize:\s*true/.test(signedReleaseConfig), 'signed release config must enable notarization');
+  assert(/type:\s*['"]distribution['"]/.test(signedReleaseConfig), 'signed release config must request distribution signing');
+  assert(/entitlements:\s*['"]build\/entitlements\.mac\.plist['"]/.test(signedReleaseConfig), 'signed release config must set primary entitlements');
+  assert(/entitlementsInherit:\s*['"]build\/entitlements\.mac\.inherit\.plist['"]/.test(signedReleaseConfig), 'signed release config must set inherited entitlements');
+  assert(!/identity:\s*['"]-['"]/.test(signedReleaseConfig), 'signed release config must not use ad-hoc identity');
+  const packageText = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
+  assert(/release:signed:arm64/.test(packageText) && /scripts\/release-signed\.js/.test(packageText), 'signed release command is missing');
+  assert(/check:signed-release/.test(packageText) && /check-macos-signed-release\.js/.test(packageText), 'signed release verification command is missing');
+  const signedReleaseScript = fs.readFileSync(path.join(root, 'scripts', 'release-signed.js'), 'utf8');
+  for (const requiredGate of [
+    'check-packaged-runtime.js',
+    'smoke-packaged-release-identity.js',
+    'check-packaged-ffmpeg.js',
+    'smoke-packaged-backend.js',
+    'check-packaged-electron-backend.js',
+    'smoke-packaged-electron-renderer.js',
+    'smoke-packaged-creator-qualification.js',
+    'smoke-packaged-optional-capabilities.js',
+    'smoke-packaged-transcription.js',
+    'check-macos-signed-release.js',
+  ]) {
+    assert(signedReleaseScript.includes(requiredGate), `signed release path is missing exact-artifact gate: ${requiredGate}`);
+  }
+  assert(/process\.argv\.includes\('--real-model'\)/.test(signedReleaseScript), 'signed release path must expose optional real-model proof');
+  assert(/--publish['"],\s*['"]never['"]/.test(signedReleaseScript), 'signed release path must explicitly disable electron-builder publishing');
   console.log('Ad-hoc public release workflow structure and permission checks passed.');
 }
 

@@ -35,6 +35,8 @@
     "release:trust": "node scripts/check-release-trust.js --candidate",
     "release:trust:candidate": "node scripts/check-release-trust.js --candidate",
     "release:trust:signed": "node scripts/check-release-trust.js --signed",
+    "release:signed:arm64": "node scripts/release-signed.js",
+    "check:signed-release": "node scripts/check-macos-signed-release.js",
     "runtime:prepare:mac-arm64": "node scripts/prepare-python-runtime.js --target darwin-arm64",
     "dist:dir:arm64:self-contained": "npm run build:frontend && npm run runtime:prepare:mac-arm64 && electron-builder --config electron-builder.self-contained.cjs --dir --arm64 && npm run check:packaged-runtime && npm run smoke:packaged-backend",
     "dist:mac:arm64:self-contained": "npm run build:frontend && npm run runtime:prepare:mac-arm64 && electron-builder --config electron-builder.self-contained.cjs --mac dmg --arm64 && npm run check:packaged-runtime && npm run smoke:packaged-backend",
