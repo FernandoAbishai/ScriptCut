@@ -67,6 +67,9 @@ function makeFixture(tempRoot) {
   write(path.join(distB, 'RECORD'), 'shared.py,,11\n');
   write(path.join(distTorch, 'METADATA'), 'Name: torch\nVersion: 3.0\n');
   write(path.join(distTorch, 'RECORD'), 'torch/lib/libtorch.dylib,,60\ntorch/__init__.py,,14\n');
+  const vendoredDist = path.join(coreRoot, 'setuptools', '_vendor', 'more_itertools-10.8.0.dist-info');
+  write(path.join(vendoredDist, 'METADATA'), 'Name: more-itertools\nVersion: 10.8.0\n');
+  write(path.join(vendoredDist, 'RECORD'), 'shared.py,,11\n');
   const dmg = path.join(tempRoot, 'candidate.dmg');
   write(dmg, Buffer.alloc(100, 11));
   return { app, dmg, resources, coreRoot, shared };
@@ -95,6 +98,7 @@ function main() {
     assert(!/(\/Users\/|\/private\/|\/tmp\/|RUNNER_TEMP)/.test(JSON.stringify(report)));
     assert(report.largestFiles.every((file, index, files) => index === 0 || files[index - 1].logicalBytes >= file.logicalBytes));
     assert(report.topDistributions.every((distribution) => distribution.logicalBytes >= 0));
+    assert(!report.topDistributions.some((distribution) => distribution.name === 'more-itertools'));
     assert(report.distributionOwnershipConflicts.some((conflict) => conflict.relativePath === 'shared.py'));
     assert.strictEqual(report.unattributedCorePackBytes, report.primaryCategories.find((category) => category.name === 'pythonCorePack').logicalBytes - report.attributedDistributionBytes);
     assert.strictEqual(report.torch.torchTotal, 74);

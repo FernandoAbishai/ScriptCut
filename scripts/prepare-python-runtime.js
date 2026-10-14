@@ -24,6 +24,9 @@ const manifestPath = path.join(buildRoot, 'manifests', 'runtime-manifest.json');
 const modelInputPath = path.join(root, 'runtime', 'models', 'whisper-base.json');
 const generatedModelManifestPath = path.join(buildRoot, 'manifests', 'model-manifest.json');
 const coreInputPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.txt');
+const coreConstraintsPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.constraints.txt');
+// Torch imports torch.testing through its normal autograd import path.
+const RUNTIME_REQUIRED_TEST_DIRECTORIES = new Set(['torch/testing']);
 
 function getOption(name) {
   const index = process.argv.indexOf(name);
@@ -184,6 +187,7 @@ function isolatedEnvironment(extra = {}) {
   delete environment.SCRIPTCUT_PYTHON_PATH;
   delete environment.CUTSCRIPT_PYTHON_PATH;
   environment.PYTHONNOUSERSITE = '1';
+  environment.PYTHONDONTWRITEBYTECODE = '1';
   return environment;
 }
 
@@ -206,6 +210,7 @@ function pythonVersion(interpreterPath, environment) {
 
 function installCorePack(interpreterPath) {
   if (!fs.existsSync(coreInputPath)) fail(`missing committed core input: ${path.relative(root, coreInputPath)}`);
+  if (!fs.existsSync(coreConstraintsPath)) fail(`missing committed core constraints: ${path.relative(root, coreConstraintsPath)}`);
   fs.rmSync(corePackRoot, { recursive: true, force: true });
   fs.mkdirSync(corePackRoot, { recursive: true });
   const environment = isolatedEnvironment({
@@ -216,7 +221,9 @@ function installCorePack(interpreterPath) {
   run(interpreterPath, [
     '-m', 'pip', 'install',
     '--disable-pip-version-check',
+    '--no-compile',
     '--target', corePackRoot,
+    '--constraint', coreConstraintsPath,
     '--requirement', coreInputPath,
   ], { env: environment, inherit: true });
 }
@@ -272,7 +279,13 @@ function writeManifest(relativeInterpreter, version) {
       archiveSha256: PYTHON_RUNTIME_ARTIFACT.sha256,
     },
     backend: { root: 'backend' },
-    packs: { core: path.posix.join('runtime', 'packs', 'core', PYTHON_RUNTIME_ARTIFACT.target) },
+    packs: {
+      core: path.posix.join('runtime', 'packs', 'core', PYTHON_RUNTIME_ARTIFACT.target),
+      constraints: {
+        source: path.relative(root, coreConstraintsPath).split(path.sep).join('/'),
+        sha256: sha256(coreConstraintsPath),
+      },
+    },
     security: { tokenRequired: true },
   };
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
@@ -318,6 +331,60 @@ function pruneNonRuntimeCoreArtifacts() {
   return removed;
 }
 
+function prunePythonBytecode(directory) {
+  const removed = { files: 0, bytes: 0 };
+  if (!fs.existsSync(directory)) return removed;
+
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory() && entry.name === '__pycache__') {
+      const stats = directoryStats(entryPath);
+      fs.rmSync(entryPath, { recursive: true, force: false });
+      removed.files += stats.files;
+      removed.bytes += stats.bytes;
+      continue;
+    }
+    if (entry.isDirectory()) {
+      const child = prunePythonBytecode(entryPath);
+      removed.files += child.files;
+      removed.bytes += child.bytes;
+      continue;
+    }
+    if (entry.isFile() && /\.(pyc|pyo)$/i.test(entry.name)) {
+      const stat = fs.statSync(entryPath);
+      fs.rmSync(entryPath, { force: false });
+      removed.files += 1;
+      removed.bytes += stat.size;
+    }
+  }
+  return removed;
+}
+
+function prunePackageTestArtifacts(directory) {
+  const removed = { directories: 0, files: 0, bytes: 0 };
+  if (!fs.existsSync(directory)) return removed;
+
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const entryPath = path.join(directory, entry.name);
+    const relativeToCore = path.relative(corePackRoot, entryPath).split(path.sep).join('/');
+    if (RUNTIME_REQUIRED_TEST_DIRECTORIES.has(relativeToCore)) continue;
+    if (entry.name === 'test' || entry.name === 'tests' || entry.name === 'testing') {
+      const stats = directoryStats(entryPath);
+      fs.rmSync(entryPath, { recursive: true, force: false });
+      removed.directories += 1;
+      removed.files += stats.files;
+      removed.bytes += stats.bytes;
+      continue;
+    }
+    const child = prunePackageTestArtifacts(entryPath);
+    removed.directories += child.directories;
+    removed.files += child.files;
+    removed.bytes += child.bytes;
+  }
+  return removed;
+}
+
 async function main() {
   verifyTarget();
   fs.mkdirSync(buildRoot, { recursive: true });
@@ -331,16 +398,24 @@ async function main() {
   console.log(`Core pack files before pruning: ${coreBefore.files}`);
   console.log(`Core pack bytes before pruning: ${coreBefore.bytes}`);
   const headersRemoved = pruneNonRuntimeCoreArtifacts();
+  const testsRemoved = prunePackageTestArtifacts(corePackRoot);
   const coreAfter = directoryStats(corePackRoot);
   console.log(`Torch headers removed: ${headersRemoved.files}`);
+  console.log(`Package test artifacts removed: ${testsRemoved.directories} directories, ${testsRemoved.files} files, ${testsRemoved.bytes} bytes`);
   console.log(`Core pack files after pruning: ${coreAfter.files}`);
   console.log(`Core pack bytes after pruning: ${coreAfter.bytes}`);
   verifyCore(interpreterPath, relativeInterpreter);
+  const portableBytecodeRemoved = prunePythonBytecode(runtimeRoot);
+  const coreBytecodeRemoved = prunePythonBytecode(corePackRoot);
+  const runtimeAfterPruning = directoryStats(runtimeRoot);
+  const coreAfterPruning = directoryStats(corePackRoot);
+  console.log(`Portable Python bytecode removed: ${portableBytecodeRemoved.files} files, ${portableBytecodeRemoved.bytes} bytes`);
+  console.log(`Core pack bytecode removed: ${coreBytecodeRemoved.files} files, ${coreBytecodeRemoved.bytes} bytes`);
   const modelManifest = validateTrustedModelManifest();
   const manifest = writeManifest(relativeInterpreter, version);
 
-  console.log(`Portable Python: ${path.relative(root, runtimeRoot)} (${directorySize(runtimeRoot)} bytes)`);
-  console.log(`Core pack: ${path.relative(root, corePackRoot)} (${coreAfter.bytes} bytes)`);
+  console.log(`Portable Python: ${path.relative(root, runtimeRoot)} (${runtimeAfterPruning.bytes} bytes)`);
+  console.log(`Core pack: ${path.relative(root, corePackRoot)} (${coreAfterPruning.bytes} bytes)`);
   console.log(`Backend: backend (${directorySize(path.join(root, 'backend'))} bytes)`);
   console.log(`Runtime manifest: ${path.relative(root, manifestPath)}`);
   console.log(`Trusted model manifest: ${path.relative(root, modelInputPath)} (${modelManifest.id}, ${modelManifest.expectedBytes} bytes)`);

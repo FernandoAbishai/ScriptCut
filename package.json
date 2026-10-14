@@ -67,13 +67,12 @@
     "smoke:renderer-policy": "node scripts/smoke-packaged-renderer-policy.js"
   },
   "devDependencies": {"concurrently": "^9.1.0", "electron": "^43.1.0", "electron-builder": "^26.15.3", "wait-on": "^8.0.0"},
-  "dependencies": {"python-shell": "^5.0.0"},
   "build": {
     "appId": "com.fernandoabishai.scriptcut",
     "productName": "ScriptCut",
     "files": ["electron/**/*", "frontend/dist/**/*", "shared/**/*"],
     "extraResources": [
-      {"from": "backend", "to": "backend"},
+      {"from": "backend", "to": "backend", "filter": ["**/*", "!scripts/**", "!**/__pycache__/**", "!**/*.pyc", "!**/*.pyo"]},
       {"from": "build/bin", "to": "bin", "filter": ["**/*"]},
       {"from": "runtime/models/whisper-base.json", "to": "manifests/model-manifest.json"}
     ],
