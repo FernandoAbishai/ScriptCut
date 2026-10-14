@@ -153,6 +153,13 @@ function inspectPackage(appPath) {
     fail(`runtime manifest is not valid JSON: ${error.message}`);
   }
   const normalized = validateRuntimeManifest(manifest, { expectedTarget: 'darwin-arm64' });
+  if (
+    normalized.python.profile !== 'execution-only'
+    || normalized.python.buildToolingBundled !== false
+    || normalized.python.guiToolkitBundled !== false
+  ) {
+    fail('packaged Python must declare the execution-only runtime profile without build or GUI tooling');
+  }
   const constraints = manifest.packs?.constraints;
   if (!constraints || typeof constraints.source !== 'string' || !/^[a-f0-9]{64}$/.test(constraints.sha256 || '')) {
     fail('runtime manifest is missing valid core dependency constraints provenance');
@@ -195,6 +202,7 @@ function inspectPackage(appPath) {
   }
 
   const pythonPath = resolveResourcePath(resourcesPath, normalized.python.executable, 'Python executable');
+  const portablePythonRoot = path.dirname(path.dirname(pythonPath));
   const backendRoot = resolveResourcePath(resourcesPath, normalized.backend.root, 'backend root');
   const corePackRoot = resolveResourcePath(resourcesPath, normalized.packs.core, 'core pack root');
   assertExecutable(pythonPath, 'Bundled Python');
@@ -233,6 +241,20 @@ function inspectPackage(appPath) {
   if (!/arm64/i.test(architecture)) fail(`bundled Python architecture is not arm64: ${architecture.trim()}`);
   const forbidden = findForbiddenResourceEntry(resourcesPath);
   if (forbidden) fail(`packaged Resources contains forbidden developer/cache data: ${forbidden}`);
+  for (const relativePath of [
+    'include',
+    'lib/python3.11/site-packages',
+    'lib/python3.11/ensurepip',
+    'lib/python3.11/idlelib',
+    'lib/python3.11/tkinter',
+    'lib/libtcl9.0.dylib',
+    'lib/libtcl9tk9.0.dylib',
+    'bin/pip',
+  ]) {
+    if (fs.existsSync(path.join(portablePythonRoot, ...relativePath.split('/')))) {
+      fail(`packaged portable Python still contains build-only tooling: ${relativePath}`);
+    }
+  }
   const bundledModel = findResourceFile(resourcesPath, 'base.pt');
   if (bundledModel) fail(`packaged Resources contains the Whisper model weight: ${path.relative(resourcesPath, bundledModel)}`);
 
@@ -249,6 +271,7 @@ function inspectPackage(appPath) {
   console.log(`Backend: ${backendSize} bytes`);
   console.log(`FFmpeg/bin: ${binSize} bytes`);
   console.log(`Manifest: ${normalized.schema}, ${normalized.target.id}, Python ${normalized.python.version}`);
+  console.log('Python profile: execution-only; build tooling: No; GUI toolkit: No');
   console.log(`Core constraints: ${constraints.source}, SHA-256 ${constraints.sha256}`);
   console.log(`Core dependency lock: ${dependencyLock.source}, SHA-256 ${dependencyLock.sha256}, requireHashes=true, buildIsolation=false`);
   console.log(`Model manifest: ${modelManifest.id}, ${modelManifest.revision}, ${modelManifest.expectedBytes} bytes`);
