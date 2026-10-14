@@ -6,7 +6,8 @@ const { spawnSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
 const packagePath = path.join(root, 'package.json');
-const releaseConfigPath = path.join(root, 'electron-builder.release.cjs');
+const candidateReleaseConfigPath = path.join(root, 'electron-builder.release.cjs');
+const signedReleaseConfigPath = path.join(root, 'electron-builder.signed.cjs');
 const forbiddenEntitlements = [
   'com.apple.security.get-task-allow',
   'com.apple.security.cs.disable-library-validation',
@@ -43,10 +44,11 @@ function envSet(...names) {
   return names.every((name) => typeof process.env[name] === 'string' && process.env[name] !== '');
 }
 
-function releaseConfig() {
-  if (!fs.existsSync(releaseConfigPath)) return null;
+function releaseConfig(configPath) {
+  if (!fs.existsSync(configPath)) return null;
   try {
-    return require(releaseConfigPath);
+    delete require.cache[require.resolve(configPath)];
+    return require(configPath);
   } catch (error) {
     throw new Error(`release config could not be loaded: ${error.message}`);
   }
@@ -70,7 +72,7 @@ function validateEntitlements(filePath) {
 }
 
 function signingCredentialState() {
-  const configuredCertificate = envSet('CSC_LINK', 'CSC_KEY_PASSWORD')
+  const configuredCertificate = envSet('CSC_LINK')
     || (process.env.CSC_NAME || '').includes('Developer ID Application');
   let discoverableIdentity = false;
   if (process.platform === 'darwin') {
@@ -84,7 +86,7 @@ function notarizationCredentialState() {
   return (
     envSet('APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER')
     || envSet('APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID')
-    || envSet('APPLE_KEYCHAIN', 'APPLE_KEYCHAIN_PROFILE')
+    || envSet('APPLE_KEYCHAIN_PROFILE')
   );
 }
 
@@ -135,7 +137,9 @@ function signedChecks(pkg, config) {
     ...commonChecks(pkg, config),
     check('Developer ID credentials configured', signingCredentialState(), 'safe boolean credential state'),
     check('Notarization credentials configured', notarizationCredentialState(), 'safe boolean credential state'),
-    check('Signed packaging config is explicit', config?.mac?.identity !== null, '3B.5A release config is candidate-only; signed packaging belongs to 3B.5B'),
+    check('Signed packaging does not use ad-hoc identity', config?.mac?.identity !== '-' && config?.mac?.identity !== null, `identity=${String(config?.mac?.identity)}`),
+    check('Signed packaging requests distribution signing', config?.mac?.type === 'distribution', `type=${String(config?.mac?.type)}`),
+    check('Signed packaging requests notarization', config?.mac?.notarize === true, `notarize=${String(config?.mac?.notarize)}`),
   ];
 }
 
@@ -147,7 +151,7 @@ function main() {
   }
 
   const pkg = readPackage();
-  const config = releaseConfig();
+  const config = releaseConfig(mode === 'candidate' ? candidateReleaseConfigPath : signedReleaseConfigPath);
   const checks = mode === 'candidate' ? candidateChecks(pkg, config) : signedChecks(pkg, config);
   let failures = 0;
   for (const item of checks) {

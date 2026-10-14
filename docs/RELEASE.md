@@ -254,19 +254,23 @@ Signed mode:
 
 ```bash
 npm run release:trust:signed
+npm run release:signed:arm64
 ```
 
-Signed mode hard-fails without Developer ID and notarization credentials. The signed packaging path remains a future optional enhancement; this phase does not add credentials, signing keys, or notarization.
+Signed mode hard-fails without Developer ID and notarization credentials. The credentialed packaging path uses a separate `electron-builder.signed.cjs` configuration with Hardened Runtime, the minimal Electron JIT entitlements, distribution signing, and electron-builder notarization. Electron-builder notarizes and staples `ScriptCut.app`, then places that trusted app inside the DMG; the DMG container itself is integrity-checked with `hdiutil` and is not claimed to carry its own Developer ID signature or notarization ticket. After packaging the command reruns the packaged runtime, identity, FFmpeg, backend, renderer, creator, optional-capability, and transcription gates against the exact signed app, then verifies the app with strict `codesign`, `spctl`, and `xcrun stapler validate`. Add `-- --real-model` to `npm run release:signed:arm64` when the signed artifact also needs the first-download/offline/repair/reacquisition Whisper proof. It prepares an artifact only; it does not create a tag or GitHub Release.
+
+This repository does not contain signing certificates, private keys, Apple credentials, or GitHub secrets. The path can be statically validated without them, but a real signed release is qualified only when the credentialed command completes successfully on macOS arm64.
 
 Supported signing inputs:
 
-- `CSC_LINK` and `CSC_KEY_PASSWORD` for a certificate file.
+- `CSC_LINK` for a certificate file, with `CSC_KEY_PASSWORD` when the file is password-protected.
 - `CSC_NAME` when the certificate is already installed in the signing keychain.
 
 Supported notarization inputs:
 
 - `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
 - Or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
+- Or `APPLE_KEYCHAIN_PROFILE`, with optional `APPLE_KEYCHAIN` for a non-default keychain.
 
 ## Notes
 
