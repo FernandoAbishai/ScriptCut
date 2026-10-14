@@ -94,6 +94,7 @@ async function main() {
     console.log(`Renderer GET /system/checks: ${result.checks.status} (token-injected authenticated response)`);
     console.log(`Renderer POST /jobs/transcribe: ${result.transcription.status} (HTTP response, no Failed to fetch)`);
     console.log(`Renderer media /file: ${result.media.status} (${result.media.bodyBytes} response bytes)`);
+    console.log(`Renderer permissions: clipboard-write=${result.permissions.clipboardWrite}, geolocation=${result.permissions.geolocation}`);
     console.log('Renderer CSP violations: none');
     console.log('Packaged Electron renderer transport smoke passed.');
   } finally {

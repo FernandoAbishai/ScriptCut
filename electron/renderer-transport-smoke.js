@@ -53,6 +53,17 @@ function runRendererProbe(window, backendOrigin, mediaPath) {
 
     const mediaUrl = await window.electronAPI.getBackendFileUrl(fixturePath);
     const media = await request(mediaUrl);
+    const permissionState = async (name) => {
+      try {
+        return (await navigator.permissions.query({ name })).state;
+      } catch (error) {
+        return `error:${String(error)}`;
+      }
+    };
+    const permissions = {
+      clipboardWrite: await permissionState('clipboard-write'),
+      geolocation: await permissionState('geolocation'),
+    };
     const video = document.createElement('video');
     video.preload = 'metadata';
     video.src = mediaUrl;
@@ -72,6 +83,7 @@ function runRendererProbe(window, backendOrigin, mediaPath) {
       checks,
       transcription,
       media: { status: media.status, bodyBytes: media.bodyBytes || 0 },
+      permissions,
       policyViolations,
     };
   };
@@ -91,6 +103,12 @@ async function runRendererTransportSmoke({ window, backendOrigin, mediaPath }) {
   }
   if (result.media?.status !== 200 || result.media.bodyBytes <= 0) {
     throw new Error(`renderer media request returned ${result.media?.status || 0} with ${result.media?.bodyBytes || 0} bytes`);
+  }
+  if (result.permissions?.clipboardWrite !== 'granted') {
+    throw new Error(`renderer clipboard-write permission is not granted: ${result.permissions?.clipboardWrite || 'missing'}`);
+  }
+  if (result.permissions?.geolocation !== 'denied') {
+    throw new Error(`renderer geolocation permission is not denied: ${result.permissions?.geolocation || 'missing'}`);
   }
   if (result.policyViolations.length > 0) {
     throw new Error(`renderer reported CSP violations: ${JSON.stringify(result.policyViolations)}`);
