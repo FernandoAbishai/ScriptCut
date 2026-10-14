@@ -53,6 +53,12 @@ function writeFixture(rootDir) {
       pythonVersion: '3.11.15',
       pythonBuild: '20260807',
       manifestSha256: '1'.repeat(64),
+      dependencyLock: {
+        source: 'runtime/core-darwin-arm64-py311.lock.txt',
+        sha256: '6'.repeat(64),
+        requireHashes: true,
+        buildIsolation: false,
+      },
     },
     coreInventorySha256: '2'.repeat(64),
     codeSignature: { type: 'ad-hoc', structurallyValid: true, hardenedRuntime: false },
@@ -86,6 +92,7 @@ async function main() {
     const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'));
     const notes = fs.readFileSync(path.join(fixture.outputDir, 'RELEASE_NOTES.md'), 'utf8');
     validateManifest(manifest);
+    assert(manifest.runtime.dependencyLock.sha256 === '6'.repeat(64), 'runtime dependency lock provenance was not propagated');
     assert(manifest.bundleSize?.schema === 'scriptcut.bundle-size.v1', 'bundle-size summary was not propagated to public manifest');
     validateNotes(notes);
     assert(/--signer-workflow[\s\S]*--source-digest/.test(notes), 'generated RELEASE_NOTES omit constrained attestation verification');

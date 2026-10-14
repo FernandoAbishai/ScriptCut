@@ -121,6 +121,7 @@ function publicManifest({ pkg, tag, commit, artifact, candidate, dmgAttestation 
       pythonVersion: candidate.runtime.pythonVersion,
       pythonBuild: candidate.runtime.pythonBuild,
       manifestSha256: candidate.runtime.manifestSha256,
+      dependencyLock: candidate.runtime.dependencyLock,
     },
     coreInventorySha256: candidate.coreInventorySha256,
     ffmpeg: candidate.ffmpeg,
@@ -141,7 +142,7 @@ function publicManifest({ pkg, tag, commit, artifact, candidate, dmgAttestation 
       dmgAttestation,
     },
     reproducible: false,
-    reproducibilityNote: 'Transitive runtime wheel hashes are not fully locked in this phase.',
+    reproducibilityNote: 'Runtime package source/wheel inputs are hash-locked; generated wheels and the final DMG are not claimed byte-for-byte reproducible.',
   };
 }
 
@@ -187,6 +188,7 @@ macOS Apple Silicon (arm64) only. Intel, Windows, Linux, and browser builds are 
 ## What's included
 
 - A self-contained Electron application with portable Python ${manifest.runtime.pythonVersion} and the pinned core runtime.
+- A hash-locked macOS arm64 runtime package set; source-built Whisper uses the pinned portable Python toolchain without isolated build downloads.
 - Bundled FFmpeg and FFprobe for local export.
 - Baseline Whisper transcription code and a trusted model manifest.
 - Optional capabilities may be absent from this build.

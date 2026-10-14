@@ -55,6 +55,12 @@ function createSourceFixture() {
       pythonSource: 'bundled',
       target: { platform: 'darwin', arch: 'arm64' },
       manifestSha256: '2'.repeat(64),
+      dependencyLock: {
+        source: 'runtime/core-darwin-arm64-py311.lock.txt',
+        sha256: '5'.repeat(64),
+        requireHashes: true,
+        buildIsolation: false,
+      },
     },
     coreInventorySha256: '3'.repeat(64),
     ffmpeg: { manifestSha256: '4'.repeat(64) },
@@ -123,10 +129,13 @@ async function validateReleaseDirectory(releaseDir) {
   assert(manifest.runtime?.mode === 'packaged-bundled', 'runtime mode must be packaged-bundled');
   assert(manifest.runtime?.pythonSource === 'bundled', 'Python source must be bundled');
   assert(manifest.runtime?.target?.platform === 'darwin' && manifest.runtime?.target?.arch === 'arm64', 'runtime target must be darwin-arm64');
+  assert(manifest.runtime?.dependencyLock?.source === 'runtime/core-darwin-arm64-py311.lock.txt', 'runtime dependency lock source is missing');
+  assert(/^[0-9a-f]{64}$/.test(manifest.runtime?.dependencyLock?.sha256 || ''), 'runtime dependency lock SHA-256 is missing');
+  assert(manifest.runtime?.dependencyLock?.requireHashes === true && manifest.runtime?.dependencyLock?.buildIsolation === false, 'runtime dependency lock policy is missing');
   assert(manifest.artifact?.filename && path.basename(manifest.artifact.filename) === manifest.artifact.filename, 'artifact filename must be relative');
   assert(Number.isInteger(manifest.artifact.bytes) && manifest.artifact.bytes > 0, 'artifact bytes must be present');
   assert(/^[0-9a-f]{64}$/.test(manifest.artifact.sha256), 'artifact SHA-256 must be present');
-  for (const field of [manifest.runtime.manifestSha256, manifest.coreInventorySha256, manifest.ffmpeg.manifestSha256, manifest.model.manifestSha256]) {
+  for (const field of [manifest.runtime.manifestSha256, manifest.runtime.dependencyLock.sha256, manifest.coreInventorySha256, manifest.ffmpeg.manifestSha256, manifest.model.manifestSha256]) {
     assert(/^[0-9a-f]{64}$/.test(field), 'provenance SHA-256 must be present');
   }
   walkValues(manifest, (value) => {

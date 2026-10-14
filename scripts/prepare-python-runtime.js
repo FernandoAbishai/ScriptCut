@@ -25,6 +25,7 @@ const modelInputPath = path.join(root, 'runtime', 'models', 'whisper-base.json')
 const generatedModelManifestPath = path.join(buildRoot, 'manifests', 'model-manifest.json');
 const coreInputPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.txt');
 const coreConstraintsPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.constraints.txt');
+const coreLockPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.lock.txt');
 // Torch imports torch.testing through its normal autograd import path.
 const RUNTIME_REQUIRED_TEST_DIRECTORIES = new Set(['torch/testing']);
 
@@ -211,6 +212,7 @@ function pythonVersion(interpreterPath, environment) {
 function installCorePack(interpreterPath) {
   if (!fs.existsSync(coreInputPath)) fail(`missing committed core input: ${path.relative(root, coreInputPath)}`);
   if (!fs.existsSync(coreConstraintsPath)) fail(`missing committed core constraints: ${path.relative(root, coreConstraintsPath)}`);
+  if (!fs.existsSync(coreLockPath)) fail(`missing committed core artifact lock: ${path.relative(root, coreLockPath)}`);
   fs.rmSync(corePackRoot, { recursive: true, force: true });
   fs.mkdirSync(corePackRoot, { recursive: true });
   const environment = isolatedEnvironment({
@@ -222,9 +224,10 @@ function installCorePack(interpreterPath) {
     '-m', 'pip', 'install',
     '--disable-pip-version-check',
     '--no-compile',
+    '--no-build-isolation',
+    '--require-hashes',
     '--target', corePackRoot,
-    '--constraint', coreConstraintsPath,
-    '--requirement', coreInputPath,
+    '--requirement', coreLockPath,
   ], { env: environment, inherit: true });
 }
 
@@ -284,6 +287,12 @@ function writeManifest(relativeInterpreter, version) {
       constraints: {
         source: path.relative(root, coreConstraintsPath).split(path.sep).join('/'),
         sha256: sha256(coreConstraintsPath),
+      },
+      lock: {
+        source: path.relative(root, coreLockPath).split(path.sep).join('/'),
+        sha256: sha256(coreLockPath),
+        requireHashes: true,
+        buildIsolation: false,
       },
     },
     security: { tokenRequired: true },
