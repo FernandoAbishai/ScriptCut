@@ -165,6 +165,24 @@ function inspectPackage(appPath) {
   }
   if (!fs.existsSync(constraintsPath)) fail(`runtime constraints source is missing: ${constraints.source}`);
   if (sha256(constraintsPath) !== constraints.sha256) fail('runtime constraints SHA-256 does not match the committed source');
+  const dependencyLock = manifest.packs?.lock;
+  if (
+    !dependencyLock
+    || typeof dependencyLock.source !== 'string'
+    || !/^[a-f0-9]{64}$/.test(dependencyLock.sha256 || '')
+    || dependencyLock.requireHashes !== true
+    || dependencyLock.buildIsolation !== false
+  ) {
+    fail('runtime manifest is missing valid hash-locked dependency provenance');
+  }
+  if (path.isAbsolute(dependencyLock.source)) fail('runtime dependency lock source must be repository-relative');
+  const dependencyLockPath = path.resolve(root, dependencyLock.source);
+  const relativeDependencyLockPath = path.relative(root, dependencyLockPath);
+  if (!relativeDependencyLockPath || relativeDependencyLockPath.startsWith('..') || path.isAbsolute(relativeDependencyLockPath)) {
+    fail('runtime dependency lock source escapes the repository root');
+  }
+  if (!fs.existsSync(dependencyLockPath)) fail(`runtime dependency lock source is missing: ${dependencyLock.source}`);
+  if (sha256(dependencyLockPath) !== dependencyLock.sha256) fail('runtime dependency lock SHA-256 does not match the committed source');
   let modelManifest;
   try {
     modelManifest = readModelManifest(modelManifestPath);
@@ -232,6 +250,7 @@ function inspectPackage(appPath) {
   console.log(`FFmpeg/bin: ${binSize} bytes`);
   console.log(`Manifest: ${normalized.schema}, ${normalized.target.id}, Python ${normalized.python.version}`);
   console.log(`Core constraints: ${constraints.source}, SHA-256 ${constraints.sha256}`);
+  console.log(`Core dependency lock: ${dependencyLock.source}, SHA-256 ${dependencyLock.sha256}, requireHashes=true, buildIsolation=false`);
   console.log(`Model manifest: ${modelManifest.id}, ${modelManifest.revision}, ${modelManifest.expectedBytes} bytes`);
   console.log('Core imports: fastapi, uvicorn, pydantic, requests, torch, whisper==20250625');
   console.log('Optional packages bundled: No');

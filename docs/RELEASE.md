@@ -274,7 +274,7 @@ Supported notarization inputs:
 - The supported arm64 release-candidate path includes its application runtime, core Python pack, and FFmpeg/FFprobe; creators do not install Python, pip, FFmpeg, or a virtual environment for that path.
 - Baseline transcription is included and the verified Whisper base model downloads into app-managed storage on first transcription. Once installed, baseline transcription can run without model-network access.
 - Optional capabilities may not be included. Do not claim all AI is offline or that all capabilities are bundled.
-- Candidate metadata records that transitive runtime wheel hashes are not fully locked; 3B.5A does not claim fully reproducible builds.
+- The macOS arm64 runtime package inputs are version- and SHA-256-locked. Source-built Whisper uses the pinned portable Python toolchain without isolated build downloads. Generated wheels and the final DMG are still not claimed byte-for-byte reproducible.
 - `npm run release:ffmpeg` verifies that FFmpeg/FFprobe execute from the release bundle and packages non-system macOS dylibs. Do not manually copy host FFmpeg executables into a release.
 - The bundle manifest records whether the selected FFmpeg supports ASS burn-in captions. Releases without that filter use the tested sidecar `.srt` fallback and must state that in their notes.
 - Parakeet TDT v3 requires optional NVIDIA NeMo ASR dependencies.

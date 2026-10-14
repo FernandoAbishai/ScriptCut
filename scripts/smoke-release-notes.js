@@ -62,6 +62,12 @@ function writeCandidate(directory) {
       pythonVersion: '3.11.15',
       pythonBuild: '20260807',
       manifestSha256: '1'.repeat(64),
+      dependencyLock: {
+        source: 'runtime/core-darwin-arm64-py311.lock.txt',
+        sha256: '6'.repeat(64),
+        requireHashes: true,
+        buildIsolation: false,
+      },
     },
     coreInventorySha256: '2'.repeat(64),
     codeSignature: { type: 'ad-hoc', structurallyValid: true, hardenedRuntime: false },

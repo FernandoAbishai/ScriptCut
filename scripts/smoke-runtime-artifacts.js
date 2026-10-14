@@ -18,10 +18,19 @@ assert.strictEqual(commonModelMappings.length, 1);
 assert.ok(!(packageJson.build?.extraResources || []).some((entry) => entry.from === 'build/manifests'));
 const coreRequirements = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.txt'), 'utf8');
 const coreConstraints = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.constraints.txt'), 'utf8');
+const coreLock = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.lock.txt'), 'utf8');
 assert.ok(!coreRequirements.includes('model-manifest'));
 assert.ok(!coreRequirements.includes('base.pt'));
+const constraintPins = coreConstraints.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+const lockLines = coreLock.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+assert.strictEqual(lockLines.length, constraintPins.length);
+for (const line of lockLines) assert.match(line, /^[a-z0-9.-]+==[^\s]+ --hash=sha256:[a-f0-9]{64}$/);
 for (const requirement of coreRequirements.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'))) {
   assert.ok(coreConstraints.split(/\r?\n/).includes(requirement), `core constraints are missing direct pin: ${requirement}`);
+}
+for (const constraint of constraintPins) {
+  const normalized = constraint.toLowerCase().replace(/_/g, '-');
+  assert.ok(lockLines.some((line) => line.startsWith(`${normalized} --hash=sha256:`)), `core lock is missing artifact hash for: ${constraint}`);
 }
 const runtimePreparation = fs.readFileSync(path.join(__dirname, 'prepare-python-runtime.js'), 'utf8');
 assert.match(runtimePreparation, /function\s+pruneNonRuntimeCoreArtifacts\s*\(/);
@@ -29,7 +38,9 @@ assert.match(runtimePreparation, /function\s+prunePythonBytecode\s*\(/);
 assert.match(runtimePreparation, /function\s+prunePackageTestArtifacts\s*\(/);
 assert.match(runtimePreparation, /RUNTIME_REQUIRED_TEST_DIRECTORIES\s*=\s*new Set\(\[['"]torch\/testing['"]\]\)/);
 assert.match(runtimePreparation, /['"]--no-compile['"]/);
-assert.match(runtimePreparation, /['"]--constraint['"],\s*coreConstraintsPath/);
+assert.match(runtimePreparation, /['"]--no-build-isolation['"]/);
+assert.match(runtimePreparation, /['"]--require-hashes['"]/);
+assert.match(runtimePreparation, /['"]--requirement['"],\s*coreLockPath/);
 assert.match(runtimePreparation, /PYTHONDONTWRITEBYTECODE\s*=\s*['"]1['"]/);
 assert.match(runtimePreparation, /path\.join\(\s*corePackRoot\s*,\s*['"]torch['"]\s*,\s*['"]include['"]\s*\)/);
 assert.match(runtimePreparation, /fs\.rmSync\(\s*torchIncludePath\s*,\s*\{[\s\S]*?recursive:\s*true/);

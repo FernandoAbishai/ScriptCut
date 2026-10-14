@@ -92,6 +92,13 @@ function validateManifest(manifest, { allowPendingAttestation = false } = {}) {
   assert(manifest.codeSignature?.hardenedRuntime === false, 'public ad-hoc candidate must not claim Hardened Runtime');
   assert(manifest.runtime?.mode === 'packaged-bundled' && manifest.runtime?.pythonSource === 'bundled', 'runtime must be packaged-bundled');
   assert(manifest.runtime?.target?.platform === 'darwin' && manifest.runtime?.target?.arch === 'arm64', 'runtime target must be darwin arm64');
+  assert(typeof manifest.runtime?.dependencyLock?.source === 'string' && manifest.runtime.dependencyLock.source.length > 0, 'runtime dependency lock source is missing');
+  assert(!path.isAbsolute(manifest.runtime.dependencyLock.source), 'runtime dependency lock source must be repository-relative');
+  assert(/^[0-9a-f]{64}$/.test(manifest.runtime.dependencyLock.sha256 || ''), 'runtime dependency lock SHA-256 is missing');
+  assert(manifest.runtime.dependencyLock.requireHashes === true, 'runtime dependency lock must require hashes');
+  assert(manifest.runtime.dependencyLock.buildIsolation === false, 'runtime dependency lock must disable isolated source builds');
+  assert(manifest.reproducible === false, 'public alpha must not claim byte-for-byte reproducibility');
+  assert(/hash-locked/i.test(manifest.reproducibilityNote || '') && /not claimed byte-for-byte reproducible/i.test(manifest.reproducibilityNote || ''), 'runtime reproducibility note is inaccurate');
   assert(manifest.model?.embedded === false, 'model weights must not be embedded');
   if (manifest.bundleSize) {
     assert(manifest.bundleSize.schema === 'scriptcut.bundle-size.v1', 'bundle-size summary schema is invalid');

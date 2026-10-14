@@ -139,6 +139,15 @@ function readProvenance() {
 }
 
 async function createReleaseManifest(pkg, artifact, checksums, provenance, bundleSize) {
+  const dependencyLock = provenance.runtime.packs?.lock;
+  if (
+    !dependencyLock
+    || !/^[a-f0-9]{64}$/.test(dependencyLock.sha256 || '')
+    || dependencyLock.requireHashes !== true
+    || dependencyLock.buildIsolation !== false
+  ) {
+    throw new Error('Runtime manifest is missing hash-locked dependency provenance.');
+  }
   const manifest = {
     schema: 'scriptcut.release.v1',
     productName: pkg.build?.productName || pkg.name,
@@ -164,6 +173,12 @@ async function createReleaseManifest(pkg, artifact, checksums, provenance, bundl
       pythonVersion: provenance.runtime.python.version,
       pythonBuild: provenance.runtime.python.build,
       manifestSha256: await checksumFile(provenance.runtimeManifestPath),
+      dependencyLock: {
+        source: dependencyLock.source,
+        sha256: dependencyLock.sha256,
+        requireHashes: true,
+        buildIsolation: false,
+      },
     },
     coreInventorySha256: await checksumFile(provenance.coreInventoryPath),
     ffmpeg: {
@@ -197,7 +212,7 @@ async function createReleaseManifest(pkg, artifact, checksums, provenance, bundl
     signed: false,
     notarized: false,
     reproducible: false,
-    reproducibilityNote: 'Transitive runtime wheel hashes are not fully locked in this phase.',
+    reproducibilityNote: 'Runtime package source/wheel inputs are hash-locked; generated wheels and the final DMG are not claimed byte-for-byte reproducible.',
   };
   const manifestPath = path.join(releaseMetadataDir, 'release-manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
