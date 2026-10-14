@@ -33,10 +33,12 @@ for (const constraint of constraintPins) {
   assert.ok(lockLines.some((line) => line.startsWith(`${normalized} --hash=sha256:`)), `core lock is missing artifact hash for: ${constraint}`);
 }
 const runtimePreparation = fs.readFileSync(path.join(__dirname, 'prepare-python-runtime.js'), 'utf8');
+const packagedRuntimeCheck = fs.readFileSync(path.join(__dirname, 'check-packaged-runtime.js'), 'utf8');
 assert.match(runtimePreparation, /function\s+pruneNonRuntimeCoreArtifacts\s*\(/);
 assert.match(runtimePreparation, /function\s+prunePythonBytecode\s*\(/);
 assert.match(runtimePreparation, /function\s+prunePackageTestArtifacts\s*\(/);
 assert.match(runtimePreparation, /function\s+prunePortableRuntimeBuildTooling\s*\(/);
+assert.match(runtimePreparation, /function\s+stripNativeRuntimeSymbols\s*\(/);
 assert.match(runtimePreparation, /profile:\s*['"]execution-only['"]/);
 assert.match(runtimePreparation, /buildToolingBundled:\s*false/);
 assert.match(runtimePreparation, /guiToolkitBundled:\s*false/);
@@ -51,6 +53,24 @@ for (const expectedBuildOnlyPath of [
 ]) {
   assert.ok(runtimePreparation.includes(`'${expectedBuildOnlyPath}'`), `portable runtime prune is missing ${expectedBuildOnlyPath}`);
 }
+for (const expectedNativeStripTarget of [
+  'llvmlite/binding/libllvmlite.dylib',
+  'numpy/.dylibs/libopenblas64_.0.dylib',
+  'torch/lib/libtorch_cpu.dylib',
+  'torch/lib/libtorch_python.dylib',
+]) {
+  assert.ok(runtimePreparation.includes(`'${expectedNativeStripTarget}'`), `native strip target is missing ${expectedNativeStripTarget}`);
+  assert.ok(packagedRuntimeCheck.includes(`'${expectedNativeStripTarget}'`), `packaged runtime verification is missing ${expectedNativeStripTarget}`);
+}
+assert.match(runtimePreparation, /['"]\/usr\/bin\/strip['"],\s*\[['"]-x['"]/);
+assert.match(runtimePreparation, /['"]\/usr\/bin\/codesign['"],\s*\[['"]--force['"],\s*['"]--sign['"],\s*['"]-['"]/);
+assert.match(runtimePreparation, /from numba import njit; f = njit/);
+assert.match(packagedRuntimeCheck, /from numba import njit; f = njit/);
+assert.match(packagedRuntimeCheck, /np\.ones\(\(32, 32\)\)/);
+assert.match(packagedRuntimeCheck, /torch\.tensor\(\[1\.0, 2\.0\]\)/);
+assert.match(packagedRuntimeCheck, /['"]\/usr\/bin\/codesign['"],\s*\[['"]--verify['"],\s*['"]--strict['"]/);
+assert.match(packagedRuntimeCheck, /['"]\/usr\/bin\/nm['"],\s*\[['"]-m['"]/);
+assert.match(packagedRuntimeCheck, /\\bnon-external\\b/);
 assert.match(runtimePreparation, /['"]--no-compile['"]/);
 assert.match(runtimePreparation, /['"]--no-build-isolation['"]/);
 assert.match(runtimePreparation, /['"]--require-hashes['"]/);

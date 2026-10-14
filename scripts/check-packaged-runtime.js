@@ -73,6 +73,7 @@ function run(command, args, options = {}) {
     env: options.env || process.env,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    ...(options.maxBuffer ? { maxBuffer: options.maxBuffer } : {}),
   });
   if (result.error || result.status !== 0) {
     fail(`${command} ${args.join(' ')} failed: ${(result.error?.message || result.stderr || result.stdout || '').trim()}`);
@@ -231,7 +232,10 @@ function inspectPackage(appPath) {
     fail(`Python version ${versionOutput} does not match manifest ${normalized.python.version}`);
   }
   run(pythonPath, ['-c', [
-    'import fastapi, uvicorn, pydantic, requests, torch, whisper',
+    'import fastapi, uvicorn, pydantic, requests, numpy as np, torch, whisper',
+    'a = np.ones((32, 32)); b = a @ a; assert float(b[0, 0]) == 32.0',
+    'from numba import njit; f = njit(lambda x: x + 1); assert f(2) == 3',
+    'x = torch.tensor([1.0, 2.0]); y = x * 2; assert y.tolist() == [2.0, 4.0]',
     'from importlib.metadata import version, distributions; assert version("openai-whisper") == "20250625"',
     'import main, sys; forbidden = ("whisperx", "nemo", "pyannote.audio", "df", "mediapipe", "cv2", "openai", "anthropic", "moviepy"); assert all(name not in sys.modules for name in forbidden)',
     'installed = {(d.metadata.get("Name") or "").lower() for d in distributions()}; assert not installed.intersection({"whisperx", "nemo-toolkit", "pyannote.audio", "deepfilternet", "mediapipe", "opencv-python", "openai", "anthropic", "moviepy"})',
@@ -241,6 +245,20 @@ function inspectPackage(appPath) {
   if (!/arm64/i.test(architecture)) fail(`bundled Python architecture is not arm64: ${architecture.trim()}`);
   const forbidden = findForbiddenResourceEntry(resourcesPath);
   if (forbidden) fail(`packaged Resources contains forbidden developer/cache data: ${forbidden}`);
+  for (const relativePath of [
+    'llvmlite/binding/libllvmlite.dylib',
+    'numpy/.dylibs/libopenblas64_.0.dylib',
+    'torch/lib/libtorch_cpu.dylib',
+    'torch/lib/libtorch_python.dylib',
+  ]) {
+    const nativePath = path.join(corePackRoot, ...relativePath.split('/'));
+    if (!fs.existsSync(nativePath)) fail(`packaged native runtime target is missing: ${relativePath}`);
+    run('/usr/bin/codesign', ['--verify', '--strict', nativePath]);
+    const symbols = run('/usr/bin/nm', ['-m', nativePath], { maxBuffer: 16 * 1024 * 1024 }).stdout || '';
+    if (/\bnon-external\b/i.test(symbols)) {
+      fail(`packaged native runtime target still contains local symbols after strip -x: ${relativePath}`);
+    }
+  }
   for (const relativePath of [
     'include',
     'lib/python3.11/site-packages',
@@ -275,7 +293,7 @@ function inspectPackage(appPath) {
   console.log(`Core constraints: ${constraints.source}, SHA-256 ${constraints.sha256}`);
   console.log(`Core dependency lock: ${dependencyLock.source}, SHA-256 ${dependencyLock.sha256}, requireHashes=true, buildIsolation=false`);
   console.log(`Model manifest: ${modelManifest.id}, ${modelManifest.revision}, ${modelManifest.expectedBytes} bytes`);
-  console.log('Core imports: fastapi, uvicorn, pydantic, requests, torch, whisper==20250625');
+  console.log('Core execution probe: NumPy/OpenBLAS, Numba/llvmlite, Torch, Whisper==20250625');
   console.log('Optional packages bundled: No');
   console.log('Backend import: passed');
   console.log('Model weight in Resources: No');

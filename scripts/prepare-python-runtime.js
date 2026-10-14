@@ -59,6 +59,12 @@ const PORTABLE_RUNTIME_BUILD_ONLY_PATHS = [
   'bin/python3-config',
   'bin/python3.11-config',
 ];
+const NATIVE_RUNTIME_STRIP_TARGETS = [
+  'llvmlite/binding/libllvmlite.dylib',
+  'numpy/.dylibs/libopenblas64_.0.dylib',
+  'torch/lib/libtorch_cpu.dylib',
+  'torch/lib/libtorch_python.dylib',
+];
 
 function getOption(name) {
   const index = process.argv.indexOf(name);
@@ -272,7 +278,9 @@ function verifyCore(interpreterPath, relativeInterpreter) {
     SCRIPTCUT_RUNTIME_MANIFEST_SCHEMA: 'scriptcut.runtime.v1',
   });
   const probe = [
-    'import fastapi, uvicorn, pydantic, requests, torch, whisper',
+    'import fastapi, uvicorn, pydantic, requests, numpy as np, torch, whisper',
+    'a = np.ones((32, 32)); b = a @ a; assert float(b[0, 0]) == 32.0',
+    'from numba import njit; f = njit(lambda x: x + 1); assert f(2) == 3',
     'x = torch.tensor([1.0, 2.0]); y = x * 2; assert y.tolist() == [2.0, 4.0]',
     'from importlib.metadata import version; assert version("openai-whisper") == "20250625"',
     'import importlib.util, sys; import main; forbidden = ("whisperx", "nemo", "pyannote.audio", "df", "mediapipe", "cv2", "openai", "anthropic", "moviepy"); assert all(name not in sys.modules for name in forbidden)',
@@ -445,6 +453,28 @@ function prunePortableRuntimeBuildTooling() {
   return removed;
 }
 
+function stripNativeRuntimeSymbols() {
+  const optimized = { files: 0, bytesBefore: 0, bytesAfter: 0 };
+  for (const relativePath of NATIVE_RUNTIME_STRIP_TARGETS) {
+    const filePath = path.join(corePackRoot, ...relativePath.split('/'));
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      fail(`expected native strip target is missing: ${relativePath}`);
+    }
+    const before = fs.statSync(filePath).size;
+    run('/usr/bin/strip', ['-x', filePath]);
+    // strip invalidates the wheel's Mach-O signature. Restore an ad-hoc staging
+    // signature so local probes can load it; electron-builder signs it again.
+    run('/usr/bin/codesign', ['--force', '--sign', '-', filePath]);
+    run('/usr/bin/codesign', ['--verify', '--strict', filePath]);
+    const after = fs.statSync(filePath).size;
+    if (after >= before) fail(`native symbol stripping did not reduce ${relativePath}: ${before} -> ${after}`);
+    optimized.files += 1;
+    optimized.bytesBefore += before;
+    optimized.bytesAfter += after;
+  }
+  return optimized;
+}
+
 async function main() {
   verifyTarget();
   fs.mkdirSync(buildRoot, { recursive: true });
@@ -460,10 +490,12 @@ async function main() {
   const headersRemoved = pruneNonRuntimeCoreArtifacts();
   const testsRemoved = prunePackageTestArtifacts(corePackRoot);
   const portableBuildToolingRemoved = prunePortableRuntimeBuildTooling();
+  const nativeSymbols = stripNativeRuntimeSymbols();
   const coreAfter = directoryStats(corePackRoot);
   console.log(`Torch headers removed: ${headersRemoved.files}`);
   console.log(`Package test artifacts removed: ${testsRemoved.directories} directories, ${testsRemoved.files} files, ${testsRemoved.bytes} bytes`);
   console.log(`Portable Python build-only tooling removed: ${portableBuildToolingRemoved.paths} paths, ${portableBuildToolingRemoved.files} files, ${portableBuildToolingRemoved.bytes} bytes`);
+  console.log(`Native runtime symbols stripped: ${nativeSymbols.files} files, ${nativeSymbols.bytesBefore - nativeSymbols.bytesAfter} bytes removed`);
   console.log(`Core pack files after pruning: ${coreAfter.files}`);
   console.log(`Core pack bytes after pruning: ${coreAfter.bytes}`);
   verifyCore(interpreterPath, relativeInterpreter);
