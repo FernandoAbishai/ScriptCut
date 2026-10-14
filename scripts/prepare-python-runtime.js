@@ -28,6 +28,37 @@ const coreConstraintsPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.
 const coreLockPath = path.join(root, 'runtime', 'core-darwin-arm64-py311.lock.txt');
 // Torch imports torch.testing through its normal autograd import path.
 const RUNTIME_REQUIRED_TEST_DIRECTORIES = new Set(['torch/testing']);
+const PORTABLE_RUNTIME_BUILD_ONLY_PATHS = [
+  'include',
+  'lib/pkgconfig',
+  'lib/python3.11/site-packages',
+  'lib/python3.11/ensurepip',
+  'lib/python3.11/idlelib',
+  'lib/python3.11/pydoc_data',
+  'lib/python3.11/tkinter',
+  'lib/python3.11/turtledemo',
+  'lib/python3.11/lib2to3',
+  'lib/python3.11/venv',
+  'lib/python3.11/lib-dynload/_tkinter.cpython-311-darwin.so',
+  'lib/tcl9.0',
+  'lib/tcl9',
+  'lib/tk9.0',
+  'lib/itcl4.3.8',
+  'lib/thread3.0.6',
+  'lib/libtcl9.0.dylib',
+  'lib/libtcl9tk9.0.dylib',
+  'bin/2to3',
+  'bin/2to3-3.11',
+  'bin/idle3',
+  'bin/idle3.11',
+  'bin/pip',
+  'bin/pip3',
+  'bin/pip3.11',
+  'bin/pydoc3',
+  'bin/pydoc3.11',
+  'bin/python3-config',
+  'bin/python3.11-config',
+];
 
 function getOption(name) {
   const index = process.argv.indexOf(name);
@@ -280,6 +311,9 @@ function writeManifest(relativeInterpreter, version) {
       build: PYTHON_RUNTIME_ARTIFACT.build,
       source: PYTHON_RUNTIME_ARTIFACT.source,
       archiveSha256: PYTHON_RUNTIME_ARTIFACT.sha256,
+      profile: 'execution-only',
+      buildToolingBundled: false,
+      guiToolkitBundled: false,
     },
     backend: { root: 'backend' },
     packs: {
@@ -394,6 +428,23 @@ function prunePackageTestArtifacts(directory) {
   return removed;
 }
 
+function prunePortableRuntimeBuildTooling() {
+  const removed = { paths: 0, files: 0, bytes: 0 };
+  for (const relativePath of PORTABLE_RUNTIME_BUILD_ONLY_PATHS) {
+    const entryPath = path.join(runtimeRoot, ...relativePath.split('/'));
+    if (!fs.lstatSync(entryPath, { throwIfNoEntry: false })) fail(`expected portable build-only path is missing: ${relativePath}`);
+    const stats = directoryStats(entryPath);
+    fs.rmSync(entryPath, { recursive: true, force: false });
+    if (fs.lstatSync(entryPath, { throwIfNoEntry: false })) {
+      fail(`portable build-only path still exists after pruning: ${relativePath}`);
+    }
+    removed.paths += 1;
+    removed.files += stats.files;
+    removed.bytes += stats.bytes;
+  }
+  return removed;
+}
+
 async function main() {
   verifyTarget();
   fs.mkdirSync(buildRoot, { recursive: true });
@@ -408,9 +459,11 @@ async function main() {
   console.log(`Core pack bytes before pruning: ${coreBefore.bytes}`);
   const headersRemoved = pruneNonRuntimeCoreArtifacts();
   const testsRemoved = prunePackageTestArtifacts(corePackRoot);
+  const portableBuildToolingRemoved = prunePortableRuntimeBuildTooling();
   const coreAfter = directoryStats(corePackRoot);
   console.log(`Torch headers removed: ${headersRemoved.files}`);
   console.log(`Package test artifacts removed: ${testsRemoved.directories} directories, ${testsRemoved.files} files, ${testsRemoved.bytes} bytes`);
+  console.log(`Portable Python build-only tooling removed: ${portableBuildToolingRemoved.paths} paths, ${portableBuildToolingRemoved.files} files, ${portableBuildToolingRemoved.bytes} bytes`);
   console.log(`Core pack files after pruning: ${coreAfter.files}`);
   console.log(`Core pack bytes after pruning: ${coreAfter.bytes}`);
   verifyCore(interpreterPath, relativeInterpreter);

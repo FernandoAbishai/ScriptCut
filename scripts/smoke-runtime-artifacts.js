@@ -36,7 +36,21 @@ const runtimePreparation = fs.readFileSync(path.join(__dirname, 'prepare-python-
 assert.match(runtimePreparation, /function\s+pruneNonRuntimeCoreArtifacts\s*\(/);
 assert.match(runtimePreparation, /function\s+prunePythonBytecode\s*\(/);
 assert.match(runtimePreparation, /function\s+prunePackageTestArtifacts\s*\(/);
+assert.match(runtimePreparation, /function\s+prunePortableRuntimeBuildTooling\s*\(/);
+assert.match(runtimePreparation, /profile:\s*['"]execution-only['"]/);
+assert.match(runtimePreparation, /buildToolingBundled:\s*false/);
+assert.match(runtimePreparation, /guiToolkitBundled:\s*false/);
 assert.match(runtimePreparation, /RUNTIME_REQUIRED_TEST_DIRECTORIES\s*=\s*new Set\(\[['"]torch\/testing['"]\]\)/);
+for (const expectedBuildOnlyPath of [
+  'lib/python3.11/site-packages',
+  'lib/python3.11/ensurepip',
+  'lib/python3.11/tkinter',
+  'lib/python3.11/lib-dynload/_tkinter.cpython-311-darwin.so',
+  'lib/libtcl9.0.dylib',
+  'lib/libtcl9tk9.0.dylib',
+]) {
+  assert.ok(runtimePreparation.includes(`'${expectedBuildOnlyPath}'`), `portable runtime prune is missing ${expectedBuildOnlyPath}`);
+}
 assert.match(runtimePreparation, /['"]--no-compile['"]/);
 assert.match(runtimePreparation, /['"]--no-build-isolation['"]/);
 assert.match(runtimePreparation, /['"]--require-hashes['"]/);

@@ -92,7 +92,7 @@ Prepare the self-contained arm64 release candidate:
 npm run release:rc:arm64
 ```
 
-That command prepares portable Python, the pinned core pack, bundled FFmpeg/FFprobe, the frontend, and the release-configured Electron app. It runs the packaged runtime, backend, optional-capability, DMG, signing-readiness, and release-metadata gates, then writes `dist/release-candidate/SHA256SUMS.txt`, `dist/release-candidate/release-manifest.json`, and `dist/release-candidate/RELEASE_NOTES.md`.
+That command prepares portable Python, the pinned core pack, bundled FFmpeg/FFprobe, the frontend, and the release-configured Electron app. The packaged Python is an execution-only private runtime: build/install tooling such as pip/ensurepip, development headers, venv/IDLE, and Tcl/Tk GUI assets are removed after the core pack has been assembled and verified. It runs the packaged runtime, backend, optional-capability, DMG, signing-readiness, and release-metadata gates, then writes `dist/release-candidate/SHA256SUMS.txt`, `dist/release-candidate/release-manifest.json`, and `dist/release-candidate/RELEASE_NOTES.md`.
 
 Run the extended native model gate explicitly when requested:
 
