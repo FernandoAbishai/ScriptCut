@@ -17,10 +17,20 @@ const commonModelMappings = (packageJson.build?.extraResources || []).filter((en
 assert.strictEqual(commonModelMappings.length, 1);
 assert.ok(!(packageJson.build?.extraResources || []).some((entry) => entry.from === 'build/manifests'));
 const coreRequirements = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.txt'), 'utf8');
+const coreConstraints = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'core-darwin-arm64-py311.constraints.txt'), 'utf8');
 assert.ok(!coreRequirements.includes('model-manifest'));
 assert.ok(!coreRequirements.includes('base.pt'));
+for (const requirement of coreRequirements.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'))) {
+  assert.ok(coreConstraints.split(/\r?\n/).includes(requirement), `core constraints are missing direct pin: ${requirement}`);
+}
 const runtimePreparation = fs.readFileSync(path.join(__dirname, 'prepare-python-runtime.js'), 'utf8');
 assert.match(runtimePreparation, /function\s+pruneNonRuntimeCoreArtifacts\s*\(/);
+assert.match(runtimePreparation, /function\s+prunePythonBytecode\s*\(/);
+assert.match(runtimePreparation, /function\s+prunePackageTestArtifacts\s*\(/);
+assert.match(runtimePreparation, /RUNTIME_REQUIRED_TEST_DIRECTORIES\s*=\s*new Set\(\[['"]torch\/testing['"]\]\)/);
+assert.match(runtimePreparation, /['"]--no-compile['"]/);
+assert.match(runtimePreparation, /['"]--constraint['"],\s*coreConstraintsPath/);
+assert.match(runtimePreparation, /PYTHONDONTWRITEBYTECODE\s*=\s*['"]1['"]/);
 assert.match(runtimePreparation, /path\.join\(\s*corePackRoot\s*,\s*['"]torch['"]\s*,\s*['"]include['"]\s*\)/);
 assert.match(runtimePreparation, /fs\.rmSync\(\s*torchIncludePath\s*,\s*\{[\s\S]*?recursive:\s*true/);
 assert.ok(!/path\.join\(\s*corePackRoot\s*,\s*['"]torch['"]\s*\)/.test(runtimePreparation));

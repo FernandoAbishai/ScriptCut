@@ -1,6 +1,7 @@
 # Direct, startup-proven core dependencies for the current backend.
 # Python: 3.11.15 | target: darwin-arm64 | runtime: python-build-standalone 20260807
-# This is an exact-version input, not a hash-locked release inventory yet.
+# Direct runtime requirements. The companion constraints file freezes the full
+# resolved version graph; artifact hashes are still a separate release step.
 fastapi==0.138.1
 uvicorn==0.49.0
 pydantic==2.13.4

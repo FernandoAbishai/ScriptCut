@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -35,6 +36,10 @@ function optionValue(name) {
 
 function fail(message) {
   throw new Error(`Packaged runtime check failed: ${message}`);
+}
+
+function sha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 function findAppBundles(directory) {
@@ -148,6 +153,18 @@ function inspectPackage(appPath) {
     fail(`runtime manifest is not valid JSON: ${error.message}`);
   }
   const normalized = validateRuntimeManifest(manifest, { expectedTarget: 'darwin-arm64' });
+  const constraints = manifest.packs?.constraints;
+  if (!constraints || typeof constraints.source !== 'string' || !/^[a-f0-9]{64}$/.test(constraints.sha256 || '')) {
+    fail('runtime manifest is missing valid core dependency constraints provenance');
+  }
+  if (path.isAbsolute(constraints.source)) fail('runtime constraints source must be repository-relative');
+  const constraintsPath = path.resolve(root, constraints.source);
+  const relativeConstraintsPath = path.relative(root, constraintsPath);
+  if (!relativeConstraintsPath || relativeConstraintsPath.startsWith('..') || path.isAbsolute(relativeConstraintsPath)) {
+    fail('runtime constraints source escapes the repository root');
+  }
+  if (!fs.existsSync(constraintsPath)) fail(`runtime constraints source is missing: ${constraints.source}`);
+  if (sha256(constraintsPath) !== constraints.sha256) fail('runtime constraints SHA-256 does not match the committed source');
   let modelManifest;
   try {
     modelManifest = readModelManifest(modelManifestPath);
@@ -214,6 +231,7 @@ function inspectPackage(appPath) {
   console.log(`Backend: ${backendSize} bytes`);
   console.log(`FFmpeg/bin: ${binSize} bytes`);
   console.log(`Manifest: ${normalized.schema}, ${normalized.target.id}, Python ${normalized.python.version}`);
+  console.log(`Core constraints: ${constraints.source}, SHA-256 ${constraints.sha256}`);
   console.log(`Model manifest: ${modelManifest.id}, ${modelManifest.revision}, ${modelManifest.expectedBytes} bytes`);
   console.log('Core imports: fastapi, uvicorn, pydantic, requests, torch, whisper==20250625');
   console.log('Optional packages bundled: No');

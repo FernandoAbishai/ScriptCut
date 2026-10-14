@@ -14,6 +14,7 @@ const {
 let mainWindow = null;
 let pythonBackend = null;
 let backendStartupError = '';
+let backendStartupState = 'idle';
 
 const isDev = !app.isPackaged;
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -151,14 +152,20 @@ app.whenReady().then(async () => {
     userDataPath: app.getPath('userData'),
     projectRoot: PROJECT_ROOT,
   });
+  const rendererSmoke = process.env.SCRIPTCUT_RENDERER_SMOKE === '1';
+  const creatorQualificationSmoke = process.env.SCRIPTCUT_CREATOR_QUALIFICATION_SMOKE === '1';
+  if (!rendererSmoke && !creatorQualificationSmoke) createWindow();
+  backendStartupState = 'starting';
   try {
     await pythonBackend.start();
+    backendStartupState = 'ready';
   } catch (error) {
     backendStartupError = error instanceof Error ? error.message : String(error);
+    backendStartupState = 'error';
     console.error('[backend] Startup failed:', backendStartupError);
   }
 
-  if (process.env.SCRIPTCUT_RENDERER_SMOKE === '1') {
+  if (rendererSmoke) {
     try {
       if (!app.isPackaged) throw new Error('renderer transport smoke requires a packaged app');
       const { runRendererTransportSmoke } = require('./renderer-transport-smoke');
@@ -182,7 +189,7 @@ app.whenReady().then(async () => {
     return;
   }
 
-  if (process.env.SCRIPTCUT_CREATOR_QUALIFICATION_SMOKE === '1') {
+  if (creatorQualificationSmoke) {
     try {
       if (!app.isPackaged) throw new Error('creator qualification smoke requires a packaged app');
       const { runCreatorQualificationSmoke } = require('./creator-qualification-smoke');
@@ -211,7 +218,6 @@ app.whenReady().then(async () => {
     return;
   }
 
-  createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -284,7 +290,10 @@ ipcMain.handle('file:getUrl', (event, filePath) => {
   assertTrustedSender(event);
   return createApprovedBackendFileUrl(filePath);
 });
-ipcMain.handle('app:getStartupStatus', (event) => { assertTrustedSender(event); return { backendError: backendStartupError }; });
+ipcMain.handle('app:getStartupStatus', (event) => {
+  assertTrustedSender(event);
+  return { backendError: backendStartupError, backendState: backendStartupState };
+});
 ipcMain.handle('app:getInfo', (event) => {
   assertTrustedSender(event);
   return { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged, electron: process.versions.electron };

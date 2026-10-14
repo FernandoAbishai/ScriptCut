@@ -219,18 +219,11 @@ function distributionMetadata(distInfoPath) {
   };
 }
 
-function findDistInfos(directory, found = []) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isSymbolicLink()) continue;
-    if (!entry.isDirectory()) continue;
-    if (entry.name.endsWith('.dist-info')) {
-      found.push(entryPath);
-      continue;
-    }
-    findDistInfos(entryPath, found);
-  }
-  return found;
+function findDistInfos(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => !entry.isSymbolicLink() && entry.isDirectory() && entry.name.endsWith('.dist-info'))
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((entry) => path.join(directory, entry.name));
 }
 
 function distributionAttribution(coreRoot, coreFiles) {

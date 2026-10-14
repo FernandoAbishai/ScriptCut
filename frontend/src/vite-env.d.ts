@@ -9,7 +9,10 @@ interface ElectronAPI {
   openProject: () => Promise<string | null>;
   getBackendUrl: () => Promise<string>;
   getBackendFileUrl: (path: string) => Promise<string>;
-  getStartupStatus: () => Promise<{ backendError: string }>;
+  getStartupStatus: () => Promise<{
+    backendError: string;
+    backendState: 'idle' | 'starting' | 'ready' | 'error';
+  }>;
   getAppInfo: () => Promise<{
     version: string;
     platform: string;

@@ -168,18 +168,21 @@ export default function HomeScreen({
               title="Edit a Video"
               detail="Edit spoken video by editing the transcript"
               onClick={() => void onOpenWorkflow('full-video')}
+              disabled={isCheckingSystem}
             />
             <StartWorkflowButton
               icon={<Smartphone className="h-4 w-4" aria-hidden="true" />}
               title="Create Clips"
               detail="Find, review and export social-ready moments"
               onClick={() => void onOpenWorkflow('short')}
+              disabled={isCheckingSystem}
             />
           </div>
           <button
             type="button"
             onClick={() => void onLoadProject()}
-            className="mx-auto flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-editor-text-muted transition-colors hover:bg-editor-surface hover:text-editor-text"
+            disabled={isCheckingSystem}
+            className="mx-auto flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-editor-text-muted transition-colors hover:bg-editor-surface hover:text-editor-text disabled:cursor-wait disabled:opacity-50"
           >
             <FileInput className="h-4 w-4" aria-hidden="true" />
             Open Project

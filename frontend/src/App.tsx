@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState, useRef } from 'react';
 import { useEditorStore } from './store/editorStore';
 import { useAIStore } from './store/aiStore';
 import VideoPlayer from './components/VideoPlayer';
 import TranscriptEditor from './components/TranscriptEditor';
 import WaveformTimeline from './components/WaveformTimeline';
-import AIPanel from './components/AIPanel';
-import ExportDialog from './components/ExportDialog';
-import SettingsPanel from './components/SettingsPanel';
 import EditorTaskHeader from './components/EditorTaskHeader';
 import HomeScreen, {
   type SystemChecksResponse,
@@ -21,6 +18,7 @@ import {
   type TranscriptionEngineStatus,
 } from './utils/transcriptionModels';
 import { useTranscriptionController } from './features/transcription/useTranscriptionController';
+import { useFullVideoExportController } from './features/export/useFullVideoExportController';
 import { saveProject, useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import {
   getAutosaveCandidatePaths,
@@ -62,6 +60,9 @@ import { resolveBackendFileUrl } from './utils/backendFile';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
+const AIPanel = lazy(() => import('./components/AIPanel'));
+const ExportDialog = lazy(() => import('./components/ExportDialog'));
+const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 
 type Panel = EditorPanel;
 
@@ -98,12 +99,13 @@ export default function App() {
   const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
   const [systemChecksError, setSystemChecksError] = useState('');
   const [backendStartupError, setBackendStartupError] = useState('');
+  const [backendReady, setBackendReady] = useState(!IS_ELECTRON);
   const [creatorNotice, setCreatorNotice] = useState<CreatorNoticeData | null>(null);
   const [autosaveRestoreRequest, setAutosaveRestoreRequest] = useState<{
     data: ReturnType<typeof parseProjectFile>;
     resolve: (restore: boolean) => void;
   } | null>(null);
-  const [isCheckingSystem, setIsCheckingSystem] = useState(false);
+  const [isCheckingSystem, setIsCheckingSystem] = useState(IS_ELECTRON);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => window.localStorage.getItem(ONBOARDING_DISMISSED_KEY) === 'true',
   );
@@ -130,22 +132,56 @@ export default function App() {
     transcriptionModel,
     onCompleted: handleTranscriptionCompleted,
   });
+  const fullVideoExportController = useFullVideoExportController({ backendUrl, workspaceRevision });
 
   useKeyboardShortcuts();
   const autosave = useProjectAutosave();
 
   useEffect(() => {
-    if (IS_ELECTRON) {
-      window.electronAPI!.getBackendUrl().then(setBackendUrl);
-      window.electronAPI!.getStartupStatus().then(({ backendError }) => {
-        if (!backendError) return;
-        setBackendStartupError(String(backendError));
+    if (!IS_ELECTRON) return;
+    let canceled = false;
+    let retryTimer: number | undefined;
+
+    window.electronAPI!.getBackendUrl().then((url) => {
+      if (!canceled) setBackendUrl(url);
+    });
+
+    const syncStartupStatus = async () => {
+      try {
+        const { backendError, backendState } = await window.electronAPI!.getStartupStatus();
+        if (canceled) return;
+        if (backendState === 'ready') {
+          setBackendStartupError('');
+          setBackendReady(true);
+          return;
+        }
+        if (backendState === 'error' || backendError) {
+          setBackendReady(false);
+          setBackendStartupError(String(backendError || 'Local editing service could not start.'));
+          setOnboardingDismissed(false);
+          return;
+        }
+        retryTimer = window.setTimeout(() => void syncStartupStatus(), 250);
+      } catch (error) {
+        if (canceled) return;
+        setBackendReady(false);
+        setBackendStartupError(error instanceof Error ? error.message : String(error));
         setOnboardingDismissed(false);
-      });
-    }
+      }
+    };
+
+    void syncStartupStatus();
+    return () => {
+      canceled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, [setBackendUrl]);
 
   useEffect(() => {
+    if (!backendReady) {
+      setTranscriptionEngineStatus(null);
+      return;
+    }
     let canceled = false;
     fetch(`${backendUrl}/transcription/engines`)
       .then((res) => (res.ok ? res.json() : null))
@@ -159,9 +195,15 @@ export default function App() {
     return () => {
       canceled = true;
     };
-  }, [backendUrl]);
+  }, [backendUrl, backendReady]);
 
   const refreshSystemChecks = useCallback(async () => {
+    if (IS_ELECTRON && !backendReady) {
+      setSystemChecks(null);
+      setSystemChecksError('');
+      setIsCheckingSystem(!backendStartupError);
+      return;
+    }
     setIsCheckingSystem(true);
     setSystemChecksError('');
     try {
@@ -174,7 +216,7 @@ export default function App() {
     } finally {
       setIsCheckingSystem(false);
     }
-  }, [backendUrl]);
+  }, [backendStartupError, backendUrl, backendReady]);
 
   useEffect(() => {
     void refreshSystemChecks();
@@ -775,14 +817,25 @@ export default function App() {
             aria-label={sidePanelLabel}
             className="w-80 border-l border-editor-border overflow-y-auto shrink-0"
           >
-            {activePanel === 'ai' && <AIPanel key={workspaceRevision} mode={editorWorkflow === 'short' ? 'clips' : 'general'} />}
-            {activePanel === 'export' && <ExportDialog />}
-            {activePanel === 'settings' && <SettingsPanel />}
+            <Suspense fallback={<PanelLoading label={sidePanelLabel} />}>
+              {activePanel === 'ai' && <AIPanel key={workspaceRevision} mode={editorWorkflow === 'short' ? 'clips' : 'general'} />}
+              {activePanel === 'export' && <ExportDialog controller={fullVideoExportController} />}
+              {activePanel === 'settings' && <SettingsPanel />}
+            </Suspense>
           </aside>
         )}
       </div>
       {appNotice}
       {autosaveRestoreDialog}
+    </div>
+  );
+}
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-32 items-center justify-center gap-2 px-4 text-xs text-editor-text-muted" role="status">
+      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+      Loading {label.toLowerCase()}…
     </div>
   );
 }

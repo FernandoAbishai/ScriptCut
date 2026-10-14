@@ -1,9 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { Download, Loader2, Zap, Cog, Info, Monitor, Smartphone, Square, X, Image, FolderOpen, ExternalLink, RotateCcw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { CaptionStyle, ExportOptions, ProjectExportOptions } from '../types/project';
 import CaptionPreview from './CaptionPreview';
 import { buildBackendFileUrl } from '../utils/backendFile';
+import type {
+  FullVideoExportCompletion,
+  FullVideoExportController,
+} from '../features/export/useFullVideoExportController';
 
 type ExportPreset = ExportOptions['preset'];
 type CaptionPreset = NonNullable<CaptionStyle['preset']>;
@@ -14,22 +18,6 @@ interface ExportResult {
   warnings: string[];
   downloadUrl?: string;
   srtDownloadUrl?: string;
-}
-
-interface ExportJob {
-  id: string;
-  status: 'queued' | 'running' | 'canceling' | 'succeeded' | 'failed' | 'canceled';
-  progress: number;
-  message: string;
-  logs?: Array<{ time: string; message: string }>;
-  result?: {
-    output_path?: string;
-    srt_path?: string;
-    file_capability?: string;
-    srt_file_capability?: string;
-    warnings?: string[];
-  };
-  error?: string;
 }
 
 interface ExportHistoryItem {
@@ -312,7 +300,7 @@ function getFriendlyExportError(message: string) {
   return message;
 }
 
-export default function ExportDialog() {
+export default function ExportDialog({ controller }: { controller: FullVideoExportController }) {
   const {
     videoPath,
     words,
@@ -321,7 +309,6 @@ export default function ExportDialog() {
     isExporting,
     exportProgress,
     backendUrl,
-    setExporting,
     getKeepSegments,
     getMutedRanges,
     getCaptionHiddenIndices,
@@ -329,14 +316,24 @@ export default function ExportDialog() {
     exportOptions: options,
     setExportOptions,
   } = useEditorStore();
+  const {
+    acknowledgeCompletion,
+    cancelExportJob,
+    canRetryExport,
+    exportFailure,
+    exportJobId,
+    exportJobStatus,
+    exportLogs,
+    exportMessage,
+    pendingCompletion,
+    retryExportJob,
+    startExportJob,
+    workspaceRevision,
+  } = controller;
 
   const hasCuts = deletedRanges.length > 0;
   const [exportError, setExportError] = useState('');
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
-  const [exportJobId, setExportJobId] = useState('');
-  const [exportMessage, setExportMessage] = useState('');
-  const [lastExportJobId, setLastExportJobId] = useState('');
-  const [exportLogs, setExportLogs] = useState<Array<{ time: string; message: string }>>([]);
   const [backgroundCapabilities, setBackgroundCapabilities] = useState<BackgroundCapabilities | null>(null);
   const [systemChecks, setSystemChecks] = useState<SystemChecksResponse | null>(null);
   const [showAdvancedExport, setShowAdvancedExport] = useState(false);
@@ -344,6 +341,8 @@ export default function ExportDialog() {
   const [exportDirectory, setExportDirectory] = useState(() => window.localStorage.getItem(EXPORT_DIRECTORY_KEY) || '');
   const [exportPath, setExportPath] = useState(() => window.localStorage.getItem(EXPORT_PATH_KEY) || '');
   const [exportHistory, setExportHistory] = useState<ExportHistoryItem[]>(loadExportHistory);
+  const mountedRef = useRef(true);
+  const visibleExportError = exportError || (exportFailure ? getFriendlyExportError(exportFailure) : '');
   const readiness = getExportReadiness(options, hasCuts, words.length, !!window.electronAPI, systemChecks);
   const preflight = getExportPreflight({
     videoPath,
@@ -357,6 +356,13 @@ export default function ExportDialog() {
     exportDirectory,
     systemChecks,
   });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let canceled = false;
@@ -529,51 +535,37 @@ export default function ExportDialog() {
     window.localStorage.removeItem(EXPORT_HISTORY_KEY);
   }, []);
 
-  const pollExportJob = useCallback(
-    async (jobId: string) => {
-      for (;;) {
-        await new Promise((resolve) => window.setTimeout(resolve, 700));
-        const res = await fetch(`${backendUrl}/jobs/${jobId}`);
-        if (!res.ok) throw new Error(`Could not read export job: ${res.statusText}`);
+  const applyExportCompletion = useCallback((completion: FullVideoExportCompletion) => {
+    if (!mountedRef.current) return;
+    if (useEditorStore.getState().videoPath !== completion.context.mediaPath) return;
+    if (completion.context.workspaceRevision !== workspaceRevision) return;
+    const outputPath = completion.result.output_path || '';
+    const srtPath = completion.result.srt_path;
+    setExportResult({
+      outputPath,
+      srtPath,
+      warnings: completion.result.warnings || [],
+      downloadUrl: buildBackendFileUrl(backendUrl, outputPath, completion.result.file_capability),
+      srtDownloadUrl: buildBackendFileUrl(backendUrl, srtPath, completion.result.srt_file_capability),
+    });
+    if (outputPath) {
+      rememberExport({
+        outputPath,
+        srtPath,
+        exportedAt: new Date().toISOString(),
+        preset: completion.context.preset,
+        format: completion.context.format,
+      });
+    }
+  }, [backendUrl, rememberExport, workspaceRevision]);
 
-        const job = (await res.json()) as ExportJob;
-        setExportMessage(job.message || job.status);
-        setExportLogs(job.logs || []);
-        setExporting(job.status === 'queued' || job.status === 'running' || job.status === 'canceling', job.progress);
-
-        if (job.status === 'succeeded') {
-          const outputPath = job.result?.output_path || '';
-          const srtPath = job.result?.srt_path;
-          setExportResult({
-            outputPath,
-            srtPath,
-            warnings: job.result?.warnings || [],
-            downloadUrl: buildBackendFileUrl(backendUrl, outputPath, job.result?.file_capability),
-            srtDownloadUrl: buildBackendFileUrl(backendUrl, srtPath, job.result?.srt_file_capability),
-          });
-          if (outputPath) {
-            rememberExport({
-              outputPath,
-              srtPath,
-              exportedAt: new Date().toISOString(),
-              preset: options.preset,
-              format: options.format,
-            });
-          }
-          setExportJobId('');
-          setLastExportJobId(jobId);
-          setExporting(false, 100);
-          return;
-        }
-
-        if (job.status === 'failed' || job.status === 'canceled') {
-          setLastExportJobId(jobId);
-          throw new Error(job.error || job.message || `Export ${job.status}`);
-        }
-      }
-    },
-    [backendUrl, options.format, options.preset, rememberExport, setExporting],
-  );
+  useEffect(() => {
+    if (!pendingCompletion) return;
+    if (pendingCompletion.completion.context.mediaPath !== videoPath) return;
+    if (pendingCompletion.completion.context.workspaceRevision !== workspaceRevision) return;
+    applyExportCompletion(pendingCompletion.completion);
+    acknowledgeCompletion(pendingCompletion.jobId);
+  }, [acknowledgeCompletion, applyExportCompletion, pendingCompletion, videoPath, workspaceRevision]);
 
   const startExport = useCallback(async (exportOptions: ProjectExportOptions) => {
     if (!videoPath) return;
@@ -611,6 +603,7 @@ export default function ExportDialog() {
           })
       : undefined;
     if (window.electronAPI && !outputPath) return;
+    if (useEditorStore.getState().videoPath !== videoPath) return;
     if (window.electronAPI && outputPath && !exportPath && !exportDirectory) {
       setExportPath(outputPath);
       window.localStorage.setItem(EXPORT_PATH_KEY, outputPath);
@@ -618,10 +611,6 @@ export default function ExportDialog() {
 
     setExportError('');
     setExportResult(null);
-    setExportLogs([]);
-    setLastExportJobId('');
-    setExporting(true, 1);
-    setExportMessage('Starting export');
 
     try {
       const keepSegments = getKeepSegments();
@@ -632,10 +621,14 @@ export default function ExportDialog() {
       }
       for (const idx of getCaptionHiddenIndices()) deletedSet.add(idx);
 
-      const res = await fetch(`${backendUrl}/jobs/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await startExportJob({
+        context: {
+          mediaPath: videoPath,
+          workspaceRevision,
+          preset: exportOptions.preset,
+          format: exportOptions.format,
+        },
+        body: {
           ...exportOptions,
           input_path: videoPath,
           output_path: outputPath || undefined,
@@ -644,28 +637,14 @@ export default function ExportDialog() {
           words: exportOptions.captions !== 'none' ? words : undefined,
           deleted_indices: exportOptions.captions !== 'none' ? [...deletedSet] : undefined,
           captionStyle: exportOptions.captions === 'burn-in' ? exportOptions.captionStyle : undefined,
-        }),
+        },
       });
-      if (!res.ok) {
-        let detail = res.statusText;
-        try {
-          const data = await res.json();
-          detail = data.detail || JSON.stringify(data);
-        } catch {
-          // Keep the HTTP status text if the backend did not return JSON.
-        }
-        throw new Error(`Export start failed: ${detail}`);
-      }
-      const { job_id: jobId } = await res.json();
-      setExportJobId(jobId);
-      setLastExportJobId(jobId);
-      await pollExportJob(jobId);
     } catch (err) {
       console.error('Export error:', err);
+      if (!mountedRef.current || useEditorStore.getState().videoPath !== videoPath) return;
       setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
-      setExporting(false, 0);
     }
-  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, exportPath, systemChecks, backendUrl, setExporting, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, pollExportJob]);
+  }, [videoPath, duration, hasCuts, words, backgroundCapabilities, exportDirectory, exportPath, systemChecks, getKeepSegments, getMutedRanges, getCaptionHiddenIndices, deletedRanges, startExportJob, workspaceRevision]);
 
   const handleExport = useCallback(() => {
     void startExport(options);
@@ -678,35 +657,26 @@ export default function ExportDialog() {
   }, [options, setExportOptions, startExport]);
 
   const cancelExport = useCallback(async () => {
-    if (!exportJobId) return;
-    await fetch(`${backendUrl}/jobs/${exportJobId}/cancel`, { method: 'POST' });
-    setExportJobId('');
-    setExportMessage('Cancel requested');
-  }, [backendUrl, exportJobId]);
+    try {
+      await cancelExportJob();
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
+    }
+  }, [cancelExportJob]);
 
   const retryExport = useCallback(async () => {
-    if (!lastExportJobId) return;
+    if (!canRetryExport) return;
     setExportError('');
     setExportResult(null);
-    setExporting(true, 1);
-    setExportMessage('Retrying export');
-    const res = await fetch(`${backendUrl}/jobs/${lastExportJobId}/retry`, { method: 'POST' });
-    if (!res.ok) {
-      setExporting(false, 0);
-      setExportError(`Retry failed: ${res.statusText}`);
-      return;
-    }
-    const { job_id: jobId } = await res.json();
-    setExportJobId(jobId);
-    setLastExportJobId(jobId);
     try {
-      await pollExportJob(jobId);
+      await retryExportJob();
     } catch (err) {
       console.error('Export retry error:', err);
+      if (!mountedRef.current) return;
       setExportError(getFriendlyExportError(err instanceof Error ? err.message : String(err)));
-      setExporting(false, 0);
     }
-  }, [backendUrl, lastExportJobId, pollExportJob, setExporting]);
+  }, [canRetryExport, retryExportJob]);
 
   return (
     <div className="p-4 space-y-5">
@@ -912,8 +882,9 @@ export default function ExportDialog() {
         {isExporting && exportJobId && (
           <button
             onClick={cancelExport}
+            disabled={exportJobStatus === 'canceling'}
             className="flex items-center justify-center px-3 py-3 bg-editor-border text-editor-text-muted hover:bg-editor-surface rounded-lg transition-colors"
-            title="Cancel export"
+            title={exportJobStatus === 'canceling' ? 'Cancel requested' : 'Cancel export'}
           >
             <X className="w-4 h-4" />
           </button>
@@ -1074,10 +1045,10 @@ export default function ExportDialog() {
         </div>
       )}
 
-      {exportError && (
+      {visibleExportError && (
         <div className="space-y-2 rounded bg-editor-danger/10 border border-editor-danger/30 p-2 text-[11px] text-editor-danger">
-          <div>{exportError}</div>
-          {lastExportJobId && (
+          <div>{visibleExportError}</div>
+          {canRetryExport && (
             <button
               onClick={retryExport}
               className="rounded bg-editor-danger/20 px-2 py-1 text-[10px] text-editor-danger hover:bg-editor-danger/30"
