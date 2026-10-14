@@ -5,6 +5,7 @@ const ALLOWED_EXTERNAL_ORIGINS = new Set([
   'https://github.com',
   'https://www.python.org',
 ]);
+const ALLOWED_RENDERER_PERMISSIONS = new Set(['clipboard-sanitized-write']);
 
 function packagedRendererUrl(projectRoot) {
   return pathToFileURL(path.join(projectRoot, 'frontend', 'dist', 'index.html')).href;
@@ -35,6 +36,23 @@ function isAllowedExternalUrl(value) {
   }
 }
 
+function isTrustedRendererWebContents(webContents, window, policy) {
+  return Boolean(
+    window
+    && webContents
+    && webContents === window.webContents
+    && webContents.mainFrame
+    && isTrustedRendererUrl(webContents.mainFrame.url || '', policy)
+  );
+}
+
+function isAllowedRendererPermission(webContents, permission, details, window, policy) {
+  return ALLOWED_RENDERER_PERMISSIONS.has(permission)
+    && isTrustedRendererWebContents(webContents, window, policy)
+    && details?.isMainFrame === true
+    && isTrustedRendererUrl(details?.requestingUrl || '', policy);
+}
+
 function assertTrustedIpcSender(event, window, policy) {
   if (!window || event.sender !== window.webContents) {
     throw new Error('IPC request did not come from the ScriptCut window.');
@@ -50,6 +68,8 @@ function assertTrustedIpcSender(event, window, policy) {
 module.exports = {
   assertTrustedIpcSender,
   isAllowedExternalUrl,
+  isAllowedRendererPermission,
   isTrustedRendererUrl,
+  isTrustedRendererWebContents,
   packagedRendererUrl,
 };

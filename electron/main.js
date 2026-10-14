@@ -8,6 +8,7 @@ const { createAtomicTextWriteQueue } = require('./project-file-io');
 const {
   assertTrustedIpcSender,
   isAllowedExternalUrl,
+  isAllowedRendererPermission,
   isTrustedRendererUrl,
   packagedRendererUrl,
 } = require('./renderer-security');
@@ -106,6 +107,13 @@ function createWindow({ hidden = false } = {}) {
       webSecurity: true,
     },
     show: false,
+  });
+  const rendererSession = mainWindow.webContents.session;
+  rendererSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => (
+    isAllowedRendererPermission(webContents, permission, details, mainWindow, RENDERER_POLICY)
+  ));
+  rendererSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(isAllowedRendererPermission(webContents, permission, details, mainWindow, RENDERER_POLICY));
   });
   if (hidden) mainWindow.hide();
 

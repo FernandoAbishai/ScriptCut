@@ -6,6 +6,7 @@ const { pathToFileURL } = require('url');
 const {
   assertTrustedIpcSender,
   isAllowedExternalUrl,
+  isAllowedRendererPermission,
   isTrustedRendererUrl,
   packagedRendererUrl,
 } = require('../electron/renderer-security');
@@ -127,6 +128,53 @@ if (!/isAllowedExternalUrl\(url\)/.test(electronMain)) {
 }
 if (!/setWindowOpenHandler\([\s\S]*?return\s+\{\s*action:\s*['"]deny['"]\s*\}/.test(electronMain)) {
   fail('electron/main.js must keep window.open denied after optional external delegation');
+}
+const permissionMainFrame = { url: packagedUrl };
+const permissionWebContents = { mainFrame: permissionMainFrame };
+const permissionWindow = { webContents: permissionWebContents };
+const trustedPermissionDetails = { isMainFrame: true, requestingUrl: packagedUrl };
+if (!isAllowedRendererPermission(permissionWebContents, 'clipboard-sanitized-write', trustedPermissionDetails, permissionWindow, { isDev: false, packagedUrl })) {
+  fail('trusted renderer clipboard-sanitized-write permission is not allowed');
+}
+for (const blockedPermission of ['clipboard-read', 'geolocation', 'media', 'notifications', 'openExternal', 'usb']) {
+  if (isAllowedRendererPermission(permissionWebContents, blockedPermission, trustedPermissionDetails, permissionWindow, { isDev: false, packagedUrl })) {
+    fail(`trusted renderer unexpectedly allows permission: ${blockedPermission}`);
+  }
+}
+const foreignWebContents = { mainFrame: permissionMainFrame };
+if (isAllowedRendererPermission(foreignWebContents, 'clipboard-sanitized-write', trustedPermissionDetails, permissionWindow, { isDev: false, packagedUrl })) {
+  fail('foreign webContents received clipboard-sanitized-write permission');
+}
+const untrustedWebContents = { mainFrame: { url: 'file:///tmp/attacker.html' } };
+if (isAllowedRendererPermission(
+  untrustedWebContents,
+  'clipboard-sanitized-write',
+  { isMainFrame: true, requestingUrl: 'file:///tmp/attacker.html' },
+  { webContents: untrustedWebContents },
+  { isDev: false, packagedUrl },
+)) {
+  fail('untrusted document received clipboard-sanitized-write permission');
+}
+if (isAllowedRendererPermission(
+  permissionWebContents,
+  'clipboard-sanitized-write',
+  { isMainFrame: false, requestingUrl: packagedUrl },
+  permissionWindow,
+  { isDev: false, packagedUrl },
+)) {
+  fail('trusted renderer subframe received clipboard-sanitized-write permission');
+}
+if (isAllowedRendererPermission(
+  permissionWebContents,
+  'clipboard-sanitized-write',
+  { isMainFrame: true, requestingUrl: 'file:///tmp/attacker.html' },
+  permissionWindow,
+  { isDev: false, packagedUrl },
+)) {
+  fail('trusted webContents with a mismatched requesting document received clipboard-sanitized-write permission');
+}
+if (!/setPermissionCheckHandler\(/.test(electronMain) || !/setPermissionRequestHandler\(/.test(electronMain)) {
+  fail('electron/main.js must install both permission check and request handlers');
 }
 if (
   signFileCapability('/tmp/example.mp4', 'scriptcut-test-secret') !==
