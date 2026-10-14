@@ -5,6 +5,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const {
   assertTrustedIpcSender,
+  isAllowedExternalUrl,
   isTrustedRendererUrl,
   packagedRendererUrl,
 } = require('../electron/renderer-security');
@@ -100,6 +101,32 @@ if (/url\.startsWith\(['"]file:\/\//.test(electronMain)) {
 }
 if (!/assertTrustedIpcSender\(event, mainWindow, RENDERER_POLICY\)/.test(electronMain)) {
   fail('electron/main.js does not enforce the exact main-frame sender policy');
+}
+for (const allowedExternal of [
+  'https://github.com/FernandoAbishai/ScriptCut',
+  'https://github.com:443/FernandoAbishai/ScriptCut',
+  'https://github.com/FernandoAbishai/ScriptCut/issues/new?template=bug_report.yml',
+  'https://www.python.org/downloads/macos/',
+]) {
+  if (!isAllowedExternalUrl(allowedExternal)) fail(`expected external destination is blocked: ${allowedExternal}`);
+}
+for (const blockedExternal of [
+  'http://github.com/FernandoAbishai/ScriptCut',
+  'https://github.com.evil.example/ScriptCut',
+  'https://github.com@evil.example/ScriptCut',
+  'https://github.com:444/FernandoAbishai/ScriptCut',
+  'https://python.org/downloads/macos/',
+  'https://www.python.org.evil.example/downloads/macos/',
+  'javascript:alert(1)',
+  'file:///tmp/attacker.html',
+]) {
+  if (isAllowedExternalUrl(blockedExternal)) fail(`unexpected external destination is allowed: ${blockedExternal}`);
+}
+if (!/isAllowedExternalUrl\(url\)/.test(electronMain)) {
+  fail('electron/main.js does not apply the external destination allowlist');
+}
+if (!/setWindowOpenHandler\([\s\S]*?return\s+\{\s*action:\s*['"]deny['"]\s*\}/.test(electronMain)) {
+  fail('electron/main.js must keep window.open denied after optional external delegation');
 }
 if (
   signFileCapability('/tmp/example.mp4', 'scriptcut-test-secret') !==
