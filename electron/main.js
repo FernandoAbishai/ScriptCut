@@ -7,6 +7,7 @@ const { MediaReadAllowlist } = require('./file-capabilities');
 const { createAtomicTextWriteQueue } = require('./project-file-io');
 const {
   assertTrustedIpcSender,
+  isAllowedExternalUrl,
   isTrustedRendererUrl,
   packagedRendererUrl,
 } = require('./renderer-security');
@@ -85,7 +86,9 @@ function createApprovedBackendFileUrl(filePath) {
 }
 
 function openExternalUrl(url) {
-  if (url.startsWith('https://')) void shell.openExternal(url);
+  if (!isAllowedExternalUrl(url)) return false;
+  void shell.openExternal(url);
+  return true;
 }
 
 function createWindow({ hidden = false } = {}) {

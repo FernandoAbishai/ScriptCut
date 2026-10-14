@@ -1,6 +1,11 @@
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+const ALLOWED_EXTERNAL_ORIGINS = new Set([
+  'https://github.com',
+  'https://www.python.org',
+]);
+
 function packagedRendererUrl(projectRoot) {
   return pathToFileURL(path.join(projectRoot, 'frontend', 'dist', 'index.html')).href;
 }
@@ -21,6 +26,15 @@ function isTrustedRendererUrl(url, { isDev, packagedUrl }) {
   return normalizedDocumentUrl(url) === normalizedDocumentUrl(packagedUrl);
 }
 
+function isAllowedExternalUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && ALLOWED_EXTERNAL_ORIGINS.has(url.origin);
+  } catch {
+    return false;
+  }
+}
+
 function assertTrustedIpcSender(event, window, policy) {
   if (!window || event.sender !== window.webContents) {
     throw new Error('IPC request did not come from the ScriptCut window.');
@@ -35,6 +49,7 @@ function assertTrustedIpcSender(event, window, policy) {
 
 module.exports = {
   assertTrustedIpcSender,
+  isAllowedExternalUrl,
   isTrustedRendererUrl,
   packagedRendererUrl,
 };
