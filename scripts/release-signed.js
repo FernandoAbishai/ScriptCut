@@ -45,6 +45,7 @@ function main() {
   const appPath = path.join(outputRoot, 'mac-arm64', 'ScriptCut.app');
   const dmgPath = path.join(outputRoot, `ScriptCut-${version}-arm64.dmg`);
   run('Packaged runtime gate', 'node', ['scripts/check-packaged-runtime.js', '--arch', 'arm64', '--app', appPath]);
+  run('Packaged Electron locale gate', 'node', ['scripts/check-packaged-electron-locales.js', '--app', appPath]);
   run('Packaged release identity gate', 'node', ['scripts/smoke-packaged-release-identity.js', '--app', appPath]);
   run('Packaged FFmpeg gate', 'node', ['scripts/check-packaged-ffmpeg.js', '--arch', 'arm64', '--app', appPath]);
   run('Packaged backend gate', 'node', ['scripts/smoke-packaged-backend.js', '--arch', 'arm64', '--app', appPath]);

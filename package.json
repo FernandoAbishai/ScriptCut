@@ -79,7 +79,7 @@
       {"from": "runtime/models/whisper-base.json", "to": "manifests/model-manifest.json"}
     ],
     "win": {"target": "nsis"},
-    "mac": {"target": "dmg", "icon": "build/icon.icns"},
+    "mac": {"target": "dmg", "icon": "build/icon.icns", "electronLanguages": ["en", "en_GB", "es", "es_419"]},
     "linux": {"target": "AppImage"}
   }
 }

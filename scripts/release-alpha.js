@@ -306,6 +306,7 @@ async function main() {
   const outputs = candidateOutputs(pkg);
   const packageInfo = inspectPackage(outputs.appPath);
   runPackagedGate('Packaged runtime gate', 'scripts/check-packaged-runtime.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
+  runPackagedGate('Packaged Electron locale gate', 'scripts/check-packaged-electron-locales.js', ['--app', outputs.appPath], env);
   runPackagedGate('Packaged release identity gate', 'scripts/smoke-packaged-release-identity.js', ['--app', outputs.appPath], env);
   runPackagedGate('Packaged FFmpeg gate', 'scripts/check-packaged-ffmpeg.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
   runPackagedGate('Packaged backend gate', 'scripts/smoke-packaged-backend.js', ['--arch', 'arm64', '--app', outputs.appPath], env);
