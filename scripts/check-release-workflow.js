@@ -229,11 +229,19 @@ function main() {
   assert(/entitlementsInherit:\s*['"]build\/entitlements\.mac\.inherit\.plist['"]/.test(signedReleaseConfig), 'signed release config must set inherited entitlements');
   assert(!/identity:\s*['"]-['"]/.test(signedReleaseConfig), 'signed release config must not use ad-hoc identity');
   const packageText = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
+  const packageJson = JSON.parse(packageText);
+  assert(
+    JSON.stringify(packageJson.build?.mac?.electronLanguages) === JSON.stringify(['en', 'en_GB', 'es', 'es_419']),
+    'macOS Electron locale allowlist must remain en/en_GB/es/es_419',
+  );
+  const releaseAlphaScript = fs.readFileSync(releaseAlphaPath, 'utf8');
+  assert(releaseAlphaScript.includes('check-packaged-electron-locales.js'), 'candidate release path is missing packaged Electron locale gate');
   assert(/release:signed:arm64/.test(packageText) && /scripts\/release-signed\.js/.test(packageText), 'signed release command is missing');
   assert(/check:signed-release/.test(packageText) && /check-macos-signed-release\.js/.test(packageText), 'signed release verification command is missing');
   const signedReleaseScript = fs.readFileSync(path.join(root, 'scripts', 'release-signed.js'), 'utf8');
   for (const requiredGate of [
     'check-packaged-runtime.js',
+    'check-packaged-electron-locales.js',
     'smoke-packaged-release-identity.js',
     'check-packaged-ffmpeg.js',
     'smoke-packaged-backend.js',
