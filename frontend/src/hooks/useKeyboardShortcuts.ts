@@ -19,8 +19,9 @@ export function useKeyboardShortcuts() {
 
     const handler = (e: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (e.defaultPrevented || target?.closest('input, textarea, select') || target?.isContentEditable) return;
+      if (e.key === ' ' && target?.closest('button, summary, [role="button"]')) return;
 
       const video = getVideo();
 

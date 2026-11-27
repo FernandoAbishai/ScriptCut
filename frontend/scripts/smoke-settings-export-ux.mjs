@@ -17,7 +17,7 @@ const releaseSource = readSource('../src/utils/releaseInfo.ts');
 const editorStoreSource = readSource('../src/store/editorStore.ts');
 const helperSource = readSource('../src/utils/settingsUx.ts');
 
-assert.match(settingsSource, />Settings<\/h3>/);
+assert.match(appSource, /activePanel === 'export' \? 'Export' : 'Settings'/);
 assert.doesNotMatch(settingsSource, /AI Settings/);
 assert.match(settingsSource, /const \[showAdvancedAI, setShowAdvancedAI\] = useState\(false\)/);
 assert.match(settingsSource, /Configure AI/);
@@ -35,7 +35,7 @@ for (const label of ['App &amp; Support', 'Source &amp; Legal', 'Source code', '
 }
 assert.doesNotMatch(settingsSource, /Source code for this exact binary/);
 
-assert.match(exportSource, />Export Video<\/h3>/);
+assert.match(appSource, /activePanel === 'export' \? 'Export Video' : sidePanelLabel/);
 assert.match(exportSource, /<legend[^>]*>Output<\/legend>/);
 for (const label of ['Source', 'Shorts', 'TikTok/Reels', 'Podcast', 'Destination', 'No captions', 'On video', 'Separate SRT']) {
   assert.match(exportSource, new RegExp(label));
@@ -107,6 +107,7 @@ assert.match(exportSource, /useEditorStore\.getState\(\)\.videoPath !== completi
 assert.match(exportControllerSource, /setPendingCompletion\(\{ jobId, completion \}\)/);
 assert.match(exportSource, /pendingCompletion\.completion\.context\.mediaPath !== videoPath/);
 assert.match(exportSource, /pendingCompletion\.completion\.context\.workspaceRevision !== workspaceRevision/);
+assert.match(exportSource, /mode: hasCuts \? 'reencode' : exportOptions.mode/);
 assert.match(exportSource, /workspaceRevision,\s*preset: exportOptions\.preset/);
 assert.match(exportSource, /applyExportCompletion\(pendingCompletion\.completion\)/);
 assert.match(exportSource, /acknowledgeCompletion\(pendingCompletion\.jobId\)/);

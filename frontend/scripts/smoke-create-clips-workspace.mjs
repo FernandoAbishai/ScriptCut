@@ -28,7 +28,7 @@ const clipDraftsSource = readSource('../src/utils/clipDrafts.ts');
 const projectTypeSource = readSource('../src/types/project.ts');
 const projectSchemaSource = readSource('../../shared/project-schema.json');
 
-assert.match(panelSource, /export default function AIPanel\(\{ mode = 'general' \}/);
+assert.match(panelSource, /export default function AIPanel\(\{ mode = 'general', onClose, draftToPrepare, onDraftClip \}/);
 assert.match(panelSource, /import ClipDraftCard from '\.\.\/features\/clips\/ClipDraftCard'/);
 assert.match(panelSource, /import ClipReviewWorkspace from '\.\.\/features\/clips\/ClipReviewWorkspace'/);
 assert.match(panelSource, /import ClipFindStage from '\.\.\/features\/clips\/ClipFindStage'/);
@@ -63,17 +63,16 @@ assert.doesNotMatch(clipExportFilesSource, /useAIStore|useEditorStore|fetch\(|lo
 assert.doesNotMatch(reviewActionsSource, /useAIStore|useEditorStore|fetch\(|localStorage/, 'clip review actions must receive workspace mutations as dependencies');
 assert.match(reviewActionsSource, /isSameClipRange\(draft, clip\)/);
 assert.match(panelSource, /getInitialClipWorkspaceStage\(clipDrafts, clipSuggestions\)/);
-assert.match(panelSource, /getNewManualClipDrafts\(clipDrafts, knownClipDraftIdsRef\.current\)/);
-assert.match(panelSource, /if \(mode !== 'clips' \|\| newlyAddedManualDrafts\.length === 0\) return/);
-assert.match(panelSource, /setClipStage\('prepare'\);\s+setActiveClipDraftId\(draft\.id\);\s+setSelectedWordIndices\(getWordIndicesForClip\(words, draft\)\)/);
+assert.match(panelSource, /setActiveTab\('clips'\);\s+setShowSecondaryTools\(false\);\s+setClipStage\('prepare'\);\s+setActiveClipDraftId\(draftToPrepare\)/);
+assert.match(panelSource, /ref=\{draftToPrepare === draft.id \? preparedDraftRef : undefined\}/);
 assert.match(findStageSource, /Find moments with AI/);
 assert.match(findStageSource, />Choose moments<\/h3>/);
-assert.match(findStageSource, /Start from the transcript — no AI required/);
+assert.match(findStageSource, /Draft from the transcript/);
 assert.match(findStageSource, /Draft selected clip/);
 assert.match(findStageSource, /selectedWordCount/);
 assert.match(findStageSource, /Optional AI discovery/);
 assert.ok(
-  findStageSource.indexOf('Start from the transcript — no AI required') < findStageSource.indexOf('Find moments with AI'),
+  findStageSource.indexOf('Draft from the transcript') < findStageSource.indexOf('Find moments with AI'),
   'manual transcript clipping must be presented before optional AI discovery',
 );
 assert.match(reviewSource, /Preview each moment/);
@@ -94,8 +93,8 @@ assert.match(reviewActionsSource, /['"]speaker-turn['"]/);
 assert.match(panelSource, /source: 'ai-director'/);
 assert.match(panelSource, /updateClipDraft\(id, \{ status: 'draft', lastError: undefined \}\)/);
 assert.match(panelSource, /const pendingReviewItems = useMemo/);
-assert.match(headerSource, /Review \$\{pendingReviewCount\}/);
-assert.match(headerSource, /Prepare \$\{queueSummary\.prepare\}/);
+assert.match(headerSource, /label: 'Review', count: pendingReviewCount/);
+assert.match(headerSource, /label: 'Prepare', count: queueSummary\.prepare/);
 assert.match(headerSource, /label="Exporting"/);
 assert.match(headerSource, /label="Retry"/);
 assert.match(headerSource, /label="Failed"/);
@@ -111,8 +110,10 @@ assert.match(panelSource, /activePreviewKey=\{activeReviewPreviewKey\}/);
 assert.doesNotMatch(panelSource, /activePreviewKey=\{activeClipPreviewKey\}/);
 assert.doesNotMatch(panelSource, /clipQueueSummary\.suggested === 0/);
 assert.match(clipDraftModelSource, /'transcript-selection'/);
-assert.match(transcriptSource, /appendTranscriptSelectionClipDraft\(current, selectionSummary\)/);
-assert.match(panelSource, /appendTranscriptSelectionClipDraft\(current, transcriptSelectionSummary\)/);
+assert.match(transcriptSource, /onDraftClip\(selectionSummary\)/);
+assert.match(panelSource, /onDraftClip\(transcriptSelectionSummary\)/);
+assert.match(appSource, /appendTranscriptSelectionClipDraft\(clipDrafts, selection\)/);
+assert.match(appSource, /setDraftToPrepare\(next\[next.length - 1\]\.id\)/);
 assert.match(panelSource, /type ClipDiscoveryResult/);
 assert.match(panelSource, /requestedCount\?: number/);
 assert.match(panelSource, /returnedCount\?: number/);
@@ -149,8 +150,8 @@ assert.match(panelSource, /\/jobs\/ai\/clip-metadata/);
 assert.doesNotMatch(panelSource, /Shorts Queue/);
 assert.doesNotMatch(panelSource, /AI Suggestions/);
 assert.doesNotMatch(panelSource, /handleExportSuggestedClip/);
-assert.match(appSource, /label=\{editorWorkflow === 'short' \? 'Create Clips' : 'AI'\}/);
-assert.match(appSource, /<AIPanel (?:key=\{workspaceRevision\} )?mode=\{editorWorkflow === 'short' \? 'clips' : 'general'\}/);
+assert.match(appSource, /label=\{editorWorkflow === 'short' \? 'Create Clips' : 'AI Tools'\}/);
+assert.match(appSource, /<AIPanel\s+key=\{workspaceRevision\}\s+mode=\{editorWorkflow === 'short' \? 'clips' : 'general'\}/);
 
 const compiled = ts.transpileModule(workspaceSource, {
   compilerOptions: {
@@ -166,7 +167,6 @@ const {
   getClipQueueSummary,
   getClipPreviewRange,
   getClipReviewKey,
-  getNewManualClipDrafts,
   getPendingReviewItems,
   getSkippedReviewItems,
   getReviewCounts,
@@ -191,8 +191,6 @@ const packagedDraft = { ...matchingDraft, id: 'clip_prepared', status: 'packaged
 const exportedDraft = { ...matchingDraft, id: 'clip_3', status: 'exported' };
 const manualDraft = { ...matchingDraft, id: 'clip_4', status: 'draft', source: 'speaker-turn' };
 const unmatchedSuggestion = { ...suggestion, startWordIndex: 5, endWordIndex: 9 };
-const restoredManualDraft = { ...matchingDraft, id: 'manual-restored', status: 'draft', source: 'transcript-selection' };
-const newManualDraft = { ...matchingDraft, id: 'manual-new', status: 'draft', source: 'transcript-selection' };
 
 assert.equal(getInitialClipWorkspaceStage([], []), 'find');
 const rankedDiscovery = readClipDiscoveryResult({
@@ -218,11 +216,6 @@ assert.equal(getInitialClipWorkspaceStage([packagedDraft], []), 'export');
 assert.equal(getInitialClipWorkspaceStage([approvedDraft, packagedDraft], []), 'prepare');
 assert.equal(getInitialClipWorkspaceStage([exportedDraft], []), 'export');
 assert.equal(getInitialClipWorkspaceStage([approvedDraft], [suggestion]), 'prepare');
-assert.deepEqual(getNewManualClipDrafts([restoredManualDraft], new Set(['manual-restored'])), []);
-assert.deepEqual(
-  getNewManualClipDrafts([restoredManualDraft, newManualDraft], new Set(['manual-restored'])),
-  [newManualDraft],
-);
 assert.deepEqual(
   getUnmatchedLegacyClipSuggestions([suggestion, unmatchedSuggestion], [matchingDraft]),
   [unmatchedSuggestion],

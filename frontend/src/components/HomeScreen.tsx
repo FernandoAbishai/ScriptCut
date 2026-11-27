@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type DragEvent, type RefObject, type SetStateAction } from 'react';
 import {
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowRight,
+  AudioLines,
+  ChevronDown,
+  Clapperboard,
+  BookOpen,
   CheckCircle,
   Copy,
   FileInput,
-  FileVideo,
   Info,
   Loader2,
   LogOut,
@@ -43,6 +48,8 @@ type HomeScreenProps = {
   onExit: () => void;
   onOpenWorkflow: (intent: WorkflowIntent) => void | Promise<void>;
   onLoadProject: () => void | Promise<void>;
+  onOpenSample: () => void | Promise<void>;
+  isOpeningSample: boolean;
   recoveryCandidate: AutosaveCandidate | null;
   recoveryError: string;
   recentProjects: RecentProject[];
@@ -75,6 +82,8 @@ export default function HomeScreen({
   onExit,
   onOpenWorkflow,
   onLoadProject,
+  onOpenSample,
+  isOpeningSample,
   recoveryCandidate,
   recoveryError,
   recentProjects,
@@ -106,6 +115,9 @@ export default function HomeScreen({
   const [setupDetailsOpen, setSetupDetailsOpen] = useState(false);
   const setupHeadingRef = useRef<HTMLHeadingElement>(null);
 
+  const setupButtonRef = useRef<HTMLButtonElement>(null);
+  const workflowPending = isElectron ? isCheckingSystem || isOpeningSample : isBrowserUploading;
+
   useEffect(() => {
     if (readiness === 'needs-setup') setSetupDetailsOpen(true);
   }, [readiness]);
@@ -122,10 +134,11 @@ export default function HomeScreen({
   const dismissSetupDetails = () => {
     setSetupDetailsOpen(false);
     onDismissOnboarding();
+    setupButtonRef.current?.focus();
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-editor-bg px-6 py-10">
+    <div className="start-screen">
       {!isElectron && (
         <input
           ref={fileInputRef}
@@ -135,209 +148,227 @@ export default function HomeScreen({
           onChange={onBrowserFileChange}
         />
       )}
-      {isElectron && (
-        <button
-          type="button"
-          onClick={onExit}
-          className="absolute right-4 top-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-editor-text-muted transition-colors hover:bg-editor-surface hover:text-editor-text"
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          Exit
-        </button>
-      )}
-
-      <div className="flex flex-col items-center gap-3">
-        <img src="./brand/scriptcut-mark.svg" alt="" className="h-16 w-16" />
-        <img src="./brand/scriptcut-wordmark.svg" alt="ScriptCut" className="h-auto w-[220px] max-w-full" />
-        <p className="max-w-sm text-center text-sm text-editor-text-muted">
-          Turn recordings into finished videos and clips.
-        </p>
-        {!isElectron && (
-          <div className="rounded-full border border-editor-border bg-editor-surface px-3 py-1 text-[11px] text-editor-text-muted">
-            Development / browser mode
+      <header className="start-topbar">
+        <div className="start-topbar-inner">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <img src="./brand/scriptcut-mark.svg" alt="" className="h-9 w-9" />
+            <span className="start-brand">ScriptCut</span>
           </div>
-        )}
-      </div>
-
-      {isElectron ? (
-        <div className="w-full max-w-xl space-y-4">
-          <div className="text-center text-sm font-medium text-editor-text">What do you want to do?</div>
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
-            <StartWorkflowButton
-              icon={<FileVideo className="h-4 w-4" aria-hidden="true" />}
-              title="Edit a Video"
-              detail="Edit spoken video by editing the transcript"
-              onClick={() => void onOpenWorkflow('full-video')}
-              disabled={isCheckingSystem}
-            />
-            <StartWorkflowButton
-              icon={<Smartphone className="h-4 w-4" aria-hidden="true" />}
-              title="Create Clips"
-              detail="Find, review and export social-ready moments"
-              onClick={() => void onOpenWorkflow('short')}
-              disabled={isCheckingSystem}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => void onLoadProject()}
-            disabled={isCheckingSystem}
-            className="mx-auto flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-editor-text-muted transition-colors hover:bg-editor-surface hover:text-editor-text disabled:cursor-wait disabled:opacity-50"
-          >
-            <FileInput className="h-4 w-4" aria-hidden="true" />
-            Open Project
-          </button>
-        </div>
-      ) : (
-        <div className="w-full max-w-xl space-y-4">
-          <div className="text-center text-sm font-medium text-editor-text">What do you want to do?</div>
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
-            <StartWorkflowButton
-              icon={isBrowserUploading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <FileVideo className="h-4 w-4" aria-hidden="true" />}
-              title="Edit a Video"
-              detail="Edit spoken video by editing the transcript"
-              onClick={() => void onOpenWorkflow('full-video')}
-              disabled={isBrowserUploading}
-            />
-            <StartWorkflowButton
-              icon={<Smartphone className="h-4 w-4" aria-hidden="true" />}
-              title="Create Clips"
-              detail="Find, review and export social-ready moments"
-              onClick={() => void onOpenWorkflow('short')}
-              disabled={isBrowserUploading}
-            />
-          </div>
-          <div
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={onBrowserDrop}
-            className="group flex min-h-40 flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-editor-border bg-editor-surface/45 px-6 py-8 text-center transition-colors hover:border-editor-accent/60 hover:bg-editor-surface/70"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-editor-accent/15 text-editor-accent">
-              {isBrowserUploading ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> : <FileVideo className="h-6 w-6" aria-hidden="true" />}
-            </div>
-            <div className="space-y-1">
-              <div className="text-sm font-medium text-editor-text">
-                {isBrowserUploading ? 'Uploading media...' : 'Choose a video or audio file'}
-              </div>
-              <p className="mx-auto max-w-sm text-xs leading-5 text-editor-text-muted">
-                Pick a file from your folders or drop it here. ScriptCut uploads it to the local backend before transcription.
-              </p>
-            </div>
-            {browserUploadName && (
-              <div className="max-w-full truncate text-[11px] text-editor-text-muted">
-                {isBrowserUploading ? 'Uploading' : 'Last selected'}: {browserUploadName}
-              </div>
-            )}
-          </div>
-          {browserUploadError && (
-            <CreatorNotice notice={getCreatorErrorPresentation('media-upload', browserUploadError)} />
+          {isElectron ? (
+            <button type="button" onClick={onExit} className="start-utility-button">
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              Exit
+            </button>
+          ) : (
+            <span className="text-xs text-editor-text-muted">Development / browser mode</span>
           )}
-          <p className="text-center text-[11px] text-editor-text-muted">
-            Use the desktop app for native file access, autosave and direct exports. Supported: MP4, AVI, MOV, MKV, WebM, M4A, MP3, WAV, FLAC.
-          </p>
         </div>
-      )}
+      </header>
 
-      {isElectron && (recoveryCandidate || recentProjects.length > 0) && (
-        <section className="w-full max-w-xl rounded-lg border border-editor-border bg-editor-surface p-4 text-left" aria-labelledby="resume-work-heading">
-          <h2 id="resume-work-heading" className="text-sm font-semibold text-editor-text">Resume your work</h2>
-          {recoveryCandidate && (
-            <div className="mt-3 rounded-lg border border-editor-warning/30 bg-editor-warning/10 p-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-editor-text">Recover your last session</div>
-                  <div className="mt-1 truncate text-[11px] text-editor-text-muted" title={recoveryCandidate.videoPath}>
-                    {recoveryCandidate.videoPath.split(/[\\/]/).pop()} · Autosaved {new Date(recoveryCandidate.modifiedAt).toLocaleString()}
-                  </div>
-                  {recoveryError && <CreatorNotice className="mt-2" notice={getCreatorErrorPresentation('recovery', recoveryError)} />}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void onRecoverAutosave(recoveryCandidate)}
-                      className="rounded bg-editor-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-editor-accent-hover"
-                    >
-                      Recover
-                    </button>
-                    {getAutosaveEarlierPaths(recoveryCandidate).map(({ path, index }) => (
+      <main className="start-content">
+        <section className="start-intro" aria-labelledby="start-heading">
+          <div>
+            <h1 id="start-heading">Edit video like<br className="start-title-break" /> a document.</h1>
+            <p className="start-intro-copy">
+              Turn a recording into an editable transcript, then cut a full video or pull out clips.
+            </p>
+          </div>
+          <TranscriptExample />
+        </section>
+
+        <section aria-label="Start a new edit">
+          <div className="start-workflows">
+            <StartWorkflowButton
+              icon={<Clapperboard className="h-5 w-5" aria-hidden="true" />}
+              title="Edit a Video"
+              detail="Cut and refine a full recording from its transcript."
+              onClick={() => void onOpenWorkflow('full-video')}
+              disabled={workflowPending}
+            />
+            <StartWorkflowButton
+              icon={<Smartphone className="h-5 w-5" aria-hidden="true" />}
+              title="Create Clips"
+              detail="Find moments and prepare clips for social video."
+              onClick={() => void onOpenWorkflow('short')}
+              disabled={workflowPending}
+            />
+          </div>
+          {isElectron && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-2">
+              <button
+                type="button"
+                onClick={() => void onOpenSample()}
+                disabled={workflowPending}
+                className="start-utility-button"
+              >
+                <BookOpen className="h-4 w-4" aria-hidden="true" />
+                {isOpeningSample ? 'Opening sample…' : 'Try sample project'}
+              </button>
+              <span className="text-xs text-editor-text-muted">Practice with a recording and its transcript.</span>
+            </div>
+          )}
+          {!isElectron && (
+            <>
+              <div
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={onBrowserDrop}
+                className="start-dropzone"
+              >
+                <ArrowDownToLine className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0">
+                  {isBrowserUploading
+                    ? 'Uploading ' + (browserUploadName || 'media') + '…'
+                    : 'Drop a video or audio file here to start a full edit.'}
+                </span>
+              </div>
+              {browserUploadError && (
+                <CreatorNotice className="mt-3" notice={getCreatorErrorPresentation('media-upload', browserUploadError)} />
+              )}
+              <p className="mt-2 text-xs leading-5 text-editor-text-muted">
+                Use the desktop app for native file access, autosave and direct exports.
+              </p>
+            </>
+          )}
+        </section>
+
+        {isElectron && (
+          <section className="start-projects" aria-labelledby="resume-work-heading">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="resume-work-heading" className="text-base font-semibold text-editor-text">Recent projects</h2>
+              <button
+                type="button"
+                onClick={() => void onLoadProject()}
+                disabled={workflowPending}
+                className="start-utility-button start-open-project"
+              >
+                <FileInput className="h-4 w-4" aria-hidden="true" />
+                Open Project
+              </button>
+            </div>
+            {!recoveryCandidate && !recoveryError && recentProjects.length === 0 && (
+              <p className="mt-2 text-sm text-editor-text-muted">Projects you save or open will appear here.</p>
+            )}
+            {recoveryCandidate && (
+              <div className="mt-3 rounded-lg border border-editor-warning/30 bg-editor-warning/10 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-editor-warning" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-editor-text">Recover your last session</div>
+                    <div className="mt-1 truncate text-[11px] text-editor-text-muted" title={recoveryCandidate.videoPath}>
+                      {recoveryCandidate.videoPath.split(/[\\/]/).pop()} · Autosaved {new Date(recoveryCandidate.modifiedAt).toLocaleString()}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        key={path}
-                        onClick={() => void onRecoverAutosave(recoveryCandidate, index)}
+                        onClick={() => void onRecoverAutosave(recoveryCandidate)}
+                        className="rounded bg-editor-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-editor-accent-hover"
+                      >
+                        Recover
+                      </button>
+                      {getAutosaveEarlierPaths(recoveryCandidate).map(({ path, index }) => (
+                        <button
+                          type="button"
+                          key={path}
+                          onClick={() => void onRecoverAutosave(recoveryCandidate, index)}
+                          className="rounded bg-editor-surface px-3 py-1.5 text-xs text-editor-text-muted hover:text-editor-text"
+                        >
+                          Earlier {index}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={onDismissRecovery}
                         className="rounded bg-editor-surface px-3 py-1.5 text-xs text-editor-text-muted hover:text-editor-text"
                       >
-                        Earlier {index}
+                        Dismiss
                       </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={onDismissRecovery}
-                      className="rounded bg-editor-surface px-3 py-1.5 text-xs text-editor-text-muted hover:text-editor-text"
-                    >
-                      Dismiss
-                    </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-          {recentProjects.length > 0 && (
-            <div className={recoveryCandidate ? 'mt-4' : 'mt-3'}>
-              <h3 className="text-xs font-medium text-editor-text">Recent projects</h3>
-              <div className="mt-2 space-y-1">
+            )}
+
+            {recoveryError && <CreatorNotice className="mt-3" notice={getCreatorErrorPresentation('recovery', recoveryError)} />}
+            {recentProjects.length > 0 && (
+              <div className="mt-2">
                 {recentProjects.map((project) => (
                   <button
                     type="button"
                     key={project.path}
                     onClick={() => void onOpenRecentProject(project)}
-                    className="flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left hover:bg-editor-bg"
+                    className="start-project-row"
                     title={project.path}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs text-editor-text">{project.videoPath.split(/[\\/]/).pop()}</span>
-                      <span className="block truncate text-[10px] text-editor-text-muted">
+                    <FileInput className="h-4 w-4 shrink-0 text-editor-text-muted" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-editor-text">{project.videoPath.split(/[\\/]/).pop()}</span>
+                      <span className="mt-0.5 block truncate text-xs text-editor-text-muted">
                         {project.source === 'autosave' ? 'Recovered snapshot' : 'Saved project'} · {new Date(project.modifiedAt).toLocaleString()}
                       </span>
                     </span>
-                    <FileInput className="h-3.5 w-3.5 shrink-0 text-editor-text-muted" aria-hidden="true" />
+                    <ArrowRight className="h-4 w-4 shrink-0 text-editor-text-muted" aria-hidden="true" />
                   </button>
                 ))}
               </div>
-            </div>
+            )}
+          </section>
+        )}
+
+        <div className="start-setup">
+          <SetupStatusCard
+            readiness={readiness}
+            checks={systemChecks?.checks}
+            backendStartupError={backendStartupError}
+            systemChecksError={systemChecksError}
+            detailsOpen={setupDetailsOpen}
+            setupButtonRef={setupButtonRef}
+            onToggleSetup={setupDetailsOpen ? dismissSetupDetails : showSetupDetails}
+          />
+          {setupDetailsOpen && (
+            <FirstRunChecklist
+              checks={systemChecks?.checks}
+              error={backendStartupError || systemChecksError}
+              loading={isCheckingSystem}
+              isElectron={isElectron}
+              readiness={readiness}
+              onRefresh={onRefreshSetup}
+              onDismiss={dismissSetupDetails}
+              headingRef={setupHeadingRef}
+            />
           )}
-        </section>
-      )}
-
-      <SetupStatusCard
-        readiness={readiness}
-        checks={systemChecks?.checks}
-        backendStartupError={backendStartupError}
-        systemChecksError={systemChecksError}
-        isElectron={isElectron}
-        onShowSetup={showSetupDetails}
-      />
-
-      {setupDetailsOpen && (
-        <FirstRunChecklist
-          checks={systemChecks?.checks}
-          error={backendStartupError || systemChecksError}
-          loading={isCheckingSystem}
-          isElectron={isElectron}
-          readiness={readiness}
-          onRefresh={onRefreshSetup}
-          onDismiss={dismissSetupDetails}
-          headingRef={setupHeadingRef}
-        />
-      )}
-
-      <AdvancedTranscriptionSettings
-        transcriptionEngine={transcriptionEngine}
-        setTranscriptionEngine={setTranscriptionEngine}
-        transcriptionModel={transcriptionModel}
-        setTranscriptionModel={setTranscriptionModel}
-        transcriptionEngineStatus={transcriptionEngineStatus}
-      />
+          <AdvancedTranscriptionSettings
+            transcriptionEngine={transcriptionEngine}
+            setTranscriptionEngine={setTranscriptionEngine}
+            transcriptionModel={transcriptionModel}
+            setTranscriptionModel={setTranscriptionModel}
+            transcriptionEngineStatus={transcriptionEngineStatus}
+          />
+        </div>
+      </main>
     </div>
+  );
+}
+
+function TranscriptExample() {
+  return (
+    <figure className="start-example">
+      <figcaption>
+        <AudioLines className="h-4 w-4 text-editor-accent" aria-hidden="true" />
+        <span>Transcript preview<span className="sr-only"> showing a filler word marked for removal</span></span>
+        <span className="ml-auto text-editor-text-muted">Example</span>
+      </figcaption>
+      <div className="start-example-body" aria-hidden="true">
+        <div className="start-example-frame">
+          <img src="./brand/interview-example.webp" alt="" width={540} height={360} />
+          <span>00:08</span>
+        </div>
+        <div className="start-example-transcript">
+          <p><span>00:04</span> I recorded the whole conversation.</p>
+          <p className="start-example-active"><span>00:08</span> <s>Um,</s> here’s what stood out.</p>
+          <p><span>00:12</span> That part is worth sharing.</p>
+        </div>
+      </div>
+    </figure>
   );
 }
 
@@ -346,59 +377,65 @@ function SetupStatusCard({
   checks,
   backendStartupError,
   systemChecksError,
-  isElectron,
-  onShowSetup,
+  detailsOpen,
+  setupButtonRef,
+  onToggleSetup,
 }: {
   readiness: CoreReadiness;
   checks?: Record<string, SystemCheck>;
   backendStartupError: string;
   systemChecksError: string;
-  isElectron: boolean;
-  onShowSetup: () => void;
+  detailsOpen: boolean;
+  setupButtonRef: RefObject<HTMLButtonElement | null>;
+  onToggleSetup: () => void;
 }) {
   const blockers = getCoreReadinessBlockers(checks);
   const isBlocked = readiness === 'needs-setup';
-  const title = readiness === 'ready' ? '✓ Ready to edit' : readiness === 'needs-setup' ? '⚠ Setup needs attention' : 'Checking setup';
+  const checkFailed = Boolean(systemChecksError) && readiness !== 'ready' && !isBlocked;
+  const title = readiness === 'ready'
+    ? 'Ready to edit'
+    : isBlocked ? 'Setup needs attention' : checkFailed ? 'Setup check unavailable' : 'Checking setup';
   const detail = backendStartupError
-    ? 'ScriptCut couldn’t start its editing service. Open Setup Check to see what needs attention, then restart ScriptCut.'
+    ? 'ScriptCut couldn’t start its editing service.'
     : blockers.includes('backend') || blockers.includes('python')
       ? 'Local editing needs setup before you can start.'
       : blockers.includes('transcription')
         ? 'Transcription needs setup before you can edit a video.'
         : blockers.includes('ffmpeg')
           ? 'Export needs setup before you can finish a video.'
-          : systemChecksError
-            ? 'Setup checks could not finish. Review the details when needed.'
-            : readiness === 'ready'
-              ? 'Core editing and export tools are available.'
-              : 'Checking the core editing and export tools.';
+          : null;
+  const StatusIcon = readiness === 'ready' ? CheckCircle : isBlocked || checkFailed ? AlertTriangle : Loader2;
 
   return (
-    <section
-      className={`w-full max-w-xl rounded-lg border p-3 ${isBlocked ? 'border-editor-warning/40 bg-editor-warning/10' : 'border-editor-border bg-editor-surface'}`}
-      aria-labelledby="setup-status-heading"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 id="setup-status-heading" className={`text-sm font-medium ${isBlocked ? 'text-editor-warning' : 'text-editor-text'}`}>
-            {title}
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-editor-text-muted">{detail}</p>
-          {!isElectron && <p className="mt-1 text-[11px] leading-4 text-editor-text-muted">Desktop is recommended for native file access, autosave and direct exports.</p>}
+    <section className="start-setup-status" aria-labelledby="setup-status-heading">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <StatusIcon
+          className={'h-4 w-4 shrink-0 ' + (
+            readiness === 'ready' ? 'text-editor-success' : isBlocked || checkFailed ? 'text-editor-warning' : 'motion-safe:animate-spin text-editor-text-muted'
+          )}
+          aria-hidden="true"
+        />
+        <div role="status">
+          <h2 id="setup-status-heading" className="text-sm font-medium text-editor-text">{title}</h2>
+          {detail && <p className="mt-0.5 text-xs text-editor-text-muted">{detail}</p>}
         </div>
-        <button
-          type="button"
-          onClick={onShowSetup}
-          className="shrink-0 rounded bg-editor-border px-3 py-1.5 text-xs font-medium text-editor-text-muted hover:bg-editor-bg hover:text-editor-text"
-        >
-          {isBlocked ? 'Fix Setup' : 'Setup details'}
-        </button>
       </div>
+      <button
+        type="button"
+        ref={setupButtonRef}
+        onClick={onToggleSetup}
+        aria-expanded={detailsOpen}
+        aria-controls={detailsOpen ? 'setup-details' : undefined}
+        className="start-utility-button shrink-0"
+      >
+        {isBlocked && !detailsOpen ? 'Fix Setup' : 'Setup details'}
+        <ChevronDown className={'h-4 w-4 ' + (detailsOpen ? 'rotate-180' : '')} aria-hidden="true" />
+      </button>
     </section>
   );
 }
 
-function FirstRunChecklist({
+export function FirstRunChecklist({
   checks,
   error,
   loading,
@@ -415,7 +452,7 @@ function FirstRunChecklist({
   readiness: CoreReadiness;
   onRefresh: () => void;
   onDismiss: () => void;
-  headingRef: RefObject<HTMLHeadingElement | null>;
+  headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const rows = [
     checks?.backend || {
@@ -448,14 +485,20 @@ function FirstRunChecklist({
   };
 
   return (
-    <section className="w-full max-w-xl rounded-lg border border-editor-border bg-editor-surface p-4 text-left shadow-lg" aria-labelledby="setup-details-heading">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 id="setup-details-heading" ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-editor-text">Setup details</h2>
-          <p className="mt-1 text-xs leading-5 text-editor-text-muted">
-            Review the capabilities needed for editing and export. Optional add-ons can wait.
-          </p>
-        </div>
+    <section
+      id={headingRef ? 'setup-details' : undefined}
+      className={headingRef ? 'rounded-lg border border-editor-border bg-editor-surface p-4 text-left' : undefined}
+      aria-labelledby={headingRef ? 'setup-details-heading' : undefined}
+    >
+      <div className="flex flex-wrap items-start justify-end gap-3">
+        {headingRef && (
+          <div className="mr-auto">
+            <h2 id="setup-details-heading" ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-editor-text">Setup details</h2>
+            <p className="mt-1 text-xs leading-5 text-editor-text-muted">
+              Review the capabilities needed for editing and export. Optional add-ons can wait.
+            </p>
+          </div>
+        )}
         <div className="flex shrink-0 gap-2">
           <button
             type="button"
@@ -471,7 +514,7 @@ function FirstRunChecklist({
             onClick={onDismiss}
             className="rounded bg-editor-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-editor-accent-hover"
           >
-            Hide details
+            {headingRef ? 'Hide details' : 'Close'}
           </button>
         </div>
       </div>
@@ -562,9 +605,9 @@ function AdvancedTranscriptionSettings({
   transcriptionEngineStatus: TranscriptionEngineStatus | null;
 }) {
   return (
-    <details className="w-full max-w-xl rounded border border-editor-border bg-editor-surface px-3 py-2 text-xs text-editor-text-muted">
+    <details className="start-advanced text-xs text-editor-text-muted">
       <summary className="cursor-pointer text-sm font-medium text-editor-text">
-        Advanced transcription · {transcriptionEngine === 'auto' ? 'Automatic — Recommended' : 'Manual selection'}
+        Advanced transcription <span className="font-normal text-editor-text-muted">({transcriptionEngine === 'auto' ? 'Automatic — Recommended' : 'Manual selection'})</span>
       </summary>
       <div className="mt-3 rounded bg-editor-bg px-3 py-2">
         <div className="text-xs font-medium text-editor-text">Automatic — Recommended</div>
@@ -605,13 +648,14 @@ function StartWorkflowButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex min-h-24 items-start gap-2 rounded-md border border-editor-border bg-editor-surface px-3 py-3 text-left text-editor-text transition-colors hover:border-editor-accent/60 hover:bg-editor-bg disabled:cursor-not-allowed disabled:opacity-50"
+      className="start-workflow"
     >
-      <span className="mt-0.5 text-editor-accent">{icon}</span>
-      <span className="min-w-0">
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="mt-0.5 block text-[11px] leading-4 text-editor-text-muted">{detail}</span>
+      <span className="start-workflow-icon">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-base font-semibold text-editor-text">{title}</span>
+        <span className="mt-1 block text-sm leading-5 text-editor-text-muted">{detail}</span>
       </span>
+      <ArrowRight className="start-workflow-arrow h-4 w-4 shrink-0" aria-hidden="true" />
     </button>
   );
 }

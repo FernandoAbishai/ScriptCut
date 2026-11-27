@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState, useRef, type RefObject } from 'react';
 import { useEditorStore } from './store/editorStore';
 import { useAIStore } from './store/aiStore';
 import VideoPlayer from './components/VideoPlayer';
@@ -6,6 +6,7 @@ import TranscriptEditor from './components/TranscriptEditor';
 import WaveformTimeline from './components/WaveformTimeline';
 import EditorTaskHeader from './components/EditorTaskHeader';
 import HomeScreen, {
+  FirstRunChecklist,
   type SystemChecksResponse,
   type WorkflowIntent,
 } from './components/HomeScreen';
@@ -27,6 +28,7 @@ import {
   listAutosaveCandidates,
   listRecentProjects,
   parseProjectFile,
+  normalizeProjectFile,
   removeAutosaveCandidate,
   removeRecentProject,
   rememberRecentProject,
@@ -46,6 +48,7 @@ import {
   CheckCircle,
   LogOut,
   MoreHorizontal,
+  X,
 } from 'lucide-react';
 import { getCoreReadiness } from './utils/homeReadiness';
 import {
@@ -57,6 +60,8 @@ import {
 } from './utils/editorTask';
 import { getCreatorErrorPresentation } from './utils/creatorErrors';
 import { resolveBackendFileUrl } from './utils/backendFile';
+import { appendTranscriptSelectionClipDraft } from './features/clips/clipDraftModel';
+import type { TranscriptSelectionSummary } from './utils/transcriptSelection';
 
 const IS_ELECTRON = !!window.electronAPI;
 const ONBOARDING_DISMISSED_KEY = 'scriptcut.onboarding.dismissed.v1';
@@ -82,9 +87,13 @@ export default function App() {
   } = useEditorStore();
 
   const [activePanel, setActivePanel] = useState<Panel>(null);
+  const [draftToPrepare, setDraftToPrepare] = useState<string | null>(null);
   const [editorWorkflow, setEditorWorkflow] = useState<EditorWorkflow>('full-video');
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showSetupDialog, setShowSetupDialog] = useState(false);
+  const [isOpeningSample, setIsOpeningSample] = useState(false);
+  const [showSampleGuide, setShowSampleGuide] = useState(false);
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>('auto');
   const [transcriptionModel, setTranscriptionModel] = useState(AUTOMATIC_TRANSCRIPTION_MODEL);
   const [transcriptionEngineStatus, setTranscriptionEngineStatus] = useState<TranscriptionEngineStatus | null>(null);
@@ -104,6 +113,7 @@ export default function App() {
   const [autosaveRestoreRequest, setAutosaveRestoreRequest] = useState<{
     data: ReturnType<typeof parseProjectFile>;
     resolve: (restore: boolean) => void;
+    restartLabel: string;
   } | null>(null);
   const [isCheckingSystem, setIsCheckingSystem] = useState(IS_ELECTRON);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
@@ -111,6 +121,8 @@ export default function App() {
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreToolsButtonRef = useRef<HTMLButtonElement>(null);
+  const aiButtonRef = useRef<HTMLButtonElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleTranscriptionCompleted = useCallback((intent: WorkflowIntent | null) => {
     setActivePanel(getPostTranscriptionPanel(intent));
@@ -266,6 +278,8 @@ export default function App() {
 
   const restoreProject = async (data: ReturnType<typeof parseProjectFile>) => {
     invalidateTranscriptionRun();
+    setShowSampleGuide(false);
+    setDraftToPrepare(null);
     setActivePanel(null);
     const videoUrl = await resolveBackendFileUrl(backendUrl, data.videoPath);
     loadProjectState(data, videoUrl);
@@ -277,6 +291,8 @@ export default function App() {
 
   const resetMediaAIWorkspaceForNewMedia = useCallback(() => {
     invalidateTranscriptionRun();
+    setShowSampleGuide(false);
+    setDraftToPrepare(null);
     setActivePanel(null);
     useAIStore.getState().resetMediaAIWorkspace();
     const editorState = useEditorStore.getState();
@@ -486,7 +502,7 @@ export default function App() {
     }
   };
 
-  const tryRestoreAutosave = async (path: string) => {
+  const tryRestoreAutosave = async (path: string, restartLabel = 'Start new transcription') => {
     if (!IS_ELECTRON) return false;
 
     for (const autosavePath of getAutosaveCandidatePaths(path)) {
@@ -496,7 +512,7 @@ export default function App() {
         if (data.videoPath !== path || !Array.isArray(data.words)) continue;
 
         const shouldRestore = await new Promise<boolean>((resolve) => {
-          setAutosaveRestoreRequest({ data, resolve });
+          setAutosaveRestoreRequest({ data, resolve, restartLabel });
         });
         if (!shouldRestore) return false;
 
@@ -510,8 +526,53 @@ export default function App() {
     return false;
   };
 
-  const togglePanel = (panel: Panel) =>
+  const handleOpenSampleProject = async () => {
+    if (!window.electronAPI || isOpeningSample) return;
+    setCreatorNotice(null);
+    setIsOpeningSample(true);
+    try {
+      if (!backendReady) throw new Error('ScriptCut’s editing service is unavailable.');
+      const project = normalizeProjectFile(await window.electronAPI.openSampleProject());
+      const restored = await tryRestoreAutosave(project.videoPath, 'Start sample over');
+      if (!restored) {
+        await restoreProject(project);
+        setEditorWorkflow('full-video');
+      }
+      setShowSampleGuide(true);
+    } catch (error) {
+      setCreatorNotice({
+        tone: 'error',
+        title: 'Couldn’t open the sample project',
+        message: 'Check Setup details, then try opening the sample again.',
+        technicalDetails: error instanceof Error ? error.message : String(error),
+        onDismiss: () => setCreatorNotice(null),
+      });
+    } finally {
+      setIsOpeningSample(false);
+    }
+  };
+
+  const openTranscriptClipDraft = (selection: TranscriptSelectionSummary) => {
+    const { clipDrafts, setClipDrafts } = useAIStore.getState();
+    const next = appendTranscriptSelectionClipDraft(clipDrafts, selection);
+    setClipDrafts(next);
+    setDraftToPrepare(next[next.length - 1].id);
+    setActivePanel('ai');
+  };
+
+  const togglePanel = (panel: Panel) => {
+    setDraftToPrepare(null);
     setActivePanel((prev) => (prev === panel ? null : panel));
+  };
+
+  const closePanel = () => {
+    const trigger = activePanel === 'settings'
+      ? moreToolsButtonRef
+      : activePanel === 'export' ? exportButtonRef : aiButtonRef;
+    setDraftToPrepare(null);
+    setActivePanel(null);
+    trigger.current?.focus();
+  };
 
   const handleExit = () => {
     void window.electronAPI?.quit();
@@ -558,7 +619,7 @@ export default function App() {
     <CreatorDialog
       open={Boolean(autosaveRestoreRequest)}
       title="Autosaved work found"
-      description="ScriptCut found saved work for this media. Restore it or start a new transcription."
+      description="Choose whether to restore your saved changes or start over."
       onClose={() => resolveAutosaveRestore(false)}
     >
       <div className="flex justify-end gap-2">
@@ -567,7 +628,7 @@ export default function App() {
           onClick={() => resolveAutosaveRestore(false)}
           className="rounded border border-editor-border px-3 py-2 text-xs text-editor-text-muted hover:bg-editor-surface"
         >
-          Start new transcription
+          {autosaveRestoreRequest?.restartLabel ?? 'Start new transcription'}
         </button>
         <button
           type="button"
@@ -589,6 +650,8 @@ export default function App() {
         onExit={handleExit}
         onOpenWorkflow={handleStartWorkflow}
         onLoadProject={handleLoadProject}
+        onOpenSample={handleOpenSampleProject}
+        isOpeningSample={isOpeningSample}
         recoveryCandidate={recoveryCandidate}
         recoveryError={recoveryError}
         recentProjects={recentProjects}
@@ -621,7 +684,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-editor-bg overflow-hidden">
+    <div className="editor-workspace">
       {!IS_ELECTRON && (
         <input
           ref={fileInputRef}
@@ -631,18 +694,17 @@ export default function App() {
           onChange={handleBrowserFileChange}
         />
       )}
-      {/* Top bar */}
-      <header className="h-12 flex items-center justify-between px-4 border-b border-editor-border shrink-0">
-        <div className="flex items-center gap-3">
-          <img src="./brand/scriptcut-mark.svg" alt="ScriptCut" className="h-5 w-5" />
+      <header className="workspace-topbar">
+        <div className="flex min-w-0 items-center gap-2">
+          <img src="./brand/scriptcut-mark.svg" alt="ScriptCut" className="h-8 w-8 shrink-0" />
           <div className="min-w-0">
-            <span className="block max-w-[300px] truncate text-sm font-medium">
+            <span className="block truncate text-sm font-semibold" title={videoPath}>
               {videoPath.split(/[\\/]/).pop()}
             </span>
             <AutosaveStatus autosave={autosave} />
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="workspace-actions">
           <ToolbarButton
             icon={<FolderOpen className="w-4 h-4" />}
             label="Open"
@@ -663,7 +725,8 @@ export default function App() {
           />
           <ToolbarButton
             icon={editorWorkflow === 'short' ? <Film className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-            label={editorWorkflow === 'short' ? 'Create Clips' : 'AI'}
+            label={editorWorkflow === 'short' ? 'Create Clips' : 'AI Tools'}
+            buttonRef={aiButtonRef}
             active={activePanel === 'ai'}
             onClick={() => togglePanel('ai')}
             disabled={words.length === 0}
@@ -679,6 +742,7 @@ export default function App() {
             controls="editor-side-panel"
             expanded={activePanel === 'export'}
             dataAction="full-video-export"
+            buttonRef={exportButtonRef}
           />
           <div className="relative">
             <button
@@ -698,7 +762,7 @@ export default function App() {
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {showMoreMenu && (
-              <div id="editor-more-menu" className="absolute right-0 top-10 z-30 w-40 rounded-md border border-editor-border bg-editor-panel p-1 shadow-xl">
+              <div id="editor-more-menu" className="absolute right-0 top-10 z-30 w-40 rounded-md border border-editor-border bg-editor-surface p-1 shadow-xl">
                 <button
                   type="button"
                   onClick={() => {
@@ -716,6 +780,7 @@ export default function App() {
                   onClick={() => {
                     showOnboarding();
                     setShowMoreMenu(false);
+                    setShowSetupDialog(true);
                   }}
                   className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
                 >
@@ -737,19 +802,39 @@ export default function App() {
       </header>
 
       <EditorTaskHeader presentation={taskPresentation} />
+      {showSampleGuide && (
+        <div className="flex shrink-0 items-start gap-2 border-b border-editor-border bg-editor-accent/10 px-4 py-2 text-xs leading-relaxed">
+          <span className="min-w-0 flex-1">
+            <strong className="mr-2 text-editor-text">Sample project</strong>
+            <span className="text-editor-text-muted">
+              {deletedRanges.length === 0
+                ? 'Select “Well,” in the transcript and choose Cut.'
+                : 'Play the edited preview, then choose Export to save a video.'}
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowSampleGuide(false)}
+            className="rounded px-1 text-editor-text-muted hover:text-editor-text"
+            aria-label="Dismiss sample guide"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: video + transcript */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 flex min-h-0">
-            {/* Video player */}
-            <div className="w-1/2 p-3 flex items-center justify-center bg-black/20">
-              <VideoPlayer />
-            </div>
+      <main className="workspace-body" aria-label="Video editor">
+        <div className="workspace-editing">
+          <div className="workspace-panes">
+            <section className="workspace-preview" aria-labelledby="workspace-preview-heading">
+              <h2 id="workspace-preview-heading" className="workspace-pane-heading">Preview</h2>
+              <div className="min-h-0 flex-1">
+                <VideoPlayer />
+              </div>
+            </section>
 
-            {/* Transcript */}
-            <div className="w-1/2 border-l border-editor-border flex flex-col min-h-0">
+            <section className="workspace-transcript" aria-labelledby="workspace-transcript-heading">
+              <h2 id="workspace-transcript-heading" className="workspace-pane-heading">Transcript</h2>
               {isTranscribing ? (
                 <TranscriptionStatus
                   isTranscribing
@@ -791,7 +876,7 @@ export default function App() {
                   onStartWithSettings={startTranscriptionWithSettings}
                 />
               ) : words.length > 0 ? (
-                <TranscriptEditor />
+                <TranscriptEditor onDraftClip={openTranscriptClipDraft} />
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
                   <div className="text-sm font-medium text-editor-text">Transcript will appear here</div>
@@ -800,31 +885,67 @@ export default function App() {
                   </p>
                 </div>
               )}
-            </div>
+            </section>
           </div>
-
-          {/* Waveform timeline */}
-          <div className="h-32 border-t border-editor-border shrink-0">
+          <section className="workspace-timeline" aria-label="Timeline">
             <WaveformTimeline />
-          </div>
+          </section>
         </div>
 
-        {/* Right panel (AI / Export / Settings) */}
         {activePanel && (
           <aside
             id="editor-side-panel"
             role="region"
             aria-label={sidePanelLabel}
-            className="w-80 border-l border-editor-border overflow-y-auto shrink-0"
+            className="workspace-inspector"
           >
-            <Suspense fallback={<PanelLoading label={sidePanelLabel} />}>
-              {activePanel === 'ai' && <AIPanel key={workspaceRevision} mode={editorWorkflow === 'short' ? 'clips' : 'general'} />}
-              {activePanel === 'export' && <ExportDialog controller={fullVideoExportController} />}
-              {activePanel === 'settings' && <SettingsPanel />}
-            </Suspense>
+            {activePanel !== 'ai' && (
+              <div className="workspace-inspector-bar">
+                <h2 className="text-sm font-semibold">{activePanel === 'export' ? 'Export Video' : sidePanelLabel}</h2>
+                <button
+                  type="button"
+                  onClick={closePanel}
+                  aria-label={'Close ' + sidePanelLabel}
+                  className="start-utility-button"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            <div className="workspace-inspector-content">
+              <Suspense fallback={<PanelLoading label={sidePanelLabel} />}>
+                {activePanel === 'ai' && <AIPanel
+                  key={workspaceRevision}
+                  mode={editorWorkflow === 'short' ? 'clips' : 'general'}
+                  onClose={closePanel}
+                  draftToPrepare={draftToPrepare}
+                  onDraftClip={openTranscriptClipDraft}
+                />}
+                {activePanel === 'export' && <ExportDialog controller={fullVideoExportController} />}
+                {activePanel === 'settings' && <SettingsPanel />}
+              </Suspense>
+            </div>
           </aside>
         )}
-      </div>
+      </main>
+      <CreatorDialog
+        open={showSetupDialog}
+        title="Setup check"
+        onClose={() => setShowSetupDialog(false)}
+        returnFocusRef={moreToolsButtonRef}
+      >
+        <div className="max-h-[65dvh] overflow-y-auto">
+          <FirstRunChecklist
+            checks={systemChecks?.checks}
+            error={backendStartupError || systemChecksError}
+            loading={isCheckingSystem}
+            isElectron={IS_ELECTRON}
+            readiness={coreReadiness}
+            onRefresh={refreshSystemChecks}
+            onDismiss={() => setShowSetupDialog(false)}
+          />
+        </div>
+      </CreatorDialog>
       {appNotice}
       {autosaveRestoreDialog}
     </div>
@@ -883,6 +1004,7 @@ function ToolbarButton({
   controls,
   expanded,
   dataAction,
+  buttonRef,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -892,23 +1014,23 @@ function ToolbarButton({
   controls?: string;
   expanded?: boolean;
   dataAction?: string;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <button
+      type="button"
+      ref={buttonRef}
       onClick={onClick}
       disabled={disabled}
       title={label}
+      aria-label={label}
       data-export-action={dataAction}
       aria-expanded={controls ? expanded ?? active ?? false : undefined}
       aria-controls={controls}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-        active
-          ? 'bg-editor-accent text-white'
-          : 'text-editor-text-muted hover:text-editor-text hover:bg-editor-surface'
-      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+      className={'workspace-tool' + (active ? ' is-active' : '') + (dataAction ? ' workspace-tool-export' : '')}
     >
       {icon}
-      {label}
+      <span>{label}</span>
     </button>
   );
 }

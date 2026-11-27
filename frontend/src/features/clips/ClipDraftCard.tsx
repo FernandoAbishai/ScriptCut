@@ -105,6 +105,7 @@ export default function ClipDraftCard({
       <div className="flex items-start gap-2">
         <input
           value={draft.title}
+          aria-label="Clip title"
           onChange={(e) => onChange({ title: e.target.value })}
           className="min-w-0 flex-1 rounded border border-editor-border bg-editor-bg px-2 py-1.5 text-xs font-semibold text-editor-text focus:border-editor-accent focus:outline-none"
         />
@@ -1033,6 +1034,7 @@ function MiniSelect({
     <label className="space-y-1 min-w-0">
       <span className="text-[10px] text-editor-text-muted">{label}</span>
       <select
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded border border-editor-border bg-editor-bg px-1.5 py-1 text-[11px] text-editor-text focus:border-editor-accent focus:outline-none"

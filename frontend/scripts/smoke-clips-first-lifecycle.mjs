@@ -22,7 +22,7 @@ assert.match(appSource, /const resetMediaAIWorkspaceForNewMedia = useCallback/);
 assert.match(appSource, /useAIStore\.getState\(\)\.resetMediaAIWorkspace\(\)/);
 assert.match(appSource, /clearClipPresentationPreview\(\)/);
 assert.match(appSource, /setSelectedWordIndices\(\[\]\)/);
-assert.match(appSource, /<AIPanel key=\{workspaceRevision\}/);
+assert.match(appSource, /<AIPanel\s+key=\{workspaceRevision\}/);
 assert.match(appSource, /restoreProject\(data\)/);
 assert.match(appSource, /getProjectWorkflow\(data\.aiWorkspace\)/);
 

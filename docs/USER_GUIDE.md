@@ -1,6 +1,6 @@
 # ScriptCut User Guide
 
-This guide is for creators using the ScriptCut desktop app.
+This guide covers the ScriptCut desktop workspace in the current source tree. Features in a published build are listed in its release notes.
 
 ## What ScriptCut Does
 
@@ -9,11 +9,11 @@ ScriptCut lets you edit spoken video by editing the transcript. Delete words to 
 ## Install the App
 
 1. Use a macOS Apple Silicon Mac (M1 or newer).
-2. [Download the official v0.1.0-alpha.5 Apple Silicon DMG](https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.5/ScriptCut-v0.1.0-alpha.5-arm64.dmg).
+2. [Find the official Apple Silicon DMG and its release notes](https://github.com/FernandoAbishai/ScriptCut/releases).
 3. Open the DMG and move ScriptCut to Applications.
 4. Launch ScriptCut. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway** after confirming you downloaded the official file.
 
-The supported self-contained public-alpha path includes the application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. The published v0.1.0-alpha.5 installer is for macOS Apple Silicon / arm64, is ad-hoc signed, and is not notarized. Older alpha releases may predate this self-contained path; check their release notes before using an older build. ScriptCut downloads and verifies the baseline transcription model on first transcription, then can reuse that verified local model.
+The supported self-contained public-alpha path includes the application runtime, Python runtime, core dependencies, FFmpeg, and FFprobe. Check the release notes for the installer’s platform support, signing and runtime details. ScriptCut downloads and verifies the baseline transcription model on first transcription, then can reuse that verified local model.
 
 ## First Launch
 
@@ -21,24 +21,31 @@ Choose one of the current Home actions:
 
 - **Edit a Video** — Edit spoken video by editing the transcript.
 - **Create Clips** — Find, review and export social-ready moments.
-- **Open Project** — Reopen an existing ScriptCut project.
+- **Open Project** reopens an existing ScriptCut project.
+- **Try sample project** opens a short practice recording with its transcript already loaded.
 
 ScriptCut checks the packaged baseline readiness before you edit. Green checks mean the core workflow is ready; background removal is optional. An AI provider is not required for core transcript editing or export.
+
+## Try the Sample Project
+
+Choose **Try sample project** on Home. Select **Well,** in the transcript and choose **Cut**. Use **Review cuts** to preview or restore it. Play the edited preview, then choose **Export** to save a video. The sample’s transcript ships with the app, so this walkthrough can run before the first model download.
 
 ## Make Your First Edit
 
 1. From Home, click **Edit a Video**.
 2. Choose a video or audio file.
 3. Wait for transcription to finish.
-4. Select words in the transcript.
+4. Select words with the mouse, or Tab to **Transcript words**, use the arrow keys to move the selection and hold Shift to extend it.
 5. Press Delete to cut selected words from the edit.
 6. Press Space to preview playback.
 7. Open **Export**, review the preflight, and click **Export**.
 8. Use **Reveal in Finder** or **Open file** to find the finished file.
 
+Open **Review cuts** to see removed words and their source times. **Preview source** plays just the removed range, and **Restore cut** puts that range back in the edit.
+
 ## Create Clips
 
-Create Clips follows **Find → Review → Prepare → Export**.
+Create Clips follows **Find → Review → Prepare → Export**. To start from the full-video editor, select transcript words and choose **Draft clip**. ScriptCut opens that draft in **Prepare**.
 
 ### Find
 

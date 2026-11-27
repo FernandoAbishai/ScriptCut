@@ -5,6 +5,7 @@ import type { ClipPresentationPreview } from '../utils/clipPresentation';
 import { useAIStore } from './aiStore';
 import { invalidateClipDraftsForTimelineChange } from '../utils/clipDrafts';
 import { collectEditIds, createUniqueEditId, normalizeLoadedEditIds } from '../utils/editIds';
+import { getPlayableSegments } from '../utils/playback';
 import { editorHistoryEqual, partializeEditorHistory, type EditorHistoryState } from '../utils/editorHistory';
 
 interface EditorState {
@@ -30,6 +31,7 @@ interface EditorState {
     play: boolean;
   } | null;
   previewRangeEnd: number | null;
+  previewSourceRange: boolean;
   previewCuts: boolean;
   previewAspectRatio: 'source' | 'vertical' | 'square';
   clipPresentationPreview: ClipPresentationPreview | null;
@@ -53,7 +55,7 @@ interface EditorActions {
   setDuration: (duration: number) => void;
   setIsPlaying: (playing: boolean) => void;
   requestSeek: (time: number, direction?: 'forward' | 'backward', play?: boolean) => void;
-  requestPreviewRange: (start: number, end: number) => void;
+  requestPreviewRange: (start: number, end: number, source?: boolean) => void;
   clearPreviewRange: () => void;
   setPreviewCuts: (enabled: boolean) => void;
   setPreviewAspectRatio: (aspectRatio: EditorState['previewAspectRatio']) => void;
@@ -140,6 +142,7 @@ const initialState: EditorState = {
   isPlaying: false,
   seekRequest: null,
   previewRangeEnd: null,
+  previewSourceRange: false,
   previewCuts: true,
   previewAspectRatio: 'source',
   clipPresentationPreview: null,
@@ -212,6 +215,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       requestSeek: (time, direction = 'forward', play = false) =>
         set((state) => ({
           previewRangeEnd: null,
+          previewSourceRange: false,
           seekRequest: {
             id: (state.seekRequest?.id ?? 0) + 1,
             time,
@@ -219,9 +223,10 @@ export const useEditorStore = create<EditorState & EditorActions>()(
             play,
           },
         })),
-      requestPreviewRange: (start, end) =>
+      requestPreviewRange: (start, end, source = false) =>
         set((state) => ({
           previewRangeEnd: Math.max(start, end),
+          previewSourceRange: source,
           seekRequest: {
             id: (state.seekRequest?.id ?? 0) + 1,
             time: start,
@@ -229,7 +234,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
             play: true,
           },
         })),
-      clearPreviewRange: () => set({ previewRangeEnd: null }),
+      clearPreviewRange: () => set({ previewRangeEnd: null, previewSourceRange: false }),
       setPreviewCuts: (enabled) => set({ previewCuts: enabled }),
       setPreviewAspectRatio: (aspectRatio) => set({ previewAspectRatio: aspectRatio }),
       setClipPresentationPreview: (preview) => set({ clipPresentationPreview: preview }),
@@ -527,33 +532,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         }),
 
       getKeepSegments: () => {
-        const { words, deletedRanges, duration } = get();
-        if (words.length === 0) return [{ start: 0, end: duration }];
-
-        const deletedSet = new Set<number>();
-        for (const range of deletedRanges) {
-          for (const idx of range.wordIndices) deletedSet.add(idx);
-        }
-
-        const segments: Array<{ start: number; end: number }> = [];
-        let segStart: number | null = null;
-
-        for (let i = 0; i < words.length; i++) {
-          if (!deletedSet.has(i)) {
-            if (segStart === null) segStart = words[i].start;
-          } else {
-            if (segStart !== null) {
-              segments.push({ start: segStart, end: words[i - 1].end });
-              segStart = null;
-            }
-          }
-        }
-
-        if (segStart !== null) {
-          segments.push({ start: segStart, end: words[words.length - 1].end });
-        }
-
-        return segments;
+        const { deletedRanges, duration } = get();
+        return getPlayableSegments(duration, deletedRanges);
       },
 
       getMutedRanges: () =>

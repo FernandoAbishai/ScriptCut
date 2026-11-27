@@ -38,7 +38,7 @@ permissions: {}
 jobs:
   build:
     name: Build and attest public unsigned alpha
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
@@ -227,7 +227,7 @@ jobs:
   clean-runner-verify:
     name: Verify bundle on clean native arm64 runner
     needs: build
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 25
     permissions:
       contents: read
@@ -331,7 +331,7 @@ jobs:
     name: Publish verified GitHub prerelease
     if: ${{ inputs.publish == true }}
     needs: [build, clean-runner-verify]
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: write
 

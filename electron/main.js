@@ -311,6 +311,25 @@ ipcMain.handle('app:getInfo', (event) => {
 });
 ipcMain.handle('app:quit', (event) => { assertTrustedSender(event); app.quit(); return true; });
 
+ipcMain.handle('project:openSample', (event) => {
+  assertTrustedSender(event);
+  const sampleRoot = path.join(app.isPackaged ? process.resourcesPath : PROJECT_ROOT, 'samples', 'transcript-basics');
+  const project = JSON.parse(fs.readFileSync(path.join(sampleRoot, 'project.json'), 'utf-8'));
+  const userDataRoot = fs.realpathSync(app.getPath('userData'));
+  const destination = path.join(userDataRoot, 'samples', 'transcript-basics-v1');
+  fs.mkdirSync(destination, { recursive: true, mode: 0o700 });
+  if (fs.realpathSync(destination) !== destination) throw new Error('Sample storage must be a local directory.');
+  const name = 'First-edit.mp4';
+  const copyPath = path.join(destination, name);
+  try {
+    fs.copyFileSync(path.join(sampleRoot, name), copyPath, fs.constants.COPYFILE_EXCL);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+  }
+  if (fs.realpathSync(copyPath) !== copyPath) throw new Error('Sample media must be a local file.');
+  return { ...project, videoPath: mediaReadAllowlist.approve(copyPath) };
+});
+
 ipcMain.handle('project:read', async (event, filePath) => {
   assertTrustedSender(event);
   assertProjectPath(filePath);

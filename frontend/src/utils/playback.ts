@@ -106,7 +106,7 @@ export function previewToSourceTime(
   return segments[segments.length - 1]?.end ?? sourceDuration;
 }
 
-function getPlayableSegments(sourceDuration: number, deletedRanges: TimeRange[]) {
+export function getPlayableSegments(sourceDuration: number, deletedRanges: TimeRange[]) {
   const merged = normalizeDeletedRanges(sourceDuration, deletedRanges);
   const segments: TimeRange[] = [];
   let cursor = 0;

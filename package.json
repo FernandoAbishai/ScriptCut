@@ -76,7 +76,8 @@
     "extraResources": [
       {"from": "backend", "to": "backend", "filter": ["**/*", "!scripts/**", "!**/__pycache__/**", "!**/*.pyc", "!**/*.pyo"]},
       {"from": "build/bin", "to": "bin", "filter": ["**/*"]},
-      {"from": "runtime/models/whisper-base.json", "to": "manifests/model-manifest.json"}
+      {"from": "runtime/models/whisper-base.json", "to": "manifests/model-manifest.json"},
+      {"from": "samples/transcript-basics", "to": "samples/transcript-basics"}
     ],
     "win": {"target": "nsis"},
     "mac": {"target": "dmg", "icon": "build/icon.icns", "electronLanguages": ["en", "en_GB", "es", "es_419"]},
