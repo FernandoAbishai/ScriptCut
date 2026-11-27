@@ -127,7 +127,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(needsList(clean, 'clean-runner-verify').length === 1 && needsList(clean, 'clean-runner-verify')[0] === 'build', 'clean runner must depend on build');
   const publishNeeds = needsList(publish, 'publish');
   assert(publishNeeds.includes('build') && publishNeeds.includes('clean-runner-verify'), 'publish job must depend on build and clean-runner-verify');
-  assert(/runs-on:\s+macos-14/.test(build), 'build runner must be macos-14');
+  assert(/runs-on:\s+macos-15/.test(build), 'build runner must be macos-15');
   assert(/contents:\s+read/.test(build), 'build contents permission must be read');
   assert(/id-token:\s+write/.test(build), 'build id-token permission must be write');
   assert(/attestations:\s+write/.test(build), 'build attestations permission must be write');
@@ -150,7 +150,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   const prepareNotes = stepBlock(build, 'Prepare public release bundle');
   assert(/PUBLISH/.test(prepareNotes) && /--require-release-notes/.test(prepareNotes), 'publication build must require exact curated release notes');
 
-  assert(/runs-on:\s+macos-14/.test(clean), 'clean verification runner must be macos-14');
+  assert(/runs-on:\s+macos-15/.test(clean), 'clean verification runner must be macos-15');
   assert(/uname -m[\s\S]*?arm64/.test(clean) && /node -p process\.arch[\s\S]*?arm64/.test(clean), 'clean runner must verify native macOS arm64');
   assert(/actions\/download-artifact@v4/.test(clean), 'clean runner must download the build artifact');
   assert(/gh attestation verify/.test(clean), 'clean runner attestation verification is missing');
@@ -168,7 +168,7 @@ function validateWorkflowText(text, { candidateWorkflowText = fs.readFileSync(ci
   assert(!/id-token:\s+write|attestations:\s+write/.test(clean), 'clean runner has build-only attestation permissions');
 
   assert(/if:\s+\$\{\{ inputs\.publish == true \}\}/.test(publish), 'publish job is not gated on publish=true');
-  assert(/runs-on:\s+macos-14/.test(publish), 'publish runner must be macos-14 for native DMG verification');
+  assert(/runs-on:\s+macos-15/.test(publish), 'publish runner must be macos-15 for native DMG verification');
   assert(/contents:\s+write/.test(publish), 'publish contents permission is missing');
   assert(!/id-token:\s+write|attestations:\s+write|artifact-metadata:\s+write/.test(publish), 'publish job has unnecessary attestation permissions');
   assert(/PUBLISH_UNSIGNED_ALPHA/.test(publish), 'publication confirmation gate is missing');
