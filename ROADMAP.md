@@ -19,6 +19,17 @@ Focus areas:
 
 This phase builds on the current desktop workflow, local backend, setup assistant, export preflight, job lifecycle, and project recovery foundations. The goal is dependable use, not a larger feature inventory.
 
+## Creator workspace phase
+
+The sample project, keyboard transcript selection, cut review, and direct handoff to Prepare are implemented in the local candidate. Cold and warm model-cache checks passed on Apple Silicon. An unassisted external walkthrough is the next qualification step. [Local qualification record](docs/CREATOR_WORKSPACE_QUALIFICATION.md)
+
+1. **Qualify the first export on an installed Mac.** Use the [external beta checklist](docs/BETA_QUALIFICATION.md) for a clean install, the first transcription model download, a transcript cut, project reopen and a playable export. Record the build tag, Mac model, time to first export and any point where the tester needs help. Repeat with a warm model cache and an existing project.
+2. **Add a guided sample project.** Bundle a short, redistributable spoken recording and an editable transcript. Let a new user preview, cut and export it locally. Verify that the sample opens on a fresh install, edits can be undone and the output plays in a standard media player.
+3. **Make transcript edits easier to review.** Give creators a keyboard path to select words, show each cut with its source time and let them preview or restore it from the review list. Verify that the edited preview, waveform and export agree after cuts and after reopening the project.
+4. **Carry a selected moment into clip preparation.** Open the draft created from a transcript selection in the full-video editor directly in Prepare. Keep it selected through trim, framing and captions. Verify that the source range and draft settings survive Save Project and reopen, and that a failed batch item can be retried on its own.
+
+Use the external first-export sessions to prioritize follow-up work. Capture the step and the first piece of help the tester needed, along with failures that block an export.
+
 ## v0.2 — Repurpose
 
 ### Goal

@@ -27,7 +27,6 @@ import {
   getClipQueueSummary,
   getClipPreviewRange,
   getClipReviewKey,
-  getNewManualClipDrafts,
   getPendingReviewItems,
   getSkippedReviewItems,
   isClipDraftInStage,
@@ -45,8 +44,8 @@ import ClipWorkspaceHeader from '../features/clips/ClipWorkspaceHeader';
 import { useClipReviewActions } from '../features/clips/useClipReviewActions';
 import { useClipExportController } from '../features/clips/useClipExportController';
 import { formatClipTime } from '../features/clips/presentation';
-import { appendDiscoveredClipDrafts, appendTranscriptSelectionClipDraft, createShortsClipDraft, SHORTS_DRAFT_DEFAULTS } from '../features/clips/clipDraftModel';
-import { formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
+import { appendDiscoveredClipDrafts, createShortsClipDraft, SHORTS_DRAFT_DEFAULTS } from '../features/clips/clipDraftModel';
+import { formatSelectionDuration, summarizeWordSelection, type TranscriptSelectionSummary } from '../utils/transcriptSelection';
 import {
   formatPublishingCopy,
   getPathDirectory,
@@ -86,7 +85,14 @@ function getClipMetadataInputFingerprint(draft: ClipDraft, words: Word[]) {
 
 export type AIPanelMode = 'general' | 'clips';
 
-export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
+type AIPanelProps = {
+  mode?: AIPanelMode;
+  onClose: () => void;
+  draftToPrepare: string | null;
+  onDraftClip: (selection: TranscriptSelectionSummary) => void;
+};
+
+export default function AIPanel({ mode = 'general', onClose, draftToPrepare, onDraftClip }: AIPanelProps) {
   const {
     words,
     videoPath,
@@ -166,7 +172,8 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
     stopBatchExport,
     updateClipExportDirectory,
   } = useClipExportController({ setCreatorNotice });
-  const knownClipDraftIdsRef = useRef(new Set(clipDrafts.map((draft) => draft.id)));
+  const preparedDraftRef = useRef<HTMLDivElement>(null);
+  const focusedDraftRef = useRef<string | null>(null);
   const secondaryToolsVisible =
     mode === 'clips' && (showSecondaryTools || activeTab === 'edit' || activeTab === 'filler');
   const isCurrentClipWorkspace = useCallback(
@@ -223,20 +230,21 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
   }, [backendUrl]);
 
   useEffect(() => {
-    const newlyAddedManualDrafts = getNewManualClipDrafts(clipDrafts, knownClipDraftIdsRef.current);
-    for (const draft of clipDrafts) knownClipDraftIdsRef.current.add(draft.id);
-    if (mode !== 'clips' || newlyAddedManualDrafts.length === 0) return;
-
-    const draft = newlyAddedManualDrafts[newlyAddedManualDrafts.length - 1];
+    if (!draftToPrepare) return;
+    setActiveTab('clips');
+    setShowSecondaryTools(false);
     setClipStage('prepare');
-    setActiveClipDraftId(draft.id);
-    setSelectedWordIndices(getWordIndicesForClip(words, draft));
-  }, [clipDrafts, mode, setSelectedWordIndices, words]);
+    setActiveClipDraftId(draftToPrepare);
+  }, [draftToPrepare]);
 
-  const draftSelectedTranscriptClip = useCallback(() => {
-    if (!transcriptSelectionSummary) return;
-    setClipDrafts((current) => appendTranscriptSelectionClipDraft(current, transcriptSelectionSummary));
-  }, [setClipDrafts, transcriptSelectionSummary]);
+  useEffect(() => {
+    if (!draftToPrepare || activeClipDraftId !== draftToPrepare || focusedDraftRef.current === draftToPrepare) return;
+    const card = preparedDraftRef.current;
+    if (!card) return;
+    focusedDraftRef.current = draftToPrepare;
+    card.scrollIntoView({ block: 'nearest' });
+    card.focus({ preventScroll: true });
+  }, [activeClipDraftId, activeTab, clipStage, draftToPrepare]);
 
   const reviewedCount = useMemo(() => {
     if (!fillerResult) return 0;
@@ -1097,6 +1105,14 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
             label="Create Clips"
           />
         )}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={mode === 'clips' ? 'Close Create Clips' : 'Close AI tools'}
+          className="start-utility-button m-1"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
       </div>
       {secondaryToolsVisible && (
         <div className="flex border-b border-editor-border bg-editor-surface/40">
@@ -1405,7 +1421,9 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                 selectedWordCount={transcriptSelectionSummary?.indices.length || 0}
                 selectionDurationLabel={transcriptSelectionSummary ? formatSelectionDuration(transcriptSelectionSummary.duration) : ''}
                 speakerTurnCount={speakerTurnClips.length}
-                onDraftSelection={draftSelectedTranscriptClip}
+                onDraftSelection={() => {
+                  if (transcriptSelectionSummary) onDraftClip(transcriptSelectionSummary);
+                }}
                 onFindWithAI={createClips}
                 onDraftSpeakerTurns={createSpeakerTurnDrafts}
               />
@@ -1453,39 +1471,46 @@ export default function AIPanel({ mode = 'general' }: { mode?: AIPanelMode }) {
                 ) : (
                   <div className="space-y-2">
                     {clipStageDrafts.map((draft) => (
-                      <ClipDraftCard
+                      <div
                         key={draft.id}
-                        draft={draft}
-                        isExporting={exportingDraftId === draft.id}
-                        exportBusy={exportBusy}
-                        exportJob={clipExportJobs[draft.id]}
-                        exportResult={draft.exportPath ? clipExportOutputs[draft.id] : undefined}
-                        backendUrl={backendUrl}
-                        backgroundCapabilities={backgroundCapabilities}
-                        transcriptSnippet={getClipTranscript(words, draft)}
-                        clipWords={words.slice(draft.startWordIndex, draft.endWordIndex + 1)}
-                        activeWordIndex={activeWordIndex}
-                        isActive={activeClipDraftId === draft.id}
-                        exportValidation={validateClipDraftForExport(draft, words, videoPath)}
-                        readinessScore={getClipDraftReadinessScore(draft, words, videoPath)}
-                        onChange={(patch) => changeClipDraft(draft, patch)}
-                        onTrim={(patch) => trimClipDraft(draft, patch)}
-                        onApprove={() => approveClipDraft(draft.id)}
-                        onPrepare={() => prepareClipDraft(draft)}
-                        onPreview={() => handlePreviewClip(draft)}
-                        onExport={() => handleExportDraft(draft)}
-                        onCancelExport={() => cancelDraftExport(draft.id)}
-                        onRetryExport={() => retryDraftExport(draft)}
-                        onGeneratePublishingCopy={() => generatePublishingCopy(draft)}
-                        onCopyPublishingCopy={() => copyPublishingCopy(draft)}
-                        onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
-                        onPreviewHookFrame={(time) => previewHookFrame(time)}
-                        onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
-                        onDuplicate={() => duplicateClipDraft(draft)}
-                        onRemove={() => removeClipDraft(draft.id)}
-                        aiBusy={isProcessing}
-                        isGeneratingPublishingCopy={publishingCopyDraftId === draft.id}
-                      />
+                        ref={draftToPrepare === draft.id ? preparedDraftRef : undefined}
+                        tabIndex={draftToPrepare === draft.id ? -1 : undefined}
+                        role="group"
+                        aria-label={draft.title || 'Clip draft'}
+                      >
+                        <ClipDraftCard
+                          draft={draft}
+                          isExporting={exportingDraftId === draft.id}
+                          exportBusy={exportBusy}
+                          exportJob={clipExportJobs[draft.id]}
+                          exportResult={draft.exportPath ? clipExportOutputs[draft.id] : undefined}
+                          backendUrl={backendUrl}
+                          backgroundCapabilities={backgroundCapabilities}
+                          transcriptSnippet={getClipTranscript(words, draft)}
+                          clipWords={words.slice(draft.startWordIndex, draft.endWordIndex + 1)}
+                          activeWordIndex={activeWordIndex}
+                          isActive={activeClipDraftId === draft.id}
+                          exportValidation={validateClipDraftForExport(draft, words, videoPath)}
+                          readinessScore={getClipDraftReadinessScore(draft, words, videoPath)}
+                          onChange={(patch) => changeClipDraft(draft, patch)}
+                          onTrim={(patch) => trimClipDraft(draft, patch)}
+                          onApprove={() => approveClipDraft(draft.id)}
+                          onPrepare={() => prepareClipDraft(draft)}
+                          onPreview={() => handlePreviewClip(draft)}
+                          onExport={() => handleExportDraft(draft)}
+                          onCancelExport={() => cancelDraftExport(draft.id)}
+                          onRetryExport={() => retryDraftExport(draft)}
+                          onGeneratePublishingCopy={() => generatePublishingCopy(draft)}
+                          onCopyPublishingCopy={() => copyPublishingCopy(draft)}
+                          onCopySocialPackage={(platform) => copySocialPackage(draft, platform)}
+                          onPreviewHookFrame={(time) => previewHookFrame(time)}
+                          onCopyHookFrame={(frame) => copyHookFrameBrief(draft, frame)}
+                          onDuplicate={() => duplicateClipDraft(draft)}
+                          onRemove={() => removeClipDraft(draft.id)}
+                          aiBusy={isProcessing}
+                          isGeneratingPublishingCopy={publishingCopyDraftId === draft.id}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}

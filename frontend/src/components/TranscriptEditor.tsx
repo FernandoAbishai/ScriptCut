@@ -1,18 +1,17 @@
-import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
+import { useCallback, useRef, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAIStore } from '../store/aiStore';
 import { Virtuoso } from 'react-virtuoso';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import { CaptionsOff, ChevronLeft, ChevronRight, Copy, Film, Pencil, Play, RotateCcw, Search, Trash2, UserRoundCheck, VolumeX, Waves, X } from 'lucide-react';
-import { adjustWordSelectionBoundary, formatSelectionDuration, summarizeWordSelection } from '../utils/transcriptSelection';
+import { adjustWordSelectionBoundary, formatSelectionDuration, moveTranscriptSelection, summarizeWordSelection, type TranscriptSelectionSummary } from '../utils/transcriptSelection';
 import { findTranscriptMatches } from '../utils/transcriptSearch';
 import { formatSpeakerDuration, getSpeakerStats } from '../utils/speakerStats';
-import { appendTranscriptSelectionClipDraft } from '../features/clips/clipDraftModel';
 import CreatorDialog from './CreatorDialog';
 import CreatorNotice, { type CreatorNoticeData } from './CreatorNotice';
 import { getCreatorErrorPresentation } from '../utils/creatorErrors';
 
-export default function TranscriptEditor() {
+export default function TranscriptEditor({ onDraftClip }: { onDraftClip: (selection: TranscriptSelectionSummary) => void }) {
   const words = useEditorStore((s) => s.words);
   const segments = useEditorStore((s) => s.segments);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
@@ -34,7 +33,8 @@ export default function TranscriptEditor() {
   const restoreEditOperation = useEditorStore((s) => s.restoreEditOperation);
   const requestSeek = useEditorStore((s) => s.requestSeek);
   const requestPreviewRange = useEditorStore((s) => s.requestPreviewRange);
-  const setClipDrafts = useAIStore((s) => s.setClipDrafts);
+  const clearClipPresentationPreview = useEditorStore((s) => s.clearClipPresentationPreview);
+  const clipExportRunning = useAIStore((s) => s.clipDrafts.some((draft) => draft.status === 'exporting'));
 
   const selectionStart = useRef<number | null>(null);
   const wasDragging = useRef(false);
@@ -43,9 +43,13 @@ export default function TranscriptEditor() {
   const selectedSegmentIndexRef = useRef(-1);
   const userScrollPauseUntilRef = useRef(0);
   const userScrollTimerRef = useRef(0);
+  const cutReviewButtonRef = useRef<HTMLButtonElement>(null);
+  const keyboardSelection = useRef<ReturnType<typeof moveTranscriptSelection>>(null);
   const renameSpeakerButtonRef = useRef<HTMLButtonElement>(null);
   const deleteSpeakerButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [cutReviewOpen, setCutReviewOpen] = useState(false);
+  const [keyboardFeedback, setKeyboardFeedback] = useState('');
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [speakerNameDraft, setSpeakerNameDraft] = useState('');
@@ -90,10 +94,10 @@ export default function TranscriptEditor() {
       .filter(({ segment }) => segment.speaker === speakerFilter || segment.words.some((word) => word.speaker === speakerFilter));
   }, [segments, speakerFilter]);
 
-  const visibleWordCount = useMemo(() => {
-    if (speakerFilter === 'all') return words.length;
-    return words.filter((word) => word.speaker === speakerFilter).length;
-  }, [speakerFilter, words]);
+  const visibleWordIndices = useMemo(() => words.flatMap((word, index) =>
+    speakerFilter === 'all' || word.speaker === speakerFilter ? [index] : [],
+  ), [speakerFilter, words]);
+  const visibleWordCount = visibleWordIndices.length;
   const nonDeleteLayerCount = useMemo(
     () => editOperations.filter((operation) => operation.kind !== 'delete').length,
     [editOperations],
@@ -193,6 +197,36 @@ export default function TranscriptEditor() {
     },
     [],
   );
+
+  const handleTranscriptKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === 'Escape' && selectedWordIndices.length > 0) {
+      event.preventDefault();
+      setSelectedWordIndices([]);
+      setKeyboardFeedback('Selection cleared');
+      return;
+    }
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const prior = keyboardSelection.current?.indices === selectedWordIndices ? keyboardSelection.current : null;
+    const cursor = prior?.cursor ?? selectedWordIndices[0] ?? activeWordIndex;
+    const next = moveTranscriptSelection(
+      visibleWordIndices, cursor, prior?.anchor ?? cursor,
+      event.key === 'ArrowLeft' ? -1 : 1, event.shiftKey,
+    );
+    if (!next) return;
+    keyboardSelection.current = next;
+    pauseAutoScroll();
+    setSelectedWordIndices(next.indices);
+    setKeyboardFeedback(next.indices.length === 1
+      ? 'Selected ' + words[next.cursor].word
+      : next.indices.length + ' words selected, ending at ' + words[next.cursor].word);
+    requestSeek(words[next.cursor].start, 'forward', false);
+    const segmentIndex = visibleSegments.findIndex(({ segment }) =>
+      next.cursor >= segment.globalStartIndex && next.cursor < segment.globalStartIndex + segment.words.length,
+    );
+    if (segmentIndex >= 0) virtuosoRef.current?.scrollIntoView({ index: segmentIndex });
+  };
 
   const handleWordMouseDown = useCallback(
     (index: number, e: React.MouseEvent) => {
@@ -321,21 +355,21 @@ export default function TranscriptEditor() {
 
   const draftClipFromSelection = useCallback(() => {
     if (!selectionSummary) return;
-    setClipDrafts((current) => appendTranscriptSelectionClipDraft(current, selectionSummary));
-  }, [selectionSummary, setClipDrafts]);
+    onDraftClip(selectionSummary);
+  }, [onDraftClip, selectionSummary]);
 
   const renderSegment = useCallback(
     (index: number) => {
       const segment = visibleSegments[index]?.segment;
       if (!segment) return null;
       return (
-        <div className="mb-3 px-4">
+        <div className="workspace-transcript-segment">
           {segment.speaker && (
-            <div className="text-xs text-editor-accent font-medium mb-1">
+            <div className="workspace-speaker">
               {segment.speaker}
             </div>
           )}
-          <p className="text-sm leading-relaxed flex flex-wrap">
+          <p className="flex flex-wrap text-[15px] leading-[1.75]">
             {segment.words.map((word, localIndex) => {
               const globalIndex = (segment.globalStartIndex ?? 0) + localIndex;
               if (speakerFilter !== 'all' && word.speaker !== speakerFilter) return null;
@@ -411,11 +445,19 @@ export default function TranscriptEditor() {
     <>
       {creatorNotice && <CreatorNotice notice={creatorNotice} className="mx-4 mt-2" />}
       <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-editor-border shrink-0">
-        <span className="text-xs text-editor-text-muted mr-auto">
-          {visibleWordCount} words &middot; {deletedRanges.length} cuts &middot; {nonDeleteLayerCount} layers
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-y border-editor-border px-3 py-2">
+        <span className="mr-auto text-xs tabular-nums text-editor-text-muted">
+          {visibleWordCount} words &middot; {nonDeleteLayerCount} layers
         </span>
-        <div className="flex min-w-[16rem] items-center gap-1 rounded border border-editor-border bg-editor-surface px-2 py-1">
+        <button
+          ref={cutReviewButtonRef}
+          type="button"
+          onClick={() => setCutReviewOpen(true)}
+          className="rounded border border-editor-border bg-editor-surface px-2 py-1 text-xs text-editor-text-muted hover:text-editor-text"
+        >
+          Review cuts {deletedRanges.length > 0 && '(' + deletedRanges.length + ')'}
+        </button>
+        <div className="workspace-transcript-search">
           <Search className="h-3.5 w-3.5 text-editor-text-muted" />
           <input
             value={searchQuery}
@@ -428,7 +470,7 @@ export default function TranscriptEditor() {
             }}
             placeholder="Search transcript"
             aria-label="Search transcript"
-            className="min-w-0 flex-1 bg-transparent text-xs text-editor-text placeholder:text-editor-text-muted/50 focus:outline-none"
+            className="min-w-0 flex-1 bg-transparent text-sm text-editor-text placeholder:text-editor-text-muted focus:outline-none"
           />
           {searchQuery && (
             <>
@@ -679,8 +721,17 @@ export default function TranscriptEditor() {
         </div>
       )}
 
+      <p id="transcript-keyboard-help" className="px-3 pt-2 text-xs text-editor-text-muted">
+        Arrow keys select words. Hold Shift to extend.
+      </p>
+      <span role="status" className="sr-only">{keyboardFeedback}</span>
       <div
-        className="flex-1 min-h-0 select-none"
+        className="min-h-0 flex-1 select-none pt-3 focus-visible:outline-offset-[-3px]"
+        tabIndex={0}
+        role="region"
+        aria-label="Transcript words"
+        aria-describedby="transcript-keyboard-help"
+        onKeyDown={handleTranscriptKey}
         onMouseUp={handleMouseUp}
         onMouseDown={pauseAutoScroll}
         onWheel={pauseAutoScroll}
@@ -696,6 +747,65 @@ export default function TranscriptEditor() {
         />
       </div>
       </div>
+
+      <CreatorDialog
+        open={cutReviewOpen}
+        title="Review cuts"
+        description="Preview the removed source audio or restore a cut to the edit."
+        onClose={() => setCutReviewOpen(false)}
+        returnFocusRef={cutReviewButtonRef}
+      >
+        {cutReviewOpen && (deletedRanges.length === 0 ? (
+          <p className="mb-4 text-sm text-editor-text-muted">Select transcript words and choose Cut to see them here.</p>
+        ) : (
+          <ul className="mb-4 max-h-[55dvh] space-y-2 overflow-y-auto">
+            {[...deletedRanges].sort((a, b) => a.start - b.start).map((range) => {
+              const start = formatCutSourceTime(range.start);
+              const end = formatCutSourceTime(range.end);
+              const removed = range.wordIndices.map((index) => words[index]?.word).filter(Boolean).join(' ');
+              return (
+                <li key={range.id} className="rounded border border-editor-border bg-editor-bg p-3">
+                  <p className="font-mono text-xs text-editor-text-muted">{start} to {end}</p>
+                  {removed && <p className="mt-1 max-h-24 overflow-y-auto text-sm">{removed}</p>}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCutReviewOpen(false);
+                        clearClipPresentationPreview();
+                        requestPreviewRange(range.start, range.end, true);
+                      }}
+                      aria-label={'Preview removed words at ' + start}
+                      className="start-utility-button"
+                    >
+                      <Play className="h-4 w-4" aria-hidden="true" /> Preview source
+                    </button>
+                    <button
+                      type="button"
+                      disabled={clipExportRunning}
+                      onClick={() => {
+                        restoreRange(range.id);
+                        setCutReviewOpen(false);
+                      }}
+                      aria-label={'Restore cut at ' + start}
+                      className="start-utility-button"
+                    >
+                      <RotateCcw className="h-4 w-4" aria-hidden="true" /> Restore cut
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ))}
+        <button
+          type="button"
+          onClick={() => setCutReviewOpen(false)}
+          className="rounded border border-editor-border px-3 py-2 text-xs text-editor-text-muted hover:text-editor-text"
+        >
+          Close
+        </button>
+      </CreatorDialog>
 
       <CreatorDialog
         open={renameDialogOpen}
@@ -747,4 +857,10 @@ function formatTranscriptTime(seconds: number) {
   const mins = Math.floor(safeSeconds / 60);
   const secs = Math.floor(safeSeconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatCutSourceTime(seconds: number) {
+  const tenths = Math.floor(Math.max(0, seconds) * 10);
+  return Math.floor(tenths / 600) + ':' +
+    Math.floor(tenths / 10 % 60).toString().padStart(2, '0') + '.' + tenths % 10;
 }

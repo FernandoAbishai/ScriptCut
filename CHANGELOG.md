@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## v0.1.0-alpha.7
+
+### Added
+
+- Try a sample project with an included recording and editable transcript before downloading a transcription model.
+- Select transcript words with the arrow keys and Shift. Review cuts by source time, play the removed range, or restore the cut.
+
+### Changed
+
+- A clearer start screen puts editing, clip creation, recent projects, and recovery within reach.
+- The editor gives the transcript more room and keeps it usable alongside the preview and clips panel at the minimum desktop window size.
+- Draft clip opens the selected moment directly in Prepare so you can adjust the range, framing, and captions.
+
+### Fixed
+
+- Full-video export and preview use the same retained source ranges. Exports with transcript cuts re-encode for accurate cut boundaries.
+- The waveform marks cut ranges once, including after reopening a saved project.
+- Playback shortcuts respect keyboard activation on focused controls.
+
+### Current alpha notes
+
+- This prerelease is for Apple Silicon Macs. It is ad-hoc signed and unnotarized, so macOS may ask for **Open Anyway** approval.
+- Importing your first recording downloads and verifies the local transcription model. The included sample has its transcript ready to edit.
+
 ## v0.1.0-alpha.6
 
 ### Added

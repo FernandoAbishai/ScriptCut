@@ -25,6 +25,7 @@ run(module.exports, module, require);
 const {
   getPlaybackTimeState,
   getPlayableSeekTime,
+  getPlayableSegments,
   getPreviewDuration,
   previewToSourceTime,
   sourceToPreviewTime,
@@ -35,6 +36,14 @@ const deletedRanges = [
   { start: 14, end: 16 },
 ];
 
+assert.deepEqual(getPlayableSegments(20, []), [{ start: 0, end: 20 }]);
+assert.deepEqual(getPlayableSegments(20, [{ start: 0, end: 1.02 }]), [{ start: 1.02, end: 20 }]);
+assert.deepEqual(getPlayableSegments(20, [
+  { start: 7, end: 10 },
+  { start: 5, end: 8 },
+  { start: 18, end: 25 },
+]), [{ start: 0, end: 5 }, { start: 10, end: 18 }]);
+assert.match(editorStoreSource, /return getPlayableSegments\(duration, deletedRanges\)/);
 assert.equal(getPreviewDuration(20, deletedRanges, true), 15);
 assert.equal(sourceToPreviewTime(10, 20, deletedRanges, true), 7);
 assert.equal(previewToSourceTime(7, 20, deletedRanges, true), 10);
@@ -58,8 +67,10 @@ assert.doesNotMatch(panelSource, /requestSeek\(clip\.startTime/);
 assert.match(panelSource, /const activeReviewPreviewKey =\s*isPlaying && previewRangeEnd !== null \? activeClipPreviewKey : null/);
 assert.match(panelSource, /activePreviewKey=\{activeReviewPreviewKey\}/);
 assert.doesNotMatch(panelSource, /activePreviewKey=\{activeClipPreviewKey\}/);
-assert.match(editorStoreSource, /requestPreviewRange: \(start, end\)/);
+assert.match(editorStoreSource, /requestPreviewRange: \(start, end, source = false\)/);
 assert.match(editorStoreSource, /previewRangeEnd: Math\.max\(start, end\)/);
+assert.match(editorStoreSource, /previewSourceRange: source/);
+assert.match(videoSyncSource, /s\.previewCuts && !s\.previewSourceRange/);
 assert.match(editorStoreSource, /play: true/);
 assert.match(editorStoreSource, /requestSeek: \(time, direction = 'forward', play = false\)/);
 assert.match(editorStoreSource, /previewRangeEnd: null/);

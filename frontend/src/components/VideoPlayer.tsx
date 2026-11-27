@@ -4,7 +4,7 @@ import { useVideoSync } from '../hooks/useVideoSync';
 import { getPlaybackTimeState, previewToSourceTime } from '../utils/playback';
 import { getCapturedSourceAspectRatio, getClipFramePreviewStyle } from '../utils/clipPresentation';
 import ClipPresentationOverlay, { type BurnInCapability } from './ClipPresentationOverlay';
-import { Play, Pause, Scissors, SkipBack, SkipForward, Volume2 } from 'lucide-react';
+import { Play, Pause, Scissors, SkipBack, SkipForward } from 'lucide-react';
 
 const SAFE_SOURCE_ASPECT_RATIO = 16 / 9;
 
@@ -16,7 +16,9 @@ export default function VideoPlayer() {
   const words = useEditorStore((s) => s.words);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
   const editOperations = useEditorStore((s) => s.editOperations);
-  const previewCuts = useEditorStore((s) => s.previewCuts);
+  const editedPreviewEnabled = useEditorStore((s) => s.previewCuts);
+  const previewSourceRange = useEditorStore((s) => s.previewSourceRange);
+  const previewCuts = editedPreviewEnabled && !previewSourceRange;
   const previewAspectRatio = useEditorStore((s) => s.previewAspectRatio);
   const previewReframe = useEditorStore((s) => s.exportOptions.reframe || { x: 50, y: 50 });
   const clipPresentationPreview = useEditorStore((s) => s.clipPresentationPreview);
@@ -35,6 +37,7 @@ export default function VideoPlayer() {
     deletedRanges.length > 0 ||
     editOperations.some((operation) => operation.kind === 'mute' || operation.kind === 'room-tone');
   const playbackState = getPlaybackTimeState(displayTime, duration, deletedRanges, previewCuts);
+  const progressPercent = playbackState.progress * 100;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -86,16 +89,6 @@ export default function VideoPlayer() {
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
-
-  const handleProgressClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      const targetPreviewTime = ratio * playbackState.previewDuration;
-      seekTo(previewToSourceTime(targetPreviewTime, duration, deletedRanges, previewCuts));
-    },
-    [seekTo, duration, deletedRanges, previewCuts, playbackState.previewDuration],
-  );
 
   const skip = useCallback(
     (delta: number) => {
@@ -193,20 +186,28 @@ export default function VideoPlayer() {
         )}
       </div>
 
-      <div className="pt-2 space-y-1.5 shrink-0">
-        <div
-          className="h-1.5 bg-editor-border rounded-full cursor-pointer group"
-          onClick={handleProgressClick}
-        >
-          <div
-            className="h-full bg-editor-accent rounded-full relative transition-all group-hover:h-2"
-            style={{ width: `${playbackState.progress * 100}%` }}
-          >
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-        </div>
+      <div className="shrink-0 pt-1.5">
+        <input
+          className="workspace-seek"
+          style={{
+            backgroundImage: `linear-gradient(to right, var(--workspace-focus) ${progressPercent}%, var(--workspace-line) ${progressPercent}%)`,
+          }}
+          type="range"
+          min={0}
+          max={playbackState.previewDuration}
+          step="0.1"
+          value={playbackState.previewTime}
+          disabled={playbackState.previewDuration === 0}
+          aria-label="Playback position"
+          aria-valuetext={formatTime(playbackState.previewTime) + ' of ' + formatTime(playbackState.previewDuration)}
+          onChange={(event) => {
+            const time = event.currentTarget.valueAsNumber;
+            const sourceTime = previewToSourceTime(time, duration, deletedRanges, previewCuts);
+            seekTo(sourceTime, time < playbackState.previewTime ? 'backward' : 'forward');
+          }}
+        />
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div className="flex items-center gap-1">
             <ControlButton onClick={() => skip(-5)} title="Back 5s">
               <SkipBack className="w-4 h-4" />
@@ -218,8 +219,8 @@ export default function VideoPlayer() {
               <SkipForward className="w-4 h-4" />
             </ControlButton>
             <ControlButton
-              onClick={() => setPreviewCuts(!previewCuts)}
-              title={previewCuts ? 'Preview edited playback' : 'Preview original media'}
+              onClick={() => setPreviewCuts(!editedPreviewEnabled)}
+              title="Preview edited playback"
               active={previewCuts}
               disabled={!hasPlaybackEdits}
             >
@@ -227,13 +228,12 @@ export default function VideoPlayer() {
             </ControlButton>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-editor-text-muted">
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-editor-text-muted">
             {hasPlaybackEdits && (
               <span className="hidden sm:inline">
-                {previewCuts ? 'Edited preview' : 'Original playback'}
+                {previewSourceRange ? 'Cut source preview' : previewCuts ? 'Edited preview' : 'Original playback'}
               </span>
             )}
-            <Volume2 className="w-3.5 h-3.5" />
             <span className="font-mono">
               {formatTime(playbackState.previewTime)} / {formatTime(playbackState.previewDuration)}
             </span>
@@ -261,8 +261,11 @@ function ControlButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       disabled={disabled}
       className={`p-1.5 rounded-md transition-colors ${
         primary

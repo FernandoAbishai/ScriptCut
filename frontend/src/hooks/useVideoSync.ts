@@ -5,7 +5,6 @@ import { getPlayableSeekTime, getPreviewAudioLayer, type SeekDirection } from '.
 export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const rafRef = useRef<number>(0);
   const lastPublishedTimeRef = useRef(-1);
-  const lastSeekRequestIdRef = useRef(0);
   const noiseRef = useRef<{
     context: AudioContext;
     source: AudioBufferSourceNode;
@@ -16,8 +15,9 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const deletedRanges = useEditorStore((s) => s.deletedRanges);
   const editOperations = useEditorStore((s) => s.editOperations);
-  const previewCuts = useEditorStore((s) => s.previewCuts);
+  const previewCuts = useEditorStore((s) => s.previewCuts && !s.previewSourceRange);
   const seekRequest = useEditorStore((s) => s.seekRequest);
+  const lastSeekRequestRef = useRef<typeof seekRequest>(null);
   const previewRangeEnd = useEditorStore((s) => s.previewRangeEnd);
   const clearPreviewRange = useEditorStore((s) => s.clearPreviewRange);
 
@@ -159,6 +159,7 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
     video.addEventListener('loadedmetadata', onLoadedMetadata);
+    if (!video.paused && !video.ended) rafRef.current = requestAnimationFrame(syncPreviewFrame);
 
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
@@ -174,8 +175,8 @@ export function useVideoSync(videoRef: React.RefObject<HTMLVideoElement | null>)
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !seekRequest) return;
-    if (seekRequest.id === lastSeekRequestIdRef.current) return;
-    lastSeekRequestIdRef.current = seekRequest.id;
+    if (seekRequest === lastSeekRequestRef.current) return;
+    lastSeekRequestRef.current = seekRequest;
 
     const nextTime = getPlayableSeekTime(
       seekRequest.time,

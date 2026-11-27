@@ -630,6 +630,7 @@ export default function ExportDialog({ controller }: { controller: FullVideoExpo
         },
         body: {
           ...exportOptions,
+          mode: hasCuts ? 'reencode' : exportOptions.mode,
           input_path: videoPath,
           output_path: outputPath || undefined,
           keep_segments: keepSegments,
@@ -680,8 +681,6 @@ export default function ExportDialog({ controller }: { controller: FullVideoExpo
 
   return (
     <div className="p-4 space-y-5">
-      <h3 className="text-sm font-semibold">Export Video</h3>
-
       <div className="space-y-2 rounded border border-editor-border bg-editor-surface p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-editor-text">{readiness.title}</span>

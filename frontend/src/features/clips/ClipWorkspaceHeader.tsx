@@ -19,36 +19,31 @@ export default function ClipWorkspaceHeader({
 }: ClipWorkspaceHeaderProps) {
   return (
     <>
-      <div>
-        <h2 className="text-sm font-semibold text-editor-text">Create Clips</h2>
-        <p className="mt-1 text-xs text-editor-text-muted">
-          Find moments, review suggestions, prepare approved clips, and export the ready results.
-        </p>
-      </div>
-
       <div className="grid grid-cols-4 gap-1" aria-label="Clip workspace stages">
         {([
           { stage: 'find', label: 'Find' },
-          { stage: 'review', label: `Review ${pendingReviewCount}` },
-          { stage: 'prepare', label: `Prepare ${queueSummary.prepare}` },
-          { stage: 'export', label: `Export ${readyCount} ready` },
-        ] as Array<{ stage: ClipWorkspaceStage; label: string }>).map(({ stage: targetStage, label }) => (
+          { stage: 'review', label: 'Review', count: pendingReviewCount },
+          { stage: 'prepare', label: 'Prepare', count: queueSummary.prepare },
+          { stage: 'export', label: 'Export', count: readyCount },
+        ] as Array<{ stage: ClipWorkspaceStage; label: string; count?: number }>).map(({ stage: targetStage, label, count }) => (
           <button
             key={targetStage}
+            type="button"
+            aria-pressed={stage === targetStage}
             onClick={() => onStageChange(targetStage)}
-            className={`rounded px-1.5 py-1.5 text-[10px] font-medium capitalize ${
+            className={`rounded px-1.5 py-1.5 text-xs font-medium ${
               stage === targetStage
-                ? 'bg-editor-accent/20 text-editor-accent'
+                ? 'bg-editor-accent/20 text-editor-text'
                 : 'bg-editor-surface text-editor-text-muted hover:text-editor-text'
             }`}
           >
-            {label}
+            {label}{count ? ' ' + count : ''}
           </button>
         ))}
       </div>
 
       {hasDrafts && (
-        <div className="grid grid-cols-8 gap-1 text-center text-[10px]">
+        <div className="grid grid-cols-4 gap-1 text-center text-[10px]">
           <QueueStat label="Suggested" value={queueSummary.suggested} />
           <QueueStat label="Prepare" value={queueSummary.prepare} />
           <QueueStat label="Copy ready" value={queueSummary.copyReady} />

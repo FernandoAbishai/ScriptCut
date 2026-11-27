@@ -179,8 +179,6 @@ export default function SettingsPanel() {
 
   return (
     <div className="p-4 space-y-6">
-      <h3 className="text-sm font-semibold">Settings</h3>
-
       <section className="space-y-2 rounded-lg border border-editor-border bg-editor-surface p-3" aria-labelledby="settings-ai-heading">
         <div className="flex items-start justify-between gap-3">
           <div>

@@ -116,15 +116,6 @@ export function getClipQueueSummary(
   );
 }
 
-export function getNewManualClipDrafts(
-  drafts: ClipDraft[],
-  knownDraftIds: ReadonlySet<string>,
-): ClipDraft[] {
-  return drafts.filter(
-    (draft) => draft.source === 'transcript-selection' && !knownDraftIds.has(draft.id),
-  );
-}
-
 export type ClipReviewItem = ClipSuggestion;
 
 export function getClipReviewKey(

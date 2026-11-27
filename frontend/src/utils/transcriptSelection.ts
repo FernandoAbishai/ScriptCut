@@ -70,3 +70,24 @@ export function formatSelectionDuration(seconds: number) {
   const tenths = Math.floor((safeSeconds % 1) * 10);
   return mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}.${tenths}` : `${secs}.${tenths}s`;
 }
+
+export function moveTranscriptSelection(
+  visibleIndices: number[],
+  cursor: number,
+  anchor: number,
+  direction: -1 | 1,
+  extend: boolean,
+) {
+  if (visibleIndices.length === 0) return null;
+  const position = visibleIndices.indexOf(cursor);
+  const next = position === -1
+    ? 0
+    : Math.max(0, Math.min(visibleIndices.length - 1, position + direction));
+  const anchorPosition = extend ? visibleIndices.indexOf(anchor) : -1;
+  const fixed = anchorPosition === -1 ? next : anchorPosition;
+  return {
+    cursor: visibleIndices[next],
+    anchor: visibleIndices[fixed],
+    indices: visibleIndices.slice(Math.min(fixed, next), Math.max(fixed, next) + 1),
+  };
+}

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDirectory: (options) => ipcRenderer.invoke('dialog:openDirectory', options),
   saveFile: (options) => ipcRenderer.invoke('dialog:saveFile', options),
   openProject: () => ipcRenderer.invoke('dialog:openProject'),
+  openSampleProject: () => ipcRenderer.invoke('project:openSample'),
   getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
   getBackendFileUrl: (path) => ipcRenderer.invoke('file:getUrl', path),
   getStartupStatus: () => ipcRenderer.invoke('app:getStartupStatus'),

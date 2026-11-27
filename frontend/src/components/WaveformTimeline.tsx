@@ -20,6 +20,7 @@ export default function WaveformTimeline() {
   const editOperations = useEditorStore((s) => s.editOperations);
   const selectedWordIndices = useEditorStore((s) => s.selectedWordIndices);
   const previewCuts = useEditorStore((s) => s.previewCuts);
+  const previewSourceRange = useEditorStore((s) => s.previewSourceRange);
   const currentTime = useEditorStore((s) => s.currentTime);
   const requestSeek = useEditorStore((s) => s.requestSeek);
   const setSelectedWordIndices = useEditorStore((s) => s.setSelectedWordIndices);
@@ -31,7 +32,7 @@ export default function WaveformTimeline() {
   const dragStartTimeRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
   const manualScrollPauseUntilRef = useRef(0);
-  const playbackState = getPlaybackTimeState(currentTime, duration, deletedRanges, previewCuts);
+  const playbackState = getPlaybackTimeState(currentTime, duration, deletedRanges, previewCuts && !previewSourceRange);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
@@ -67,6 +68,7 @@ export default function WaveformTimeline() {
     }
 
     for (const operation of editOperations) {
+      if (operation.kind === 'delete') continue;
       const x1 = (operation.start / timelineDuration) * width;
       const x2 = (operation.end / timelineDuration) * width;
       ctx.fillStyle =
@@ -335,8 +337,8 @@ export default function WaveformTimeline() {
 
   return (
     <div ref={containerRef} className="w-full h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-1 shrink-0">
-        <span className="text-[10px] text-editor-text-muted font-medium uppercase tracking-wider">
+      <div className="flex shrink-0 items-center justify-between px-3 py-1">
+        <span className="text-xs font-semibold text-editor-text">
           Timeline
         </span>
         <div className="flex items-center gap-1">
@@ -346,7 +348,7 @@ export default function WaveformTimeline() {
           <button
             type="button"
             onClick={() => setFollowPlayhead((current) => !current)}
-            className={`p-0.5 ${followPlayhead ? 'text-editor-accent' : 'text-editor-text-muted'} hover:text-editor-text`}
+            className={`rounded p-1 ${followPlayhead ? 'text-editor-accent' : 'text-editor-text-muted'} hover:text-editor-text`}
             title={followPlayhead ? 'Following playhead' : 'Follow playhead'}
             aria-label={followPlayhead ? 'Stop following playhead' : 'Follow playhead'}
             aria-pressed={followPlayhead}
@@ -357,7 +359,7 @@ export default function WaveformTimeline() {
             type="button"
             onClick={() => setZoom((current) => Math.max(1, current - 0.5))}
             disabled={zoom <= 1}
-            className="p-0.5 text-editor-text-muted hover:text-editor-text"
+            className="rounded p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
             title="Zoom out"
             aria-label="Zoom out"
           >
@@ -366,7 +368,7 @@ export default function WaveformTimeline() {
           <button
             type="button"
             onClick={() => setZoom((current) => Math.min(8, current + 0.5))}
-            className="p-0.5 text-editor-text-muted hover:text-editor-text"
+            className="rounded p-1 text-editor-text-muted hover:bg-editor-surface hover:text-editor-text"
             title="Zoom in"
             aria-label="Zoom in"
           >
