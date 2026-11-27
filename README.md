@@ -11,24 +11,21 @@ ScriptCut is an open-source, local-first desktop video production tool for YouTu
 ## Download ScriptCut
 
 <p>
-  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/download/v0.1.0-alpha.6/ScriptCut-v0.1.0-alpha.6-arm64.dmg"><img src="https://img.shields.io/badge/Download%20for%20macOS%20%E2%80%94%20Apple%20Silicon-2f81f7?style=for-the-badge" alt="Download for macOS — Apple Silicon" /></a>
-  <a href="https://github.com/FernandoAbishai/ScriptCut/releases/tag/v0.1.0-alpha.6">Release notes &amp; verification</a>
+  <a href="https://github.com/FernandoAbishai/ScriptCut/releases"><img src="https://img.shields.io/badge/Download%20for%20macOS%20%E2%80%94%20Apple%20Silicon-2f81f7?style=for-the-badge" alt="Download for macOS — Apple Silicon" /></a>
+  <a href="docs/VERIFY_RELEASE.md">Verify your download</a>
 </p>
 
-**v0.1.0-alpha.6 · macOS Apple Silicon / arm64 · Public alpha · ad-hoc signed · not notarized**
-
-No Terminal setup is required for the supported packaged app. This public download is for Apple Silicon Macs; it is not a universal macOS, Windows, or Linux installer, and it is not signed with Apple Developer ID or notarized.
-For future beta runs, use the official [GitHub Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) as the release authority and record the exact tag.
+The public alpha is available for Apple Silicon Macs. Choose the intended prerelease in the official [GitHub Releases feed](https://github.com/FernandoAbishai/ScriptCut/releases) and use its notes to check the version and signing status. The supported packaged app opens without Terminal setup. Record the exact tag when testing a release.
 
 ## Install in 3 steps
 
-1. Download the official DMG above.
+1. Open the intended prerelease in the Releases feed and download its Apple Silicon DMG.
 2. Open it and move **ScriptCut** to **Applications**.
 3. Launch **ScriptCut** from Applications.
 
 If macOS blocks the first launch, open **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt. Use this only for the official ScriptCut download linked above. Do not disable Gatekeeper or run Terminal quarantine commands.
 
-For a short, non-technical walkthrough, read the [First Export Guide](docs/FIRST_EXPORT.md).
+For a short walkthrough, see [Make Your First Edit](docs/USER_GUIDE.md#make-your-first-edit).
 
 For the external beta contract, qualification record, and focused feedback path, see [External Beta](docs/EXTERNAL_BETA.md), [Beta Qualification](docs/BETA_QUALIFICATION.md), and [Beta feedback / bug report](https://github.com/FernandoAbishai/ScriptCut/issues/new?template=beta_feedback.yml).
 
